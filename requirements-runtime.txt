@@ -1,0 +1,12 @@
+# Run-only edition: watch the screens, run the scripts, the pages and the panel - no PyTorch.
+# Models run as ONNX (training writes model.onnx; older runs: python -m trainer.onnx_export --all).
+numpy>=2.2
+pillow>=11
+opencv-python>=4.8     # reference images, find buttons, video files
+fastapi>=0.116
+uvicorn>=0.35
+pydantic>=2.11
+websocket-client>=1.8 # Discord bot (two-way commands)
+jsonschema>=4.23      # checks scripts against the script spec (JSON editor)
+onnxruntime-directml>=1.20; sys_platform == "win32"    # any GPU on Windows (falls back to the CPU)
+onnxruntime>=1.20; sys_platform != "win32"

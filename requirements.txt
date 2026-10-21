@@ -1,0 +1,8 @@
+# Everything (design, labelling, training): the runtime's packages plus the training stack.
+# Python 3.12. torch / torchvision with CUDA: install from https://pytorch.org first (e.g. the cu126 wheels),
+# then: pip install -r requirements.txt
+-r requirements-runtime.txt
+torch>=2.7
+torchvision>=0.22
+onnx>=1.17             # export trained models for the runtime
+scipy>=1.16            # labeler

@@ -1,0 +1,770 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://inspector.local/spec/v8/script.schema.json",
+ "$defs": {
+  "ref": {
+   "description": "At run time, take the value from a parameter / user setting / variable / state (a number read from the screen)",
+   "oneOf": [
+    {
+     "type": "object",
+     "properties": {
+      "param": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "param"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "setting": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "setting"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "var": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "var"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "state": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "state"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "sum": {
+       "type": "array",
+       "minItems": 1,
+       "items": {
+        "$ref": "#/$defs/num"
+       }
+      }
+     },
+     "required": [
+      "sum"
+     ],
+     "additionalProperties": false
+    }
+   ]
+  },
+  "num": {
+   "description": "A number, or at run time the value of a parameter / setting / variable",
+   "oneOf": [
+    {
+     "type": "number"
+    },
+    {
+     "$ref": "#/$defs/ref"
+    }
+   ]
+  },
+  "text": {
+   "description": "Text (use {id} to insert a variable or parameter), or a value taken at run time",
+   "oneOf": [
+    {
+     "type": "string"
+    },
+    {
+     "$ref": "#/$defs/ref"
+    }
+   ]
+  },
+  "point": {
+   "description": "Position: a button from the button library, coordinates, a position parameter or a user setting",
+   "oneOf": [
+    {
+     "type": "object",
+     "properties": {
+      "button": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "button"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "x": {
+       "type": "number"
+      },
+      "y": {
+       "type": "number"
+      }
+     },
+     "required": [
+      "x",
+      "y"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "param": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "param"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "setting": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "setting"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "maxProperties": 0
+    }
+   ]
+  },
+  "cond": {
+   "type": "object",
+   "additionalProperties": false,
+   "properties": {
+    "kind": {
+     "enum": [
+      "state",
+      "became",
+      "count",
+      "change",
+      "time",
+      "always",
+      "var",
+      "elapsed",
+      "device",
+      "visible",
+      "compare"
+     ]
+    },
+    "left": {
+     "$ref": "#/$defs/num"
+    },
+    "right": {
+     "$ref": "#/$defs/num"
+    },
+    "state": {
+     "type": "string"
+    },
+    "op": {
+     "enum": [
+      "is",
+      "is_not",
+      "lt",
+      "lte",
+      "gt",
+      "gte"
+     ]
+    },
+    "value": {
+     "description": "Value to compare: an option, a number or a reference"
+    },
+    "for": {
+     "type": "number",
+     "minimum": 0
+    },
+    "min_conf": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 1
+    },
+    "within": {
+     "type": "number"
+    },
+    "times": {
+     "$ref": "#/$defs/num"
+    },
+    "dir": {
+     "enum": [
+      "drop",
+      "rise"
+     ]
+    },
+    "amount": {
+     "$ref": "#/$defs/num"
+    },
+    "from": {
+     "type": "string"
+    },
+    "to": {
+     "type": "string"
+    },
+    "days": {
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 6
+     }
+    },
+    "var": {
+     "type": "string"
+    },
+    "device": {
+     "type": "string"
+    },
+    "target": {
+     "$ref": "#/$defs/point"
+    }
+   }
+  },
+  "when": {
+   "description": "Conditions: \"or\" outside, \"and\" inside",
+   "type": "array",
+   "items": {
+    "type": "array",
+    "items": {
+     "$ref": "#/$defs/cond"
+    }
+   }
+  },
+  "args": {
+   "type": "object",
+   "description": "Parameters of the sub-script call: ID → value (position, number, text, list or reference)"
+  },
+  "action": {
+   "type": "object",
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "type": {
+     "enum": [
+      "tap",
+      "long_press",
+      "back",
+      "call",
+      "goto",
+      "set_var",
+      "wait",
+      "none",
+      "notify",
+      "stop",
+      "hold",
+      "output"
+     ]
+    },
+    "text": {
+     "type": "string"
+    },
+    "target": {
+     "$ref": "#/$defs/point"
+    },
+    "sub": {
+     "type": "string"
+    },
+    "args": {
+     "$ref": "#/$defs/args"
+    },
+    "on_success": {
+     "type": "string"
+    },
+    "on_fail": {
+     "type": "string"
+    },
+    "situation": {
+     "type": "string"
+    },
+    "var": {
+     "type": "string"
+    },
+    "mode": {
+     "enum": [
+      "set",
+      "add",
+      "now"
+     ]
+    },
+    "value": {
+     "$ref": "#/$defs/text_or_num"
+    },
+    "output": {
+     "type": "string"
+    },
+    "command": {
+     "type": "string"
+    }
+   }
+  },
+  "text_or_num": {
+   "oneOf": [
+    {
+     "type": "number"
+    },
+    {
+     "type": "string"
+    },
+    {
+     "$ref": "#/$defs/ref"
+    }
+   ]
+  },
+  "rule": {
+   "type": "object",
+   "required": [
+    "id",
+    "when",
+    "do"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "id": {
+     "type": "string",
+     "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "name": {
+     "type": "string"
+    },
+    "enabled": {
+     "type": "boolean"
+    },
+    "urgent": {
+     "type": "boolean"
+    },
+    "when": {
+     "$ref": "#/$defs/when"
+    },
+    "do": {
+     "$ref": "#/$defs/steps",
+     "description": "The steps done in order when the conditions hold (the same steps as sub-scripts)"
+    },
+    "cooldown": {
+     "type": "number",
+     "minimum": 0
+    },
+    "max_per_hour": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 1
+    },
+    "max_per_day": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 1
+    }
+   }
+  },
+  "situation": {
+   "type": "object",
+   "required": [
+    "id",
+    "name",
+    "rules"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "id": {
+     "type": "string",
+     "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "name": {
+     "type": "string"
+    },
+    "rules": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/rule"
+     }
+    },
+    "on_enter": {
+     "oneOf": [
+      {
+       "$ref": "#/$defs/steps"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "The steps done once on entering this situation"
+    },
+    "max_seconds": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "on_timeout": {
+     "type": "string"
+    }
+   }
+  },
+  "step": {
+   "type": "object",
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "type": {
+     "enum": [
+      "tap",
+      "long_press",
+      "swipe",
+      "back",
+      "input_text",
+      "launch_app",
+      "pick",
+      "capture_list",
+      "wait",
+      "wait_until",
+      "if",
+      "retry",
+      "repeat_until",
+      "for_each",
+      "call",
+      "set_var",
+      "notify",
+      "output",
+      "succeed",
+      "fail",
+      "ask",
+      "goto",
+      "stop",
+      "stay",
+      "hold"
+     ]
+    },
+    "situation": {
+     "type": "string",
+     "description": "Switch situation: the situation to switch to"
+    },
+    "after": {
+     "type": "object",
+     "additionalProperties": false,
+     "description": "After this action: wait some seconds, or wait until a condition holds",
+     "properties": {
+      "seconds": {
+       "$ref": "#/$defs/num"
+      },
+      "until": {
+       "$ref": "#/$defs/when"
+      },
+      "timeout": {
+       "$ref": "#/$defs/num"
+      },
+      "on_timeout": {
+       "enum": [
+        "fail",
+        "continue"
+       ]
+      }
+     }
+    },
+    "fail_goto": {
+     "type": "string",
+     "description": "The situation to switch to when the sub-script call fails (the version 7 way)"
+    },
+    "options": {
+     "description": "Ask the user: the options (2–6), each with the steps to do when chosen",
+     "type": "array",
+     "minItems": 2,
+     "maxItems": 6,
+     "items": {
+      "type": "object",
+      "required": [
+       "label"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "label": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 20
+       },
+       "then": {
+        "$ref": "#/$defs/steps"
+       }
+      }
+     }
+    },
+    "default": {
+     "description": "Ask the user: the option chosen when nobody answers (0 = fail)",
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 6
+    },
+    "label": {
+     "type": "string"
+    },
+    "target": {
+     "$ref": "#/$defs/point"
+    },
+    "from": {
+     "$ref": "#/$defs/point"
+    },
+    "say": {
+     "type": "string",
+     "description": "Shown to users: what it is doing (plain words)"
+    },
+    "say_fail": {
+     "type": "string",
+     "description": "Shown to users: what to say when this step fails (plain words)"
+    },
+    "to": {
+     "$ref": "#/$defs/point"
+    },
+    "ms": {
+     "$ref": "#/$defs/num"
+    },
+    "seconds": {
+     "$ref": "#/$defs/num"
+    },
+    "when": {
+     "$ref": "#/$defs/when"
+    },
+    "timeout": {
+     "$ref": "#/$defs/num"
+    },
+    "on_timeout": {
+     "enum": [
+      "fail",
+      "continue"
+     ]
+    },
+    "then": {
+     "$ref": "#/$defs/steps"
+    },
+    "else": {
+     "$ref": "#/$defs/steps"
+    },
+    "elif": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "when"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "when": {
+        "$ref": "#/$defs/when"
+       },
+       "then": {
+        "$ref": "#/$defs/steps"
+       }
+      }
+     }
+    },
+    "steps": {
+     "$ref": "#/$defs/steps"
+    },
+    "times": {
+     "$ref": "#/$defs/num"
+    },
+    "delay": {
+     "$ref": "#/$defs/num"
+    },
+    "max_times": {
+     "$ref": "#/$defs/num"
+    },
+    "max_seconds": {
+     "$ref": "#/$defs/num"
+    },
+    "sub": {
+     "type": "string"
+    },
+    "args": {
+     "$ref": "#/$defs/args"
+    },
+    "on_fail": {
+     "enum": [
+      "fail",
+      "continue",
+      "stop"
+     ]
+    },
+    "var": {
+     "type": "string"
+    },
+    "mode": {
+     "enum": [
+      "set",
+      "add",
+      "now"
+     ]
+    },
+    "value": {
+     "$ref": "#/$defs/text_or_num"
+    },
+    "list": {
+     "type": "string"
+    },
+    "as": {
+     "type": "string",
+     "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "as_label": {
+     "type": "string"
+    },
+    "on_item_fail": {
+     "enum": [
+      "fail",
+      "continue"
+     ]
+    },
+    "max_swipes": {
+     "$ref": "#/$defs/num"
+    },
+    "settle": {
+     "$ref": "#/$defs/num"
+    },
+    "package": {
+     "$ref": "#/$defs/text"
+    },
+    "text": {
+     "$ref": "#/$defs/text"
+    },
+    "output": {
+     "type": "string"
+    },
+    "command": {
+     "type": "string"
+    }
+   }
+  },
+  "steps": {
+   "type": "array",
+   "items": {
+    "$ref": "#/$defs/step"
+   }
+  },
+  "param": {
+   "type": "object",
+   "required": [
+    "name",
+    "type"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "name": {
+     "type": "string",
+     "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "label": {
+     "type": "string"
+    },
+    "type": {
+     "enum": [
+      "point",
+      "number",
+      "text",
+      "list"
+     ]
+    },
+    "item": {
+     "enum": [
+      "point",
+      "number",
+      "text"
+     ]
+    },
+    "from_list": {
+     "type": "string"
+    },
+    "default": {}
+   }
+  }
+ },
+ "title": "Main script / guard rules (script spec v8)",
+ "type": "object",
+ "required": [
+  "id",
+  "name",
+  "situations"
+ ],
+ "additionalProperties": false,
+ "properties": {
+  "id": {
+   "type": "string",
+   "pattern": "^[a-z][a-z0-9_]*$"
+  },
+  "name": {
+   "type": "string",
+   "minLength": 1
+  },
+  "description": {
+   "type": "string"
+  },
+  "enabled": {
+   "type": "boolean"
+  },
+  "devices": {
+   "type": "object",
+   "description": "Deployment: \"*\" (all others), a source ID, or \"#tag\" (the sources with this tag)",
+   "additionalProperties": {
+    "enum": [
+     "off",
+     "shadow",
+     "live"
+    ]
+   }
+  },
+  "initial": {
+   "type": "string"
+  },
+  "situations": {
+   "type": "array",
+   "minItems": 1,
+   "items": {
+    "$ref": "#/$defs/situation"
+   }
+  },
+  "otherwise": {
+   "$ref": "#/$defs/action"
+  },
+  "format": {
+   "const": 8,
+   "description": "Script spec version"
+  },
+  "version": {
+   "type": "integer"
+  },
+  "created": {
+   "type": "number"
+  },
+  "note": {
+   "type": "string"
+  }
+ }
+}

@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# temporary files written next to real ones before a rename
+*.tmp
+
+# web: node_modules and the built dist/ are ignored in web/.gitignore (rebuild with `npm run build` in web/)
+
+# data lives outside the program folder (~/.inspector/inspector.json says where). Older versions kept these here:
+logs/
+inspector.json
+inspector.json.*
+projects/
+
+# the active pack's plugin is mounted as packs.<name> from <data>/packs/<id>/plugin/ (older versions: a folder here)
+packs/*/
+!packs/__init__.py
