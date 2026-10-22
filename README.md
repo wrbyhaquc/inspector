@@ -4,6 +4,16 @@
 
 English · [繁體中文](README.zh-TW.md)
 
+**What it does**
+
+- **Watches any screen**: Android devices and emulators (adb), app windows, parts of the desktop, RTSP/HTTP cameras, video files.
+- **Learns to read it**: you define the states that matter (a button visible, a bar's level, a number, a zone) and teach it with a few answers; it trains its own model, no code.
+- **Acts on it with no-code scripts**: rules, situations, sub-scripts, schedules, lists and variables; taps and swipes, or HTTP / MQTT / Home Assistant outputs for things off the screen.
+- **Lets people run it**: a simple operation panel for phones, Discord / Telegram notifications and chat commands, every action logged.
+- **Ships as packs**: export a whole setup as a versioned release and install or upgrade it on another computer (Studio to design, Runtime to run).
+
+**Screenshots**: coming soon, from a demo pack.
+
 The platform knows nothing about any particular app, device or scene. What to watch, how to judge it and what to do are all settings of a **project**.
 Abilities a scene needs beyond that (its own screen rules, extra data sources, other kinds of devices) come from the project's **plugins**, and the two are bundled together as a **pack**.
 
