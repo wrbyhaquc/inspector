@@ -20,7 +20,7 @@ def main():
     except runtime_data.RuntimeTooNew as e:
         raise SystemExit(str(e))
     ckpt = judge.model_file(os.path.join(__import__("project").models_of(a.data), a.run)) if a.run else latest_model(a.data)
-    if not ckpt:
+    if a.run and not ckpt:
         raise SystemExit(_("訓練結果 {run} 沒有模型", run=a.run))
     Shadow(a.data, ckpt, a.interval, a.fast_dir).run()
 

@@ -16,6 +16,9 @@ Two levels:
                   "words": {"device": "裝置", "item": "項目", ...},   what the pages call things in this project
                   "devices": {"driver", "params"},  the kind of source a new computer starts with; after that the
                                                    來源 page decides (<runtime>/sources.json, drivers/sources.py)
+                  "sources": {"<id>": {"kind", "name", "params"}},  the sources the design uses, made so on a new
+                                                   computer (e.g. a camera's stream address); nothing else found
+                                                   there is added on its own then
                   "plugins": ["<name>", ...]}      packs/<name>/ to load (rules, label sources, sources, outputs ...)
 Without any of these, the data folder layout below is used in <that same folder>/data (made on first use).
 "project" (or INSPECTOR_PROJECT) keeps an older single project folder working; its runtime folder is then "runtime"

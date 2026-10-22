@@ -183,6 +183,18 @@ class Predictor:
         return res
 
 
+class NoModel:
+    """No trained model yet: every state is judged by its screen rule (a new project can run right away)."""
+    heads = []
+    size = None
+
+    def __init__(self):
+        self.backend = _("沒有模型:只用畫面規則")
+
+    def __call__(self, frames):
+        return [{} for _x in frames]
+
+
 def smooth(history):
     """Average the class probabilities (and take the median of ratios) over the last ticks."""
     out = {}
@@ -211,8 +223,9 @@ class Shadow:
         SubRun.setting_lookup = lambda device, sid: user_settings.run_value(data_root, self.fast, sid, device)
         from notify import Notifier
         self.notifier = Notifier(self.fast)                   # tells people (Discord ...) in its own thread
-        self.ckpt = ckpt
-        self.pred = Predictor(ckpt)
+        self.ckpt = ckpt                                      # None: no model yet, screen rules only (NoModel)
+        self.run_dir = os.path.dirname(ckpt) if ckpt else None
+        self.pred = Predictor(ckpt) if ckpt else NoModel()
         self.caps = {}                                        # device name -> the driver's capture (light way only)
         from .health import Health
         self.health = Health()                                # how each source is doing (runtime/health.py)
@@ -249,7 +262,7 @@ class Shadow:
         self.resumed_dev = {}                                 # device -> (time of 繼續, the cause it had stopped for)
         self.trust = arbiter.Trust.empty()                    # model or rule (runtime/arbiter.py); built in the background
         # how sure the model is per state while it runs; says so when a state starts going wrong (runtime/quality.py)
-        self.quality = quality_mod.Quality(self.fast, os.path.basename(os.path.dirname(ckpt)), lambda: self.names,
+        self.quality = quality_mod.Quality(self.fast, os.path.basename(self.run_dir) if self.run_dir else "rules", lambda: self.names,
                                            lambda dev, text: self.alert(dev, _("[品質監測] {text}", text=text)))
         self._trust_job = None
         self._list_pics = {}                                  # where the names of a list fit on the last frame
@@ -672,7 +685,7 @@ class Shadow:
         # states the model was not trained on yet (or did not pass its test), but a screen rule can tell:
         # evaluate the rule on the live frame, so a new state works right away without retraining
         auto_rules.configure(sch, self.data_root)             # plugin-provided rules check the model too (arbiter)
-        src = judge.sources(sch, os.path.dirname(self.ckpt), auto_rules.provided_ids())["states"]
+        src = judge.sources(sch, self.run_dir, auto_rules.provided_ids())["states"]
         self.model_only = {sid for sid, v in src.items() if v.get("only")}     # 只用模型: no rule backs it up
         self.rule_names = {s["id"]: s["source"].get("rule") for s in sch["states"] if s.get("source", {}).get("kind") == "rule"}
         self._trust_refresh(sch, force=True)
@@ -693,11 +706,13 @@ class Shadow:
         believed except where it is unsure)."""
         if not force and (self._trust_job or time.time() - self.trust.built < arbiter.REFRESH):
             return
+        if not self.run_dir:                              # no model: nothing to weigh against the rules
+            return
         sch = sch or schema_mod.load(self.data_root)
 
         def build():
             try:
-                t = arbiter.Trust(self.data_root, os.path.dirname(self.ckpt), sch, auto_rules)
+                t = arbiter.Trust(self.data_root, self.run_dir, sch, auto_rules)
                 self.trust = t
                 print(_("{p1} 模型/規則可信度表已更新:", p1=format(datetime.datetime.now(), '%H:%M:%S')) + _("、").join(
                     _("{k} 規則{p2}種答案", k=k, p2=len(v.get('rule', {}))) for k, v in t.table().items()), flush=True)
@@ -2001,7 +2016,7 @@ class Shadow:
         stop = os.path.join(self.fast, "stop")
         if os.path.exists(stop):
             os.remove(stop)
-        print(_("腳本執行開始:模型 {ckpt}({backend}),每 {interval} 秒看一次。試跑的腳本只記錄;正式執行的腳本在每台畫面正常 {start_wait_s} 秒後開始動作(停下來 / 暫停的除外)。", ckpt=self.ckpt, backend=self.pred.backend, interval=self.interval, start_wait_s=self.ctrl.get('start_wait_s', 5)), flush=True)
+        print(_("腳本執行開始:模型 {ckpt}({backend}),每 {interval} 秒看一次。試跑的腳本只記錄;正式執行的腳本在每台畫面正常 {start_wait_s} 秒後開始動作(停下來 / 暫停的除外)。", ckpt=self.ckpt or "-", backend=self.pred.backend, interval=self.interval, start_wait_s=self.ctrl.get('start_wait_s', 5)), flush=True)
         names, last_scan = self.devices(), time.time()
         print(f"{word("device")}:" + _("、").join(names), flush=True)
         from drivers import sources as sources_mod
@@ -2063,6 +2078,4 @@ def _rule_score(value, scores):
 def latest_model(data_root):
     """The newest finished training run's model (model.onnx, or model_best.pt)."""
     run = judge.latest_run(data_root)
-    if not run:
-        raise RuntimeError(_("還沒有訓練好的模型"))
-    return judge.model_file(run)
+    return judge.model_file(run) if run else None           # None: no model yet, screen rules only

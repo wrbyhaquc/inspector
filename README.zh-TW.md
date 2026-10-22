@@ -12,7 +12,12 @@
 - **讓人能操作**:手機也能用的簡易操作面板、Discord / Telegram 通知與聊天指令,每個動作都有紀錄。
 - **打包成方案包**:把整套設定匯出成有版本的發行版,在別台電腦安裝或升級(Studio 設計、執行版執行)。
 
-**截圖**:即將補上(來自示範方案包)。
+**實際看看**:[模擬魚塭](https://github.com/wrbyhaquc/inspector-demo-pond),一台攝影機加四個開關。這段影片裡沒有人動手:晚上魚浮頭,Inspector 打開打氣機;早上白鷺鷥落地,被它趕走。
+10 分鐘就能試,不用訓練模型。
+
+![Inspector 照顧模擬魚塭](https://raw.githubusercontent.com/wrbyhaquc/inspector-demo-pond/main/docs/demo.gif)
+
+<img src="https://raw.githubusercontent.com/wrbyhaquc/inspector-demo-pond/main/docs/panel.zh-TW.png" alt="養殖戶用的操作面板" width="640">
 
 平台本身不認得任何一個 App、裝置或場景。要看什麼、怎麼判斷、要做什麼,全部是**專案**的設定;
 某個場景需要的特殊能力(專屬的畫面規則、額外的資料來源、別種裝置),由專案的**外掛**提供,再一起打包成**方案包**。

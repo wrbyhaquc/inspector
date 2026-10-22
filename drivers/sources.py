@@ -133,16 +133,25 @@ def load(root=None):
             return cfg
         import project
         from . import OLD_KINDS, kinds
-        old = project.load(root).get("devices") or {}
+        pj = project.load(root)
+        old = pj.get("devices") or {}
         kind = OLD_KINDS.get(old.get("driver") or "ldplayer", old.get("driver") or "android/ldplayer")
         cfg = {"kinds": {kind: {"params": old.get("params") or {}}}, "items": [], "seen": {}}
-        names = set()
-        try:
-            names = {d.name for d in kinds()[kind](old.get("params") or {}).list()}
-        except Exception:
-            pass
         now = time.time()
-        for n in sorted(names | _referenced(root or project.data_root())):
+        declared = {k: v for k, v in (pj.get("sources") or {}).items() if isinstance(v, dict) and v.get("kind") in kinds()}
+        for n, d in sorted(declared.items()):             # what the pack says it uses: as it says (this computer may change it)
+            cfg["kinds"].setdefault(d["kind"], {"params": {}})
+            cfg["items"].append({"id": n, "kind": d["kind"], "match": d.get("match") or n, "name": d.get("name") or "",
+                                 "enabled": True, "added": now,
+                                 "hand": {"to": "self" if "tap" in (getattr(kinds()[d["kind"]], "caps", ()) or ()) else "none"},
+                                 **({"params": dict(d["params"])} if d.get("params") else {})})
+        names = set()
+        if not declared:                                  # an older project: what is found here is what it watches
+            try:
+                names = {d.name for d in kinds()[kind](old.get("params") or {}).list()}
+            except Exception:
+                pass
+        for n in sorted((names | _referenced(root or project.data_root())) - set(declared)):
             cfg["items"].append({"id": n, "kind": kind, "match": n, "name": "", "enabled": True, "added": now, "hand": {"to": "self"}})
         _write(cfg)
         return cfg

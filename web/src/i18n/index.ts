@@ -7,8 +7,8 @@
  * Values go in by name: t('第 {n} 步', { n: 3 }). Keep the whole sentence in one text, so a language with another
  * word order can move the values.
  *
- * The language is chosen per browser (localStorage) and sent with every request (X-Lang), so the sentences the
- * server builds come in it too. Changing it reloads the page (texts outside components are read once).
+ * The language is chosen per browser (localStorage; until one is picked, the browser's own) and sent with every
+ * request (X-Lang), so the sentences the server builds come in it too. Changing it reloads the page (texts outside components are read once).
  * tools/i18n.py lists every text in use (src/i18n/zh-TW.json, the full list to translate) and what each language
  * still lacks.
  */
@@ -28,7 +28,19 @@ function pick(): string {
   try {
     const s = localStorage.getItem('inspector.lang')
     if (s && languages.includes(s)) return s
-  } catch { /* private window: the base language */ }
+  } catch { /* private window: the browser's language */ }
+  return fromBrowser()
+}
+
+/** never picked here: the first of the browser's languages there is a catalog for (zh-HK / zh-Hant -> zh-TW) */
+function fromBrowser(): string {
+  let wanted: readonly string[] = []
+  try { wanted = navigator.languages?.length ? navigator.languages : [navigator.language] } catch { /* not in a page */ }
+  for (const w of wanted) {
+    const l = (w || '').toLowerCase()
+    const code = l.startsWith('zh') ? (/hans|cn|sg/.test(l) ? 'zh-CN' : 'zh-TW') : l.split('-')[0]
+    if (languages.includes(code)) return code
+  }
   return BASE
 }
 
