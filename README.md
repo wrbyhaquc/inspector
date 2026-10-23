@@ -12,10 +12,13 @@ English · [繁體中文](README.zh-TW.md)
 - **Lets people run it**: a simple operation panel for phones, Discord / Telegram notifications and chat commands, every action logged.
 - **Ships as packs**: export a whole setup as a versioned release and install or upgrade it on another computer (Studio to design, Runtime to run).
 
-**See it work**: two simulated scenes, each tried in 10 minutes with no model to train. Nobody touches anything in these clips.
+**See it work**: three demos, each tried in 10 minutes with no model to train. Nobody touches anything in these clips.
 
+- [Whack-a-mole](https://github.com/wrbyhaquc/inspector-demo-whack-a-mole), a game in a window: Inspector watches the screen and clicks every mole that pops up, never a bomb, in the background while the mouse stays free.
 - [A fish pond](https://github.com/wrbyhaquc/inspector-demo-pond), one camera: at night the fish come up gasping and Inspector turns the aerator on; in the morning a heron lands and it is scared away.
 - [A small farm](https://github.com/wrbyhaquc/inspector-demo-farm), two cameras: it reads the greenhouse thermometer and opens the roof vents, waters only the bed that dried out, sounds the alarm at a fox, and shuts the hen house door once every hen is in.
+
+![Inspector playing whack-a-mole: it clicks every mole and never a bomb](https://raw.githubusercontent.com/wrbyhaquc/inspector-demo-whack-a-mole/main/docs/demo.gif)
 
 ![Inspector looking after a simulated fish pond](https://raw.githubusercontent.com/wrbyhaquc/inspector-demo-pond/main/docs/demo.gif)
 

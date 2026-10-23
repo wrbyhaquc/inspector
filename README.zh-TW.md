@@ -12,10 +12,13 @@
 - **讓人能操作**:手機也能用的簡易操作面板、Discord / Telegram 通知與聊天指令,每個動作都有紀錄。
 - **打包成方案包**:把整套設定匯出成有版本的發行版,在別台電腦安裝或升級(Studio 設計、執行版執行)。
 
-**實際看看**:兩個模擬場景,各 10 分鐘就能試,不用訓練模型。影片裡都沒有人動手。
+**實際看看**:三個示範,各 10 分鐘就能試,不用訓練模型。影片裡都沒有人動手。
 
+- [打地鼠](https://github.com/wrbyhaquc/inspector-demo-whack-a-mole),視窗裡的小遊戲:Inspector 看著畫面,地鼠一冒出來就點,炸彈一個都不碰;在背景點擊,滑鼠照樣能用。
 - [魚塭](https://github.com/wrbyhaquc/inspector-demo-pond),一台攝影機:晚上魚浮頭,Inspector 打開打氣機;早上白鷺鷥落地,被它趕走。
 - [小農場](https://github.com/wrbyhaquc/inspector-demo-farm),兩台攝影機:讀溫室溫度計、太熱就開屋頂通風窗,哪一畦乾了只澆那一畦,狐狸來了響警報,雞都進舍後關門。
+
+![Inspector 玩打地鼠:每隻地鼠都打,炸彈一個都不碰](https://raw.githubusercontent.com/wrbyhaquc/inspector-demo-whack-a-mole/main/docs/demo.gif)
 
 ![Inspector 照顧模擬魚塭](https://raw.githubusercontent.com/wrbyhaquc/inspector-demo-pond/main/docs/demo.gif)
 
