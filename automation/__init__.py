@@ -54,7 +54,7 @@ import time
 from . import spec
 from .conds import OPS, check as check_cond
 from project import word
-from i18n import N_, _, tr
+from i18n import N_, _
 
 GUARD_ID = "guards"
 MODES = {"off": N_("關閉"), "shadow": N_("試跑(只看不點)"), "live": N_("正式執行")}
@@ -125,14 +125,6 @@ def is_guard(script):
     return script.get("id") == GUARD_ID
 
 
-DEFAULT_SCRIPT = {                        # the first main script of a new project: nothing in it yet
-    "id": "main", "name": N_("主腳本"), "enabled": True, "description": "",
-    "devices": {"*": "shadow"},
-    "situations": [{"id": "main", "name": N_("一般"), "rules": []}],
-    "otherwise": {"type": "none", "text": N_("不動作")},
-}
-
-
 # ---------------------------------------------------------------- variables
 def _var_path(data_root):
     return os.path.join(data_root, "meta", "variables.json")
@@ -179,9 +171,10 @@ def save_variables(data_root, defs):
 
 # ---------------------------------------------------------------- storage
 def ids(data_root):
+    """The scripts there are (reading never makes one: a new project starts with none, a pack ships its own)."""
     d = _dir(data_root)
     if not os.path.isdir(d):
-        save(data_root, tr(DEFAULT_SCRIPT), _("預設腳本"))
+        return []
     return sorted(s for s in os.listdir(d) if os.path.exists(os.path.join(d, s, "current.json")))
 
 

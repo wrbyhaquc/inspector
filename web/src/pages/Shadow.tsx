@@ -26,6 +26,7 @@ const ACTION_STYLE: Record<string, string> = {
 /** "模型 97%" or "參考圖 0.98" / "顏色 32%": where a live answer came from and how sure it is */
 function sourceTag(s: ShadowState) {
   const c = Math.round((s.conf ?? 1) * 100)
+  if (s.source === 'not_here') return { tag: t('不用在這台'), num: '', tip: t('這個狀態只用在別的來源(狀態頁「只用在這些來源」),這台不看') }
   if (s.source === 'rule') {
     // the whole state goes by the rule (the model has not learned / passed it), or the rule won at this moment
     const why = s.why || t('這個狀態目前由畫面規則判斷(模型還沒學過或還沒通過考試;看「執行設定 › 每個狀態怎麼判斷」)')

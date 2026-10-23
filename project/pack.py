@@ -132,7 +132,8 @@ def export(out=None, version=None, model=None, folder=False, plugin=None, root=N
         n_plugin = _copy_tree(src_plugin, os.path.join(stage, "plugin")) if src_plugin else 0
         os.makedirs(os.path.join(stage, "design"), exist_ok=True)
         shutil.copy2(os.path.join(design, FILE), os.path.join(stage, "design", FILE))
-        n_design = _copy_tree(os.path.join(design, "meta"), os.path.join(stage, "design", "meta"))
+        meta = os.path.join(design, "meta")               # (a pack only just begun has none yet)
+        n_design = _copy_tree(meta, os.path.join(stage, "design", "meta")) if os.path.isdir(meta) else 0
         _strip_output_secrets(os.path.join(stage, "design", "meta", "outputs.json"))
         if run:
             dst = os.path.join(stage, "models", os.path.basename(run))
@@ -163,6 +164,134 @@ def export(out=None, version=None, model=None, folder=False, plugin=None, root=N
             name=info["name"], version=info["version"], out=target, n_plugin=n_plugin, n_design=n_design)
           + (_(",模型 {model}", model=info["model"]) if run else ""))
     return target
+
+
+def releases(out, pid):
+    """[(version, path)] of pid's releases (.zip) in out, oldest first."""
+    found = []
+    for f in os.listdir(out) if out and os.path.isdir(out) else []:
+        if f.startswith(pid + "-") and f.endswith(".zip"):
+            v = manifest.parse_version(f[len(pid) + 1:-4])
+            if v:
+                found.append((v, os.path.join(out, f)))
+    return sorted(found)
+
+
+def _hashes(entries):
+    """{path: sha1} of a release's files; pack.json without what changes every time (its times, the version)."""
+    import hashlib
+    out = {}
+    for name, data in entries:
+        if name == "pack.json":
+            d = json.loads(data)
+            data = json.dumps({k: v for k, v in d.items() if k not in ("created", "updated", "version")}, sort_keys=True).encode()
+        out[name] = hashlib.sha1(data).hexdigest()
+    return out
+
+
+def _tree(folder):
+    for dirpath, _dirs, files in os.walk(folder):
+        for f in files:
+            p = os.path.join(dirpath, f)
+            with open(p, "rb") as fh:
+                yield os.path.relpath(p, folder).replace("\\", "/"), fh.read()
+
+
+def _zip(path):
+    with zipfile.ZipFile(path) as z:
+        for n in z.namelist():
+            if not n.endswith("/"):
+                yield n, z.read(n)
+
+
+def export_check(model=None, out=None):
+    """Before exporting the active pack from the page: what it is, its last release and what changed since, and what
+    to look at first - [{"level": "error" | "warn" | "ok" | "info", "text"}] (an error keeps it from exporting)."""
+    import automation
+    from automation import outputs, spec_schema, subs as subs_mod, tests as tests_mod
+    from . import runtime_dir
+    src = pack_dir()
+    if not src:
+        raise ValueError(_("只有資料目錄結構的方案包能在這裡匯出"))
+    design = os.path.join(src, "design")
+    info = manifest.read(src) or manifest.normalize({"id": active_pack()})
+    out = os.path.abspath(out or os.path.join(data_home(), "releases"))
+    checks = []
+
+    def add(level, text):
+        checks.append({"level": level, "text": text})
+
+    for lv, t in manifest.check(info):
+        add(lv, t)
+    scripts = automation.load_all(design)
+    bad = []
+    for sc in scripts:
+        bad += [_("主腳本「{name}」:{msg}", name=sc.get("name") or sc["id"], msg=e["message"])
+                for e in spec_schema.check("script", sc, design)[:1]]
+    for sid, sub in subs_mod.load_all(design).items():
+        bad += [_("子腳本「{name}」:{msg}", name=sub.get("name") or sid, msg=e["message"])
+                for e in spec_schema.check("sub", sub, design)[:1]]
+    panel_file = os.path.join(design, "meta", "panel.json")
+    if os.path.exists(panel_file):
+        with open(panel_file, encoding="utf-8") as f:
+            bad += [_("操作面板:{msg}", msg=e["message"]) for e in spec_schema.check("panel", json.load(f), design)[:1]]
+    for b in bad:
+        add("error", b)
+    if not bad:
+        add("ok", _("腳本、子腳本和操作面板都符合腳本規範 v{v}", v=__import__("automation.spec", fromlist=["FORMAT"]).FORMAT))
+    for sc in scripts:
+        if not any(sit.get("rules") for sit in sc.get("situations") or []):
+            add("warn", _("主腳本「{name}」沒有任何規則,也會一起匯出(用不到就先刪掉)", name=sc.get("name") or sc["id"]))
+    tests = tests_mod.load(design)
+    if not tests:
+        add("info", _("沒有腳本測試:建議從重播存幾個,匯出前先跑一次"))
+    else:
+        try:
+            with open(os.path.join(runtime_dir(), "tests", "results.json"), encoding="utf-8") as f:
+                res = json.load(f)
+        except (OSError, ValueError):
+            res = {}
+        changed = max((os.path.getmtime(os.path.join(d, f)) for d, _x, fs in os.walk(os.path.join(design, "meta"))
+                       for f in fs), default=0)
+        failed = [t["name"] for t in tests if (res.get(t["id"]) or {}).get("status") in ("fail", "error")]
+        stale = [t["name"] for t in tests if (res.get(t["id"]) or {}).get("run_at", 0) < changed]
+        if failed:
+            add("warn", _("{n} 個腳本測試沒通過:{names}", n=len(failed), names=_("、").join(failed[:5])))
+        elif stale:
+            add("warn", _("{n} 個腳本測試在設計改過之後還沒重跑(「腳本測試」頁)", n=len(stale)))
+        else:
+            add("ok", _("{n} 個腳本測試都通過", n=len(tests)))
+    if model:
+        run = _model_run(design, model)
+        if not run:
+            add("error", _("找不到要放進去的模型(還沒學習過?)"))
+        else:
+            from runtime import judge
+            import schema as schema_mod
+            st = judge.sources(schema_mod.load(design), run)["states"]
+            fails = [s for s, v in st.items() if v.get("test") == "fail"]
+            add("warn" if fails else "ok", _("模型「{run}」有 {n} 個狀態沒通過考試", run=os.path.basename(run), n=len(fails)) if fails
+                else _("模型「{run}」每個學過的狀態都通過考試", run=os.path.basename(run)))
+    for o in outputs.load(design).values():           # {id: output}
+        if any(o.get(k) not in (None, "", {}) for k in outputs._secret_fields(o)):   # one filled in here
+            add("info", _("輸出「{name}」的密碼或權杖不會放進方案包:安裝後要在那台電腦填", name=o.get("name") or o["id"]))
+    rels = releases(out, info["id"])
+    last = rels[-1] if rels else None
+    with tempfile.TemporaryDirectory() as tmp:            # the very release export() would make, to compare
+        target = export(out=tmp, model=model, folder=True, say=lambda *_a: None)
+        now = _hashes(_tree(target))
+    changes = None
+    if last:
+        before = _hashes(_zip(last[1]))
+        changes = {"added": sorted(set(now) - set(before)), "removed": sorted(set(before) - set(now)),
+                   "changed": sorted(k for k in set(now) & set(before) if now[k] != before[k])}
+        if not any(changes.values()):
+            add("info", _("和上一版 {v} 一模一樣", v=".".join(map(str, last[0]))))
+    base = max([manifest.parse_version(info.get("version")) or (0, 1, 0)] + [v for v, _p in rels])
+    nxt = f"{base[0]}.{base[1]}.{base[2] + 1}" if rels else ".".join(map(str, base))
+    return {"pack": {k: info.get(k) for k in ("id", "name", "version", "description", "license", "homepage")},
+            "next": nxt, "last": {"version": ".".join(map(str, last[0])), "file": os.path.basename(last[1])} if last else None,
+            "checks": checks, "changes": changes, "files": len(now), "out": out}
 
 
 # ---------------- install / upgrade ----------------

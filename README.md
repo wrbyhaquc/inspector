@@ -164,7 +164,7 @@ A project is the design of a pack. `<data>`, `<work>` and the settings are descr
 | `<data>/active.json` | The pack that runs |
 | `<data>/packs/<id>/pack.json` | What the pack is and needs ("Packs") |
 | `<data>/packs/<id>/plugin/` | The pack's plugin ("Plugins") |
-| `<data>/packs/<id>/design/project.json` | Project name, coordinate space (`screen`), default app, words (`words`, e.g. what a device is called), device sources (`devices`), plugins to load (`plugins`) |
+| `<data>/packs/<id>/design/project.json` | Project name, coordinate space (`screen`), default app, words (`words`, e.g. what a device is called), device sources (`devices`), the sources it uses (`sources`: made so on a new computer), how it is meant to run (`run`: `interval`, `max_per_min`, `confirm` - defaults under this computer's own settings), plugins to load (`plugins`) |
 | `<data>/packs/<id>/design/meta/` | The whole design: `states/` (state definitions), `rule_templates/` (reference images), `scripts/`, `subscripts/`, `variables.json`, `buttons.json` and `buttons/`, `lists.json`, `schedules.json`, `panel.json`, `user_settings.json`, `templates.json`, `tests.json`, name libraries |
 | `<work>/<id>/sessions/`, `labels/`, `testset/`, `models/`, `shadow/` | Recorded data, auto-labels, the test set, trained models, what the runner kept (logs, audit frames, uncertain frames) |
 | `<data>/runtime/<id>/` | This computer's own: the users' values, overrides and list names, live state, PINs, chat bots, output secrets; `runtime.json` is its format (older ones are upgraded after a backup in `.backup/`) |
@@ -240,6 +240,7 @@ python -m project.manifest upgrade <pack folder>
 
 Which states the model recognizes, which area of the screen each one looks at and which answers it has are defined in one versioned file (`meta/states/v<N>.json`).
 Auto-labeling, the questions and shortcut keys of "Answer questions", the screen browser and script conditions all follow it.
+A state may be for some sources only ("Only on these sources", e.g. a greenhouse camera's states): on the others it is not looked at.
 
 | Type | Use |
 |---|---|
@@ -375,7 +376,7 @@ python -m runtime [--run <training run id>] [--interval 1]     # normally "Start
 ```
 
 - Model: a training run with `model.onnx` runs on ONNX (no PyTorch needed), otherwise `model_best.pt`; the Run page shows which.
-- Every round: get each device's screen → the model judges everything at once → smoothing → screen rules fill in the states the model does not handle → every script decides for each device by its current situation → the same decision twice in a row counts (except urgent rules). Saving a design reloads it automatically.
+- Every round: get each device's screen → the model judges everything at once → smoothing → screen rules fill in the states the model does not handle → every script decides for each device by its current situation → the same decision twice in a row counts (except urgent rules; a project with `"run": {"confirm": 1}` - a fast game - acts on the first look and does not average the model over earlier looks). Saving a design reloads it automatically.
 - **Each device is independent**: its own situations, sub-script progress, timers, cooldowns, variables and command channel.
 - **Modes**: off / dry run (watch only) / live, per script and per device ("Run › Deploy").
 - **Safety**: stop / pause / resume per device or for all (from the Run page, the operation panel or chat); a device pauses while someone operates it; start-up checks; tap limits, cooldowns, rules with no effect are paused and reported; every real input is logged with its frame.

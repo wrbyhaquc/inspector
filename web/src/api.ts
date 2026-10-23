@@ -108,6 +108,7 @@ export interface StateDef {
   source: { kind: SourceKind; rule?: string; field?: string; params?: Record<string, any> }
   review?: { enabled: boolean; roi?: string; scale?: number }
   judge?: JudgeMode            // 判斷方式 while scripts run (a setting: no new version); default auto
+  sources?: string[]           // only on these sources (ids / "#tag"; a setting); none = every source
 }
 export interface Schema { version: number; created: number; note: string; states: StateDef[]; settings_only?: boolean }   // settings_only: saved without a new version
 export interface SchemaHistory { version: number; created: number; note: string; states: number }
@@ -131,7 +132,7 @@ export interface RuleTemplate { file: string; value: AnswerValue; frame: string;
 // ---------- shadow mode ----------
 export interface ShadowState {
   value: AnswerValue | number | null; conf?: number
-  source?: 'model' | 'rule' | 'model+rule'; rule?: string; score?: number | null      // rule: how the reference images / colours scored
+  source?: 'model' | 'rule' | 'model+rule' | 'not_here'; rule?: string; score?: number | null      // rule: how the reference images / colours scored
   why?: string          // why the screen rule was used / joined in at this moment (runtime/arbiter.py)
   model_conf?: number   // model+rule: the model's own confidence (conf = after the rule agreed)
 }
@@ -516,6 +517,14 @@ export interface PackItem {
 }
 export interface PacksInfo { layout: boolean; packs: PackItem[]; active?: string; edition: 'studio' | 'runtime'; platform: string }
 export interface PackDone { messages: string[]; restart: boolean; id?: string; version?: string; old?: string | null }
+/** before exporting the running pack: what it is, the last release and what changed since, what to look at */
+export interface PackExportCheck {
+  pack: { id: string; name: string; version: string; description?: string; license?: string; homepage?: string }
+  next: string; last: { version: string; file: string } | null; files: number; out: string
+  checks: { level: 'error' | 'warn' | 'ok' | 'info'; text: string }[]
+  changes: { added: string[]; removed: string[]; changed: string[] } | null
+}
+export interface PackExported { file: string; size: number; messages: string[] }
 
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
   const r = await fetch(url, {
@@ -552,6 +561,8 @@ export const api = {
     return r.json() as Promise<PackDone>
   },
   packUse: (id: string) => req<PackDone>('POST', '/api/packs/use', { id }),
+  packExportCheck: (model: boolean) => req<PackExportCheck>('GET', `/api/packs/export?${qs({ model: model ? 1 : 0 })}`),
+  packExport: (b: { version: string; name: string; description: string; model: boolean }) => req<PackExported>('POST', '/api/packs/export', b),
   restart: () => req<{ ok: boolean }>('POST', '/api/system/restart'),
   nextSteps: () => req<NextSteps>('GET', '/api/next_steps'),
   devices: () => req<{ name: string; ok: boolean; detail: string; size: string }[]>('GET', '/api/devices'),

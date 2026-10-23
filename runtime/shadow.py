@@ -230,8 +230,9 @@ class Shadow:
         from .health import Health
         self.health = Health()                                # how each source is doing (runtime/health.py)
         self.seen_sources = None                              # the sources found last time (one going away is told)
-        self.hist = collections.defaultdict(lambda: collections.deque(maxlen=SMOOTH))
-        self.recent = collections.defaultdict(lambda: collections.deque(maxlen=STABLE))   # (device, script) -> actions
+        self.confirm = STABLE                                 # looks that must agree (project.json "run": confirm)
+        self.hist = collections.defaultdict(lambda: collections.deque(maxlen=SMOOTH if self.confirm > 1 else 1))
+        self.recent = collections.defaultdict(lambda: collections.deque(maxlen=self.confirm))   # (device, script) -> actions
         self.current = {}                                     # (device, script) -> {"decision", "since"}
         self.tracker = engine.Tracker()
         self.script_sig = None
@@ -278,7 +279,7 @@ class Shadow:
         self.alerts = collections.deque(maxlen=40)
         self.ctrl, self.unblocked_at = dict(CONTROL_DEFAULT), 0.0
         self.resumed_at = time.time()                         # resume requests older than this start are done
-        self.rule_states, self.rule_tpls = [], {}
+        self.rule_states, self.rule_tpls, self.scoped = [], {}, []
         self.check_states, self.check_tpls = [], {}           # model-judged states that also have a screen rule
         self.model_only = set()                               # states set to 只用模型
         self.touch = {}                                       # device -> the driver's touch watcher (manual operation)
@@ -685,6 +686,12 @@ class Shadow:
         self.var_labels = {d["name"]: d.get("label") or d["name"] for d in self.var_defs}
         self.subs = {**subs_mod.load_all(self.data_root), **automation.inline_subs(self.scripts)}  # + rules' own step lists
         self.names = engine.names_from_schema(sch)
+        confirm = project.run_defaults(self.data_root).get("confirm", STABLE)
+        if confirm != self.confirm:                           # a fast scene acts on the first look (no averaging either)
+            self.confirm = confirm
+            self.hist.clear()
+            self.recent.clear()
+        self.scoped = [s for s in sch["states"] if s.get("sources")]     # states for some sources only
         # states the model was not trained on yet (or did not pass its test), but a screen rule can tell:
         # evaluate the rule on the live frame, so a new state works right away without retraining
         auto_rules.configure(sch, self.data_root)             # plugin-provided rules check the model too (arbiter)
@@ -759,9 +766,14 @@ class Shadow:
                     v["source"] = "model"
                 for rs in self.rule_states:                     # the rule answers these instead of the model
                     st.pop(rs["id"], None)
+                off = schema_mod.not_here(self.scoped, n) if self.scoped else {}   # for other sources: not looked at here
+                for sid, v in off.items():
+                    st[sid] = {"value": v, "conf": 1.0 if v is not None else 0.0, "source": "not_here"}
                 ctx = {k: v["value"] for k, v in st.items()}
                 plug = None                                     # a plugin's rules, run once if a state needs them
                 for rs in self.rule_states:
+                    if rs["id"] in off:
+                        continue
                     if not generic.is_generic(rs):              # a rule a plugin provides (只用規則 / not learned)
                         plug = plug or auto_rules.label_frame(frames[n], generic=False)
                         v = auto_rules.live_answer(rs["id"], plug)
@@ -776,7 +788,7 @@ class Shadow:
                     ctx[rs["id"]] = v
                 # model or screen rule: where they disagree, the one that has been right more often in that kind of case
                 # (runtime/arbiter.py) - the same for every state that has a rule, built-in or made on the state page
-                rule_vals = self._rule_values(n, frames[n], st, ctx)
+                rule_vals = {k: v for k, v in self._rule_values(n, frames[n], st, ctx).items() if k not in off}
                 trust = self.trust
                 fb = {}
                 for sid, (rv, rule_name) in rule_vals.items():
@@ -882,7 +894,7 @@ class Shadow:
                 dec["guard"] = automation.is_guard(sc)
                 key = (n, sc["id"])
                 self.recent[key].append((dec["action"], dec.get("rule")))
-                dec["stable"] = len(self.recent[key]) == STABLE and len(set(self.recent[key])) == 1
+                dec["stable"] = len(self.recent[key]) == self.confirm and len(set(self.recent[key])) == 1
                 cur = self.current.get(key)
                 if dec["stable"] and (not cur or cur["decision"]["action"] != dec["action"]
                                       or cur["decision"].get("rule") != dec.get("rule")):

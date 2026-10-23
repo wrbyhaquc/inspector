@@ -164,7 +164,7 @@ Inspector 不附任何專案或方案包,由你自己建立。新電腦一開始
 | `<data>/active.json` | 目前執行的方案包 |
 | `<data>/packs/<代號>/pack.json` | 方案包是什麼、需要什麼(見「方案包」) |
 | `<data>/packs/<代號>/plugin/` | 方案包的外掛(見「外掛」) |
-| `<data>/packs/<代號>/design/project.json` | 專案名稱、座標空間(`screen`)、預設 App、用語(`words`,例如裝置叫什麼)、裝置來源(`devices`)、要載入的外掛(`plugins`) |
+| `<data>/packs/<代號>/design/project.json` | 專案名稱、座標空間(`screen`)、預設 App、用語(`words`,例如裝置叫什麼)、裝置來源(`devices`)、用到的來源(`sources`:新電腦上照這個建立)、建議的執行方式(`run`:`interval`、`max_per_min`、`confirm`;這台電腦自己的設定優先)、要載入的外掛(`plugins`) |
 | `<data>/packs/<代號>/design/meta/` | 所有設計:`states/`(狀態定義)、`rule_templates/`(參考圖)、`scripts/`、`subscripts/`、`variables.json`、`buttons.json` 與 `buttons/`、`lists.json`、`schedules.json`、`panel.json`、`user_settings.json`、`templates.json`、`tests.json`、名稱庫 |
 | `<work>/<代號>/sessions/`、`labels/`、`testset/`、`models/`、`shadow/` | 錄製的資料、自動標註、測試集、訓練好的模型、腳本執行留下的紀錄(紀錄、稽核畫面、拿不準的畫面) |
 | `<data>/runtime/<代號>/` | 只屬於這台電腦:使用者的值、覆寫與清單名稱、即時狀態、PIN、聊天 Bot、輸出的秘密;`runtime.json` 是它的格式版本(舊的會先備份到 `.backup/` 再自動升級) |
@@ -240,6 +240,7 @@ python -m project.manifest upgrade <方案包資料夾>
 
 模型要辨識哪些狀態、每個狀態看畫面的哪個範圍、有哪些答案,集中定義在一份有版本的設定(`meta/states/v<N>.json`)。
 自動標註、回答問題的題目與快速鍵、畫面瀏覽、腳本的條件,全部依照這份定義。
+狀態可以只用在某些來源(「只用在這些來源」,例如溫室攝影機自己的狀態):在其他來源上不看。
 
 | 類型 | 用途 |
 |---|---|
@@ -375,7 +376,7 @@ python -m runtime [--run <訓練編號>] [--interval 1]     # 平常從介面「
 ```
 
 - 模型:訓練結果有 `model.onnx` 就用 ONNX(不需要 PyTorch),沒有才用 `model_best.pt`;「執行」頁會顯示用的是哪一種。
-- 每一輪:取得每台畫面 → 模型一次判斷全部 → 平滑 → 畫面規則補上模型不負責的狀態 → 每個腳本依各台目前的情境決定 → 同一決定連續 2 次才算數(緊急規則除外)。設計一儲存就自動重新載入。
+- 每一輪:取得每台畫面 → 模型一次判斷全部 → 平滑 → 畫面規則補上模型不負責的狀態 → 每個腳本依各台目前的情境決定 → 同一決定連續 2 次才算數(緊急規則除外;`project.json` 設 `"run": {"confirm": 1}` 的專案,例如反應要快的遊戲,看到一次就動作,模型也不再和前幾次平均)。設計一儲存就自動重新載入。
 - **每台各自獨立**:每台有自己的情境、子腳本進度、計時、冷卻、變數與指令通道。
 - **模式**:每個腳本、每台裝置設定 關閉 / 試跑(只看不點)/ 正式執行(「執行 › 部署」)。
 - **安全機制**:每台或全部 停下來 / 暫停 / 繼續(「執行」頁、操作面板或聊天);偵測到有人操作時那台暫停;啟動確認;點擊上限、冷卻、規則沒效果就暫停並通知;每次真的輸入都留紀錄與畫面。

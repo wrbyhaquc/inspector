@@ -2824,6 +2824,62 @@ async def packs_install(request: Request, force: int = 0, activate: int = 0):
     return {**out, "messages": lines, "restart": out["active"]}
 
 
+def _studio_pack():
+    if project.edition() != "studio":
+        _bad(_("方案包只能在 Studio 匯出"))
+    if not project.pack_dir():
+        _bad(_("只有資料目錄結構的方案包能在這裡匯出"))
+
+
+@app.get("/api/packs/export")
+def packs_export_check(model: int = 0):
+    """Before exporting the running pack: what it is, the last release and what changed since, what to look at first."""
+    from project import pack
+    _studio_pack()
+    try:
+        return pack.export_check("latest" if model else None)
+    except ValueError as e:
+        _bad(e)
+
+
+class PackExport(BaseModel):
+    version: str
+    name: str = ""
+    description: str = ""
+    model: bool = False
+
+
+@app.post("/api/packs/export")
+def packs_export(req: PackExport):
+    """Export the running pack as a release (<data>/releases/<id>-<version>.zip): newer than the last one, nothing in
+    the way (the same checks as GET)."""
+    from project import manifest, pack
+    _studio_pack()
+    v = manifest.parse_version(req.version)
+    if not v:
+        _bad(_("版本「{v}」不是 主.次.修 的格式(例如 1.2.0)", v=req.version))
+    chk = pack.export_check("latest" if req.model else None)
+    if chk["last"] and v <= manifest.parse_version(chk["last"]["version"]):
+        _bad(_("版本要比上一版 {v} 新", v=chk["last"]["version"]))
+    errs = [c["text"] for c in chk["checks"] if c["level"] == "error"]
+    if errs:
+        _bad(errs[0])
+    src = project.pack_dir()
+    info = manifest.read(src) or {}
+    manifest.write(src, {**info, "name": req.name.strip() or info.get("name"), "description": req.description.strip()})
+    out, lines = _pack_call(pack.export, None, req.version, "latest" if req.model else None)
+    return {"file": os.path.basename(out), "size": os.path.getsize(out), "messages": lines}
+
+
+@app.get("/api/packs/releases/{name}")
+def packs_release_file(name: str):
+    """A release made here, to download."""
+    p = os.path.join(project.data_home() or "", "releases", os.path.basename(name))
+    if not name.endswith(".zip") or not os.path.isfile(p):
+        _bad(_("找不到這個發行版"), 404)
+    return FileResponse(p, filename=os.path.basename(p), media_type="application/zip")
+
+
 class PackUse(BaseModel):
     id: str
 

@@ -19,8 +19,9 @@ Two levels:
                   "sources": {"<id>": {"kind", "name", "params"}},  the sources the design uses, made so on a new
                                                    computer (e.g. a camera's stream address); nothing else found
                                                    there is added (or announced) on its own then
-                  "run": {"interval", "max_per_min"},  how the design is meant to run (a fast game: 0.3 s and 60
-                                                   actions a minute) - the defaults here; what is set on this
+                  "run": {"interval", "max_per_min", "confirm"},  how the design is meant to run (a fast game:
+                                                   0.3 s, 60 actions a minute, confirm 1 = act on the first look
+                                                   instead of two alike) - the defaults here; what is set on this
                                                    computer wins, and the platform's limits hold (run_defaults())
                   "plugins": ["<name>", ...]}      packs/<name>/ to load (rules, label sources, sources, outputs ...)
 Without any of these, the data folder layout below is used in <that same folder>/data (made on first use).
@@ -287,7 +288,8 @@ def save(p, root=None):
 
 
 def run_defaults(root=None):
-    """project.json "run" within the platform's limits: {"interval": 0.3..10 s, "max_per_min": 1..60} (only those given)."""
+    """project.json "run" within the platform's limits (only those given): {"interval": 0.3..10 s, "max_per_min": 1..60,
+    "confirm": 1 | 2 (looks that must agree before a decision counts; 1 also judges the model on the last look only)}."""
     r = load(root).get("run") or {}
     out = {}
     try:
@@ -295,6 +297,8 @@ def run_defaults(root=None):
             out["interval"] = min(10.0, max(0.3, float(r["interval"])))
         if r.get("max_per_min") is not None:
             out["max_per_min"] = min(60, max(1, int(r["max_per_min"])))
+        if r.get("confirm") is not None:
+            out["confirm"] = 1 if int(r["confirm"]) <= 1 else 2
     except (TypeError, ValueError):
         pass
     return out

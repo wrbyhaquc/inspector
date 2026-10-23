@@ -121,3 +121,50 @@ def test_first_start_of_a_blank_project_uses_no_device_found(tmp_path, monkeypat
             return [Device("EMU-1"), Device("EMU-2")]
     monkeypatch.setattr(drivers, "kinds", lambda: {**real(), "android/ldplayer": Found})
     assert sources.load(design)["items"] == []
+
+
+# ---------------------------------------------------------------- states for some sources only
+def test_a_state_for_some_sources_is_not_looked_at_on_others():
+    import schema
+    tags = {"#greenhouse": ["GH-1", "GH-2"]}
+    expand = lambda keys: [i for k in keys for i in (tags.get(k, [k]))]
+    states = [{"id": "vents", "sources": ["#greenhouse"], "classes": [{"value": "open"}, {"value": "closed"}, {"value": "hidden"}]},
+              {"id": "temp", "sources": ["GH-1"]},
+              {"id": "daylight"}]
+    assert schema.not_here(states, "GH-1", expand) == {}
+    assert schema.not_here(states, "GH-2", expand) == {"temp": None}
+    assert schema.not_here(states, "COOP", expand) == {"vents": "hidden", "temp": None}
+
+
+def test_only_on_these_sources_is_checked_and_is_a_setting():
+    import schema
+    base = {"id": "s", "name": "S", "type": "class", "classes": [{"value": "a"}, {"value": "b"}],
+            "rois": [], "source": {"kind": "manual"}}
+    schema.validate({"states": [{**base, "sources": ["CAM-1", "#north"]}]})
+    for bad in ([], "CAM-1", ["has space"]):
+        with pytest.raises(ValueError):
+            schema.validate({"states": [{**base, "sources": bad}]})
+    assert "states[].sources" in schema.SETTINGS             # changing it makes no new version: nothing to relabel
+
+
+def test_confirm_one_or_two_looks(tmp_path):
+    assert project.run_defaults(_design(tmp_path, run={"confirm": 1})) == {"confirm": 1}
+    assert project.run_defaults(_design(tmp_path, run={"confirm": 5})) == {"confirm": 2}
+    assert project.run_defaults(_design(tmp_path, run={"confirm": 0})) == {"confirm": 1}
+
+
+# ---------------------------------------------------------------- exporting from the page
+def test_export_check_compares_with_the_last_release(tmp_path):
+    from project import pack
+    out = str(tmp_path / "releases")
+    first = pack.export_check(out=out)
+    assert first["last"] is None and first["changes"] is None
+    assert not [c for c in first["checks"] if c["level"] == "error"]
+    pack.export(out=out, version="0.1.0", say=lambda *_a: None)
+    same = pack.export_check(out=out)
+    assert same["last"]["version"] == "0.1.0" and same["next"] == "0.1.1"
+    assert same["changes"] == {"added": [], "removed": [], "changed": []}
+    p = project.load()
+    project.save({**p, "description": "changed"})
+    moved = pack.export_check(out=out)
+    assert "design/project.json" in moved["changes"]["changed"] and not moved["changes"]["added"]

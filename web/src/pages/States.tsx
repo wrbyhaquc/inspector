@@ -9,6 +9,7 @@ import { Button, Card, Empty, ErrorText, Modal, MoreButton, Page, Pill } from '.
 import { dateTime } from '../lib/format'
 import { COLOR_NAMES, COLORS, roiUses, SOURCE_TEXT, stateColor, TYPE_TEXT, USE_STYLE, useSchema } from '../lib/schema'
 import { words } from '../lib/project'
+import { keyLabel, sourceIds, tagList } from '../lib/sources'
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v))
 const input = 'border border-stone-300 rounded-md px-2 py-1 text-sm bg-white'
@@ -233,6 +234,19 @@ function StateEditor({ s, index, all, judge, progress, onChange, onDelete }: {
                 : t('只用規則:不看模型(規則本身就是標準答案時用)。這個狀態沒有畫面規則時會照自動處理。')}
               {t('這是設定,儲存時不會產生新版本。')}</span>
           </label>}
+          {sourceIds().length + tagList().length > 1 && <div className="flex flex-col gap-1 md:col-span-2">
+            <span className="text-stone-600">{t('只用在這些來源')}</span>
+            <span className="flex flex-wrap items-center gap-3">
+              {[...sourceIds(s.sources?.filter(k => !k.startsWith('#'))), ...tagList().map(g => `#${g}`)].map(k => <label key={k} className="flex items-center gap-1 text-sm">
+                <input type="checkbox" checked={(s.sources ?? []).includes(k)} onChange={e => onChange(x => {
+                  const v = (x.sources ?? []).filter(d => d !== k).concat(e.target.checked ? [k] : [])
+                  if (v.length) x.sources = v; else delete x.sources
+                })} />{keyLabel(k)}</label>)}
+              {!s.sources?.length && <span className="text-xs text-stone-500">{t('(每一台)')}</span>}
+            </span>
+            <span className="text-xs text-stone-500">{t('畫面不一樣的來源(例如溫室和雞舍兩台攝影機)各有自己的狀態時用:在別台上這個狀態不看,有「看不到」類別就是看不到,否則是不知道。')}
+              {t('這是設定,儲存時不會產生新版本。')}</span>
+          </div>}
           {s.type === 'number' && <div className="md:col-span-2 flex flex-wrap gap-3 items-end">
             <label className="flex flex-col gap-1"><span className="text-stone-600">{t('單位(可不填)')}</span>
               <input id="st-unit" className={`${input} w-24`} value={s.unit ?? ''} onChange={e => onChange(x => { x.unit = e.target.value || undefined })} /></label>

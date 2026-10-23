@@ -5,7 +5,10 @@ Stored in <data_root>\\meta\\states\\ :
   current.json   {"version": N}
 
 Every consumer (labeler rules, review questions, UI crops/overlays, later training heads) reads the
-current version, and every labels/model output records which version it was made with."""
+current version, and every labels/model output records which version it was made with.
+
+A state may be for some sources only: "sources": [source id | "#tag"] (a greenhouse's states on the greenhouse
+camera). On any other source it is not looked at: "hidden" if it has that class, else no value (not_here())."""
 import hashlib
 import json
 import os
@@ -49,7 +52,8 @@ def history(data_root):
 
 
 # not the design (what the labels and the model depend on): changing only these saves no new version
-SETTINGS = ("states[].name", "states[].description", "states[].review", "states[].judge", "states[].classes[].name",
+SETTINGS = ("states[].name", "states[].description", "states[].review", "states[].judge", "states[].sources",
+            "states[].classes[].name",
             "states[].classes[].color", "states[].classes[].key", "states[].rois[].name")
 
 
@@ -87,6 +91,9 @@ def validate(schema):
             raise ValueError(_("{id}:標籤來源必須是 {p2},或專案外掛提供的來源", id=s['id'], p2=', '.join(sorted(SOURCES))))
         if s.get("judge", "auto") not in ("auto", "model", "rule"):
             raise ValueError(_("{id}:判斷方式要是 自動 / 只用模型 / 只用規則", id=s['id']))
+        if "sources" in s and not (isinstance(s["sources"], list) and s["sources"]
+                                   and all(isinstance(k, str) and re.fullmatch(r"#?[\w\-.]{1,40}", k) for k in s["sources"])):
+            raise ValueError(_("{id}:「只用在這些來源」要是來源代號或 #標籤;都不用就拿掉這個設定", id=s['id']))
         if s["type"] == "number":
             lo, hi = s.get("min"), s.get("max")
             if any(v is not None and not isinstance(v, (int, float)) for v in (lo, hi)) or (lo is not None and hi is not None and lo > hi):
@@ -131,6 +138,18 @@ def validate(schema):
             for c in s.get("classes", []) if c.get("key")]
     if len(keys) != len(set(keys)):
         raise ValueError(_("人工確認的快速鍵在不同狀態之間重複了"))
+
+
+def not_here(states, device, expand=None):
+    """{state id: the value it has on this device} for the states that are for other sources only ("sources"):
+    "hidden" when the state has that class, else None (not known here). expand: ids / "#tag" -> ids."""
+    if expand is None:
+        from drivers.sources import expand
+    out = {}
+    for s in states:
+        if s.get("sources") and device not in expand(s["sources"]):
+            out[s["id"]] = "hidden" if any(c.get("value") == "hidden" for c in s.get("classes") or []) else None
+    return out
 
 
 def save(data_root, schema, note=""):
