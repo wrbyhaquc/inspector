@@ -32,7 +32,7 @@ import time
 
 from i18n import _
 
-PLATFORM_VERSION = "0.1.0"          # this Inspector; raised with every release that changes what packs may rely on
+PLATFORM_VERSION = "0.2.0"          # this Inspector; raised with every release that changes what packs may rely on
 FORMAT = 1
 FILE = "pack.json"
 ID = re.compile(r"[a-z][a-z0-9_-]{0,63}")
