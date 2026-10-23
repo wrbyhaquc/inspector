@@ -19,8 +19,8 @@ Two levels:
                   "sources": {"<id>": {"kind", "name", "params"}},  the sources the design uses, made so on a new
                                                    computer (e.g. a camera's stream address); nothing else found
                                                    there is added (or announced) on its own then
-                  "run": {"interval", "max_per_min", "confirm"},  how the design is meant to run (a fast game:
-                                                   0.3 s, 60 actions a minute, confirm 1 = act on the first look
+                  "run": {"interval", "max_per_min", "confirm"},  how the design is meant to run (a scene that
+                                                   must react quickly: 0.3 s, 60 actions a minute, confirm 1 = act on the first look
                                                    instead of two alike) - the defaults here; what is set on this
                                                    computer wins, and the platform's limits hold (run_defaults())
                   "plugins": ["<name>", ...]}      packs/<name>/ to load (rules, label sources, sources, outputs ...)

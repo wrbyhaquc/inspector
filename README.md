@@ -376,7 +376,7 @@ python -m runtime [--run <training run id>] [--interval 1]     # normally "Start
 ```
 
 - Model: a training run with `model.onnx` runs on ONNX (no PyTorch needed), otherwise `model_best.pt`; the Run page shows which.
-- Every round: get each device's screen → the model judges everything at once → smoothing → screen rules fill in the states the model does not handle → every script decides for each device by its current situation → the same decision twice in a row counts (except urgent rules; a project with `"run": {"confirm": 1}` - a fast game - acts on the first look and does not average the model over earlier looks). Saving a design reloads it automatically.
+- Every round: get each device's screen → the model judges everything at once → smoothing → screen rules fill in the states the model does not handle → every script decides for each device by its current situation → the same decision twice in a row counts (except urgent rules; a project with `"run": {"confirm": 1}` - a scene that must react quickly - acts on the first look and does not average the model over earlier looks). Saving a design reloads it automatically.
 - **Each device is independent**: its own situations, sub-script progress, timers, cooldowns, variables and command channel.
 - **Modes**: off / dry run (watch only) / live, per script and per device ("Run › Deploy").
 - **Safety**: stop / pause / resume per device or for all (from the Run page, the operation panel or chat); a device pauses while someone operates it; start-up checks; tap limits, cooldowns, rules with no effect are paused and reported; every real input is logged with its frame.
