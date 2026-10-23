@@ -44,6 +44,7 @@ a lower-priority rule must not run just because a higher one could not be checke
 urgent: the rule acts on the first tick it matches (no second look) and may interrupt any sub-script running on
 the device. Main scripts have one priority order (meta/scripts/order.json); on one device only one script acts at
 a time (see runtime/shadow.py)."""
+import atomic
 import json
 import os
 import re
@@ -86,16 +87,7 @@ def _read(p):
 
 
 def _write(p, obj):
-    tmp = p + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False, indent=2)
-    for attempt in range(5):
-        try:
-            os.replace(tmp, p)
-            return
-        except PermissionError:
-            time.sleep(0.05 * (attempt + 1))
-    os.replace(tmp, p)
+    atomic.write_json(p, obj, ensure_ascii=False, indent=2)
 
 
 # ---------------------------------------------------------------- situations

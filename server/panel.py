@@ -61,6 +61,7 @@ import os
 import re
 import time
 
+import atomic
 import automation
 import project
 from automation import buttons as buttons_mod, schedules, settings as settings_mod, subs as subs_mod
@@ -135,6 +136,11 @@ def check_widget(data_root, w):
         have = {s["id"] for s in schedules.load(data_root)}
         if any(s not in have for s in w.get("schedules") or []):
             raise ValueError(_("「排程表」選的排程已經不存在"))
+
+
+# a block's width on a wide screen (spec v10): of a row of six columns 2, 3, 4 or 6; "auto" = half, or the whole row
+# for long lists, logs and settings asked per device (web/src/lib/panelLayout.ts); phones: one column
+WIDTHS = ("auto", "third", "narrow", "two_thirds", "wide")
 
 
 def load(data_root):
@@ -213,7 +219,7 @@ def save(data_root, panel, check=True):
             raise ValueError(_("每個分頁都要有名稱"))
         seen_pages.add(pg["id"])
     for b in panel.get("blocks") or []:
-        if b.get("width") not in (None, "", "auto", "narrow", "wide"):
+        if b.get("width") not in (None, "", *WIDTHS):
             raise ValueError(_("區塊「{title}」的寬度不正確", title=b.get('title')))
     panel = normalize(panel)
     for b in panel["blocks"]:
@@ -271,9 +277,8 @@ def save(data_root, panel, check=True):
     from .panel_chat import check as check_chat
     check_chat(panel)
     p = os.path.join(data_root, FILE)
-    with open(p + ".tmp", "w", encoding="utf-8") as f:
-        json.dump(spec.stamp(panel), f, ensure_ascii=False, indent=1)
-    os.replace(p + ".tmp", p)
+    os.makedirs(os.path.dirname(p), exist_ok=True)              # a new project has no meta/ yet
+    atomic.write_json(p, spec.stamp(panel), ensure_ascii=False, indent=1)
 
 
 def _schedule(data_root, sid):

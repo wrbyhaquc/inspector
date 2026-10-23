@@ -200,3 +200,53 @@ def test_a_new_pack_does_not_warn_about_its_own_spec(tmp_path):
     assert not [x for x in manifest.check(new, str(tmp_path)) if "pack.json" in x[1]]
     made_by_0_2_0 = {**new, "requires": {**new["requires"], "spec": 0}}           # 0.2.0 recorded 0 for an empty design
     assert not [x for x in manifest.check(made_by_0_2_0, str(tmp_path)) if "pack.json" in x[1]]
+
+
+# ---------------------------------------------------------------- recording replay
+
+def _recording(root, sid, dev, times, ended=True):
+    from PIL import Image
+    d = root / "sessions" / sid / "devices" / dev
+    (d / "frames").mkdir(parents=True)
+    with open(d / "samples.jsonl", "w", encoding="utf-8") as f:
+        for k, t in enumerate(times):
+            Image.new("RGB", (64, 36), (k * 40 % 255, 0, 0)).save(d / "frames" / f"{k}.png")
+            f.write(json.dumps({"id": str(k), "t_req": t, "frame": f"frames/{k}.png"}) + "\n")
+    meta = {"started": times[0], "devices": {dev: {"samples": len(times)}}}
+    if ended:
+        meta["ended"] = times[-1]
+    (root / "sessions" / sid / "session.json").write_text(json.dumps(meta), encoding="utf-8")
+
+
+def test_a_recording_replays_in_its_timing_with_long_pauses_shortened(tmp_path, monkeypatch):
+    from drivers import recording
+    monkeypatch.setattr(project, "work_root", lambda: str(tmp_path))
+    monkeypatch.setattr(project, "screen", lambda: (64, 36))
+    _recording(tmp_path, "s1", "CAM", [100.0, 101.0, 161.0, 162.0])          # a minute's pause in the middle
+    _recording(tmp_path, "s2", "CAM", [200.0, 201.0], ended=False)              # still recording: not offered
+    rec = recording.Recording({"max_gap": "5", "speed": "1"})
+    assert [d.name for d in rec.list()] == ["s1 CAM"]
+    p = rec.capture("s1 CAM")
+    assert p.at == [0.0, 1.0, 6.0, 7.0]
+    clock = [1000.0]
+    monkeypatch.setattr(recording.time, "time", lambda: clock[0])
+    p.t0 = 1000.0
+    for t, k in ((0.5, 0), (3.0, 1), (6.5, 2), (7.5, 3), (8.2, 0)):                # ... and starts over
+        clock[0] = 1000.0 + t
+        img, how, size = p.grab()
+        assert p.shown == k and img.shape == (36, 64, 3) and how == "recording"
+    assert recording.Recording({"speed": "2"}).capture("s1 CAM").at == [0.0, 0.5, 3.0, 3.5]
+
+
+def test_the_recorder_does_not_record_a_replay(monkeypatch):
+    import types
+    from collector import collector as col
+    from drivers import Device
+    found = [Device("CAM", info={"kind": "stream/http"}), Device("s1 CAM", info={"kind": "recording/default"})]
+    told = []
+    c = types.SimpleNamespace(driver=types.SimpleNamespace(list=lambda: found), s=types.SimpleNamespace(only=None),
+                              _ask=lambda what, insts: told.append([i.name for i in insts]), lock=__import__("threading").RLock(),
+                              devs={})
+    monkeypatch.setattr(col, "DeviceCtx", lambda owner, inst: types.SimpleNamespace(start=lambda: None, inst=inst, thread=None))
+    col.Collector.rescan(c)
+    assert told == [["CAM"]] and list(c.devs) == ["CAM"]

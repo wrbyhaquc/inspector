@@ -16,6 +16,7 @@ Event kinds (KINDS): urgent (an urgent rule matched: an incident began), urgent_
 failed or needs a look), notify (a script's 通知 step / action), info (schedules started / finished and the like).
 
 Channel types live in notify/channels.py: each declares its fields (with which are secret) and how to send."""
+import atomic
 import datetime
 import json
 import os
@@ -46,9 +47,7 @@ def _read(p, default):
 
 def _write(p, obj):
     os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p + ".tmp", "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False, indent=1)
-    os.replace(p + ".tmp", p)
+    atomic.write_json(p, obj, ensure_ascii=False, indent=1)
 
 
 def load(runtime_dir):

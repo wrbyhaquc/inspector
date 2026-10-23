@@ -15,6 +15,7 @@ Commands: a few built in, for safety and to look (Chinese or English; device nam
 Everything else comes from the operation panel (server/panel_chat.py through Actions.panel_command): what end users
 may change or press there, and nothing more. Stopping never asks; the rest asks 確認 / 取消 first.
 Button payloads too long for a chat service (Telegram: 64 bytes) are kept here and sent as a short token."""
+import atomic
 import json
 import os
 import random
@@ -70,9 +71,7 @@ def _read(p, default):
 
 
 def _write(p, obj):
-    with open(p + ".tmp", "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False, indent=1)
-    os.replace(p + ".tmp", p)
+    atomic.write_json(p, obj, ensure_ascii=False, indent=1)
 
 
 def access(runtime_dir):

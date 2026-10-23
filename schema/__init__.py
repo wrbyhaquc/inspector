@@ -9,10 +9,12 @@ current version, and every labels/model output records which version it was made
 
 A state may be for some sources only: "sources": [source id | "#tag"] (a greenhouse's states on the greenhouse
 camera). On any other source it is not looked at: "hidden" if it has that class, else no value (not_here())."""
+import atomic
 import hashlib
 import json
 import os
 import re
+import threading
 import time
 from i18n import _
 
@@ -31,10 +33,7 @@ def _read(path):
 
 
 def _write(path, obj):
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, path)
+    atomic.write_json(path, obj, ensure_ascii=False, indent=2)
 
 
 def history(data_root):
@@ -57,6 +56,9 @@ SETTINGS = ("states[].name", "states[].description", "states[].review", "states[
             "states[].classes[].color", "states[].classes[].key", "states[].rois[].name")
 
 
+_FIRST = threading.Lock()
+
+
 def load(data_root, version=None):
     """Current (or a given) schema version, with the current settings on top (meta/states/settings.json). A new
     project starts with no states (version 1, empty)."""
@@ -64,7 +66,9 @@ def load(data_root, version=None):
     d = _dir(data_root)
     cur = os.path.join(d, "current.json")
     if not os.path.exists(cur):
-        return save(data_root, {"states": []}, note=_("新專案"))
+        with _FIRST:                                    # a new project's first pages ask at once: one makes version 1
+            if not os.path.exists(cur):
+                return save(data_root, {"states": []}, note=_("新專案"))
     if version is None:
         version = _read(cur)["version"]
     return overlay.apply(_read(os.path.join(d, f"v{int(version)}.json")), overlay.read(d), SETTINGS)

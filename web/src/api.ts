@@ -209,7 +209,7 @@ export interface PanelSourceRow { kind: string; kind_label?: string; match: stri
 export interface PanelSources { can: boolean; help: string; kinds: { kind: string; label: string }[]
   items: { id: string; name: string; kind: string; kind_label: string; match: string; enabled: boolean }[] }
 export interface PanelBlock { id: string; title: string; help?: string; toggle?: string; items: string[]; widget?: PanelWidget; data?: WidgetData; error?: string
-  page?: string; width?: 'auto' | 'narrow' | 'wide' }      // which tab it is on (none = the first); its width on a wide screen
+  page?: string; width?: 'auto' | 'third' | 'narrow' | 'two_thirds' | 'wide' }   // which tab it is on (none = the first); its width on a wide screen (lib/panelLayout.ts)
 export interface WidgetData {
   bots?: ChatBot[]; types?: { type: string; label: string; help: string }[]; setup?: boolean; pair?: boolean
   devices?: { device: string; now: string; tone: string; online: boolean; today: { name: string; text: string; code: string }[]; step: string | null; alerts: { t: number; text: string }[]; image: boolean }[]
@@ -570,7 +570,7 @@ export const api = {
   packExport: (b: { version: string; name: string; description: string; model: boolean }) => req<PackExported>('POST', '/api/packs/export', b),
   restart: () => req<{ ok: boolean }>('POST', '/api/system/restart'),
   nextSteps: () => req<NextSteps>('GET', '/api/next_steps'),
-  devices: () => req<{ name: string; ok: boolean; detail: string; size: string }[]>('GET', '/api/devices'),
+  devices: () => req<{ name: string; ok: boolean; detail: string; size: string; replay?: boolean }[]>('GET', '/api/devices'),
   drivers: () => req<DriversInfo>('GET', '/api/drivers'),
   driversSet: (b: { driver: string; params: Record<string, string> }) => req<DriversInfo>('PUT', '/api/drivers', b),
   collector: () => req<{ live: LiveStatus | null; job: JobInfo | null; prefix_names: Record<string, string[]> }>('GET', '/api/collector'),

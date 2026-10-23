@@ -1,6 +1,6 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
- "$id": "https://inspector.local/spec/v9/outputs.schema.json",
+ "$id": "https://inspector.local/spec/v10/variables.schema.json",
  "$defs": {
   "ref": {
    "description": "執行時從參數 / 使用者設定 / 變數 / 狀態(畫面上讀到的數字)取值",
@@ -706,28 +706,41 @@
    }
   }
  },
- "title": "輸出",
+ "title": "變數",
  "type": "object",
  "properties": {
-  "outputs": {
+  "vars": {
    "type": "array",
    "items": {
     "type": "object",
     "required": [
-     "id",
      "name",
-     "type"
+     "scope",
+     "reset"
     ],
+    "additionalProperties": false,
     "properties": {
-     "id": {
+     "name": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9_]*$"
      },
-     "name": {
+     "label": {
       "type": "string"
      },
-     "type": {
-      "type": "string"
+     "scope": {
+      "enum": [
+       "device",
+       "global"
+      ]
+     },
+     "reset": {
+      "enum": [
+       "daily",
+       "never"
+      ]
+     },
+     "initial": {
+      "type": "number"
      }
     }
    }
@@ -736,7 +749,7 @@
    "type": "number"
   },
   "format": {
-   "const": 9,
+   "const": 10,
    "description": "腳本規範版本"
   },
   "version": {

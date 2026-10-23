@@ -12,6 +12,7 @@ How the row is cut is a cut method (params.cut):
 Other params: match_min (similarity needed to accept a name, 0.85), width_tol (px, 5; the same name renders with the
 same width), skip_flags (frames with one of these rule flags are matched but never offered for naming, e.g. a panel
 covering the screen)."""
+import atomic
 import hashlib
 import json
 import os
@@ -145,9 +146,7 @@ class Matcher:
         self._save()
 
     def _save(self):
-        tmp = self.index_path + ".tmp"
-        json.dump(self.index, open(tmp, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
-        os.replace(tmp, self.index_path)
+        atomic.write_json(self.index_path, self.index, ensure_ascii=False, indent=1)
 
     def cluster(self, items):
         """Greedy clustering of unnamed crops. items: [(frame_path, ext, feat)] -> clusters (largest first)."""

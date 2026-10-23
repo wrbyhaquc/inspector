@@ -12,6 +12,7 @@ readings of a sensor next to a camera): a recorder is made per session with reco
   session_meta()                      -> more fields for session.json
 It reports events with collector.on_event(name, ts, kind, detail, burst) (burst = take extra screenshots) and may
 ask for a device scan with collector.rescan_now.set()."""
+import atomic
 import collections
 import concurrent.futures
 import datetime
@@ -213,7 +214,7 @@ class Collector:
 
     # ----- discovery -----
     def rescan(self):
-        insts = self.driver.list()
+        insts = [i for i in self.driver.list() if not str((i.info or {}).get("kind", "")).startswith("recording/")]   # replays: already recorded
         if self.s.only:
             insts = [i for i in insts if i.name in self.s.only]
         self._ask("devices_changed", insts)
@@ -319,17 +320,11 @@ class Collector:
 
     def _write_status(self, running=True):
         """Best effort: the status file is only for the web UI and must never stop the recording.
-        On Windows the replace fails while the UI happens to be reading the file, so retry briefly, then skip."""
-        tmp = self.status_path + ".tmp"
+        On Windows the replace fails while the UI happens to be reading the file: atomic retries briefly, then skip."""
         try:
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(self.live_status(running), f, ensure_ascii=False, default=str)
-            for attempt in range(5):
-                try:
-                    os.replace(tmp, self.status_path)
-                    return
-                except PermissionError:
-                    time.sleep(0.05 * (attempt + 1))
+            atomic.write_json(self.status_path, self.live_status(running), ensure_ascii=False, default=str)
+        except PermissionError:
+            pass
         except OSError as e:
             print(_("{p1} 狀態檔寫入失敗(不影響錄製):{e}", p1=_now_str(), e=e))
 

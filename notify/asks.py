@@ -7,6 +7,7 @@ per option), the runner page or the operation panel. Files under <runtime dir>/a
   <id>.answer.json   {"option": 1-based, "label", "by", "t"}       created once (exclusive): the first answer wins
   <id>.posted.json   {channel id: time}                            which chats it was sent to
 Closed questions are removed after a day."""
+import atomic
 import json
 import os
 import random
@@ -30,9 +31,7 @@ def _read(p, default=None):
 
 
 def _write(p, obj):
-    with open(p + ".tmp", "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False)
-    os.replace(p + ".tmp", p)
+    atomic.write_json(p, obj, ensure_ascii=False)
 
 
 def create(runtime_dir, device, text, options, timeout, default=None, script_name=""):

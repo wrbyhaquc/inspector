@@ -36,6 +36,7 @@ each other; the platform folder then holds code only:
                                  (inspector.json "work" / INSPECTOR_WORK puts <work>/<id>/ on another disk)
   <data>/runtime/<id>/           this machine only: values, live state, secrets
 data_root() is the design folder, work_root() the work folder; in the single-folder layout both are the project."""
+import atomic
 import json
 import os
 import time
@@ -105,7 +106,6 @@ def machine():
 
 def set_machine(**values):
     """Change settings of this machine (inspector.json); a value None removes it."""
-    import json
     d = dict(machine())
     for k, v in values.items():
         if v is None:
@@ -113,9 +113,7 @@ def set_machine(**values):
         else:
             d[k] = v
     os.makedirs(os.path.dirname(MACHINE), exist_ok=True)
-    with open(MACHINE + ".tmp", "w", encoding="utf-8") as f:
-        json.dump(d, f, ensure_ascii=False, indent=1)
-    os.replace(MACHINE + ".tmp", MACHINE)
+    atomic.write_json(MACHINE, d, ensure_ascii=False, indent=1)
     _where["at"] = -1e9
 
 
@@ -281,9 +279,7 @@ def save(p, root=None):
     if not (160 <= w <= 7680 and 90 <= h <= 4320):
         raise ValueError(_("畫面座標空間要在 160×90 ~ 7680×4320 之間"))
     path = os.path.join(root, FILE)
-    with open(path + ".tmp", "w", encoding="utf-8") as f:
-        json.dump(p, f, ensure_ascii=False, indent=1)
-    os.replace(path + ".tmp", path)
+    atomic.write_json(path, p, ensure_ascii=False, indent=1)
     _cache.pop(path, None)
 
 

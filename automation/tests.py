@@ -16,6 +16,7 @@
 
 A test runs on the saved scripts, the newest model and the recording (runtime/replaytest.py); it passes when every
 expectation holds. suggest() turns one replay into expectations ("what it did is right"), to edit from there."""
+import atomic
 import json
 import os
 import re
@@ -78,9 +79,7 @@ def save(data_root, tests):
     validate(tests)
     p = _path(data_root)
     os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p + ".tmp", "w", encoding="utf-8") as f:
-        json.dump(spec.stamp({"tests": tests, "saved": time.time()}), f, ensure_ascii=False, indent=1)
-    os.replace(p + ".tmp", p)
+    atomic.write_json(p, spec.stamp({"tests": tests, "saved": time.time()}), ensure_ascii=False, indent=1)
 
 
 # ---------------------------------------------------------------- names for the pages

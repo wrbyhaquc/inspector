@@ -148,7 +148,7 @@ def _schema(kind):
             "id": {"type": "string"}, "title": {"type": "string"}, "help": {"type": "string"}, "toggle": {"type": "string"},
             "items": {"type": "array", "items": {"type": "string"}},
             "page": {"type": "string", "description": _("在哪個分頁(沒填 = 第一個)")},
-            "width": {"enum": ["auto", "narrow", "wide"], "description": _("寬螢幕上:自動 / 窄(半列)/ 寬(整列)")},
+            "width": {"enum": ["auto", "third", "narrow", "two_thirds", "wide"], "description": _("寬螢幕上:自動 / 1/3 列 / 半列 / 2/3 列 / 整列")},
             "widget": {"type": "object", "required": ["kind"], "properties": {"kind": {"enum": ["devices", "incidents", "deploy", "schedules", "log", "chat", "list"]}}}}}
         page = {"type": "object", "required": ["id", "title"], "additionalProperties": False, "properties": {
             "id": {"type": "string", "pattern": ID}, "title": {"type": "string", "minLength": 1}}}

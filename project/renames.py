@@ -12,6 +12,7 @@ variables by name. A pack.json may say what it renamed since its last version:
 
 install (project/pack.py) applies them to the runtime folder after a backup; orphans() then lists the values that
 still point at something the design no longer has (they do nothing; the Packs page and "next steps" show them)."""
+import atomic
 import json
 import os
 import re
@@ -29,9 +30,7 @@ def _json(p, default=None):
 
 
 def _dump(p, obj):
-    with open(p + ".tmp", "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False, indent=1)
-    os.replace(p + ".tmp", p)
+    atomic.write_json(p, obj, ensure_ascii=False, indent=1)
 
 
 def design_ids(design):

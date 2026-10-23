@@ -13,6 +13,7 @@ region when others are added or moved.
 
 In a runtime (project.edition()) the design is read-only: changed settings go to a layer in the runtime folder
 (_layer), read on top of the pack's own."""
+import atomic
 import copy
 import json
 import os
@@ -123,9 +124,7 @@ def read(folder):
 
 def _dump(p, obj):
     os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p + ".tmp", "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False, indent=2)
-    os.replace(p + ".tmp", p)
+    atomic.write_json(p, obj, ensure_ascii=False, indent=2)
 
 
 def write(folder, settings):

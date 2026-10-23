@@ -274,7 +274,8 @@ A state may be for some sources only ("Only on these sources", e.g. a greenhouse
 | Application window (`window.py`) | Any program's window (an NVR client, a browser, an office program…); mouse / keyboard input goes to the window |
 | Screen area (`desktop.py`) | A screen or part of one |
 | Stream (`stream.py`) | RTSP / HTTP cameras and network streams; watch only (its actions can be handed to another source or to an output) |
-| Recording (`video.py`) | Each video file in a folder is a source, played live and looped; pictures only |
+| Video files (`video.py`) | Each video file in a folder is a source, played live and looped; pictures only |
+| Recording replay (`recording.py`) | Each camera of each of this project's recordings is a source, played in the recorded timing (long pauses shortened) and looped: try states, scripts, the run page and the operation panel on things that already happened. Pictures only; the recorder does not record it again |
 | From plugins | A project's plugins can add more |
 
 A script that uses an action its source cannot do is refused when saved.
@@ -433,7 +434,7 @@ python -m runtime.replaytest [--id <test id>]     # exit code 0 when all pass
 | Where | What |
 |---|---|
 | `project/` | Where things are (`__init__.py`, `python -m project where`), plugin registry (`plugins.py`), packs: releases, install, upgrade (`pack.py`), pack.json (`manifest.py`), moving an older project folder (`layout.py`), settings kept beside versioned files and a runtime's own layer (`overlay.py`), the runtime folder's format (`runtime_data.py`), renamed ids (`renames.py`) |
-| `drivers/` | Sources: interface and categories (`__init__.py`), sources in use (`sources.py`), Android (`android/`), windows (`window.py`), screens (`desktop.py`), streams (`stream.py`), recordings (`video.py`), picture fitting (`fit.py`) |
+| `drivers/` | Sources: interface and categories (`__init__.py`), sources in use (`sources.py`), Android (`android/`), windows (`window.py`), screens (`desktop.py`), streams (`stream.py`), video files (`video.py`), recording replay (`recording.py`), picture fitting (`fit.py`) |
 | `collector/` | The collector |
 | `labeler/` | Auto-labeling: rule dispatch (`rules.py`), generic rules (`generic.py`), name libraries (`gallery.py`), assembly (`build.py`) |
 | `schema/` | Reading, writing and checking state definitions |
@@ -453,11 +454,14 @@ python -m server --no-browser     # backend on :8765
 cd web && npm run dev             # frontend on :5173 (proxies /api)
 cd web && npm run build           # builds web/dist, served by the backend
 pip install pytest && python -m pytest    # the tests (a throwaway home: your settings and packs are not touched)
+pip install playwright && python -m playwright install chromium && python -m pytest e2e   # the pages in a browser (after npm run build)
 ```
 
 The tests cover the script spec (the published schemas match the code, older files upgrade), the translations (every
 text in every language), the generic screen rules and behaviour that has broken before. GitHub runs them on Windows
 and Linux, with the web interface's type check and build, on every push (`.github/workflows/ci.yml`).
+`e2e/` drives the built pages in a real browser against a server on a throwaway home: from an empty project, name it,
+add a camera, open every page, and the English pages show no untranslated text.
 
 
 ## Known limits

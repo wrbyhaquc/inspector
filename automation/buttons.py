@@ -22,6 +22,7 @@ device's accounts ...) are kept in <runtime dir>/buttons.json {"buttons": [...],
 A target {"button": id} taps (x, y); a "find" button is first searched for in the current frame (normalised
 cross-correlation, like the reference images of the states) and tapped where it is found - so it still works
 when the button moved a little. Not found = the tap does not happen (a rule waits, a sub-script step fails)."""
+import atomic
 import json
 import os
 import re
@@ -98,19 +99,15 @@ def load(data_root=None):
 
 def _write(data_root, buttons):
     os.makedirs(os.path.dirname(_path(data_root)), exist_ok=True)
-    tmp = _path(data_root) + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(spec.stamp({"buttons": list(buttons.values()), "saved": time.time()}), f, ensure_ascii=False, indent=1)
-    os.replace(tmp, _path(data_root))
+    atomic.write_json(_path(data_root), spec.stamp({"buttons": list(buttons.values()), "saved": time.time()}),
+                      ensure_ascii=False, indent=1)
 
 
 def _write_layer(here, mine, gone):
     os.makedirs(here, exist_ok=True)
     p = os.path.join(here, "buttons.json")
-    with open(p + ".tmp", "w", encoding="utf-8") as f:
-        json.dump(spec.stamp({"buttons": list(mine.values()), "deleted": sorted(gone), "saved": time.time()}), f,
-                  ensure_ascii=False, indent=1)
-    os.replace(p + ".tmp", p)
+    atomic.write_json(p, spec.stamp({"buttons": list(mine.values()), "deleted": sorted(gone), "saved": time.time()}),
+                      ensure_ascii=False, indent=1)
 
 
 def save(data_root, b, frame_img=None):

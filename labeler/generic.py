@@ -40,6 +40,7 @@ Colours use Pillow's HSV scale: hue, saturation and value are all 0-255 (hue 0 =
 170 = blue). A hue range with lo > hi wraps around red (e.g. [245, 10]).
 
 Reference crops live in <data_root>\\meta\\rule_templates\\<state id>\\ with index.json {file: {value, frame, box, created}}."""
+import atomic
 import hashlib
 import json
 import os
@@ -118,10 +119,7 @@ def tpl_index(data_root, state_id):
 def _write_index(data_root, state_id, idx):
     d = tpl_dir(data_root, state_id)
     os.makedirs(d, exist_ok=True)
-    tmp = os.path.join(d, "index.json.tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(idx, f, ensure_ascii=False, indent=1)
-    os.replace(tmp, os.path.join(d, "index.json"))
+    atomic.write_json(os.path.join(d, "index.json"), idx, ensure_ascii=False, indent=1)
 
 
 def tpl_add(data_root, state_id, value, img, box, frame):

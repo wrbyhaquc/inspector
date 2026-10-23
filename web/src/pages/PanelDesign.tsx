@@ -1,12 +1,13 @@
 import { t } from '../i18n'
 import { PageIntro } from '../components/PageIntro'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api, type PanelBlock, type PanelChatPreview, type PanelControl, type PanelDefinition, type PanelWidget, type SettingDecl } from '../api'
 import { Button, Card, Drawer, Empty, ErrorText, Modal, MoreButton, Page } from '../components/ui'
 import { words } from '../lib/project'
 import { sourceIds } from '../lib/sources'
 import { SourcePick } from '../components/SourcePick'
+import { COLS, span, widthFor } from '../lib/panelLayout'
 
 const input = 'border border-stone-300 rounded-md px-2 py-1 text-sm bg-white'
 type Panel = PanelDefinition['panel']
@@ -26,7 +27,8 @@ export default function PanelDesign() {
   const [win, setWin] = useState<'settings' | 'chat' | null>(null)
   if (!q.data || !p) return <Page title={t('操作面板設計')}><Card><Empty>{q.isLoading ? t('讀取中…') : t('讀取失敗')}</Empty></Card></Page>
   const info = q.data
-  const dirty = JSON.stringify(p) !== JSON.stringify(info.panel)
+  const same = (x: Panel) => JSON.stringify({ ...x, format: undefined })     // the spec version is the server's to stamp
+  const dirty = same(p) !== same(info.panel)
   const edit = (fn: (x: Panel) => void) => setP(old => { const n = JSON.parse(JSON.stringify(old)) as Panel; fn(n); return n })
   const ctl = (id: string) => p.controls.find(c => c.id === id) as Ctl | undefined
   const devices = [...new Set([...sourceIds(info.devices), ...p.devices])]
@@ -65,9 +67,11 @@ export default function PanelDesign() {
       </Drawer>
 
       <PagesCard p={p} edit={edit} />
+      <LayoutCard p={p} edit={edit} info={info} />
 
       {p.blocks.map((b, bi) => (
-        <Card key={b.id} title={<span className="flex items-center gap-2">
+        <div key={b.id} id={`design-block-${b.id}`} className="scroll-mt-20">
+        <Card title={<span className="flex items-center gap-2">
           <input className={`${input} font-medium w-56`} value={b.title} onChange={e => edit(x => { x.blocks[bi].title = e.target.value })} />
           <span className="text-xs text-stone-400">{b.widget ? t('監看元件:{p1}', { p1: info.widgets[b.widget.kind] ?? b.widget.kind }) : t('區塊 {p1}', { p1: bi + 1 })}</span></span>}
           extra={<span className="flex flex-wrap items-center gap-1">
@@ -75,8 +79,8 @@ export default function PanelDesign() {
               onChange={e => edit(x => { x.blocks[bi].page = e.target.value })}>
               {p.pages!.map(g => <option key={g.id} value={g.id}>{t('分頁:{title}', { title: g.title })}</option>)}</select>}
             <select className={`${input} text-xs`} title={t('寬螢幕上的寬度(手機上一律一欄)')} value={b.width ?? 'auto'}
-              onChange={e => edit(x => { if (e.target.value === 'auto') delete x.blocks[bi].width; else x.blocks[bi].width = e.target.value as 'narrow' | 'wide' })}>
-              <option value="auto">{t('寬度:自動')}</option><option value="narrow">{t('寬度:半列')}</option><option value="wide">{t('寬度:整列')}</option></select>
+              onChange={e => edit(x => { if (e.target.value === 'auto') delete x.blocks[bi].width; else x.blocks[bi].width = e.target.value as NonNullable<PanelBlock['width']> })}>
+              {WIDTHS.map(([v, tx]) => <option key={v} value={v}>{tx}</option>)}</select>
             <Button variant="ghost" disabled={bi === 0} onClick={() => edit(x => { x.blocks = move(x.blocks, bi, -1) })}>▲</Button>
             <Button variant="ghost" disabled={bi === p.blocks.length - 1} onClick={() => edit(x => { x.blocks = move(x.blocks, bi, 1) })}>▼</Button>
             <Button variant="ghost" onClick={() => { if (confirm(b.widget ? t('刪除監看元件「{title}」?', { title: b.title }) : t('刪除區塊「{title}」和它的設定?', { title: b.title }))) edit(x => {
@@ -110,6 +114,7 @@ export default function PanelDesign() {
             <button className="self-start text-sm underline" onClick={() => addControl(bi)}>{t('+ 在這個區塊加一項設定')}</button>
           </div>}
         </Card>
+        </div>
       ))}
       <Modal open={win === 'chat'} wide title={t('聊天裡可以做的事')} onClose={() => setWin(null)}><ChatPreview panel={p} /></Modal>
 
@@ -164,6 +169,78 @@ function SourcePolicyCard({ p, info, edit }: { p: Panel; info: PanelDefinition; 
 }
 
 /** The tabs of the users' panel: none = one page; each block is on one (the 這台 view comes by itself). */
+const WIDTHS: [NonNullable<PanelBlock['width']>, string][] = [['auto', t('寬度:自動')], ['third', t('寬度:1/3 列')], ['narrow', t('寬度:半列')],
+  ['two_thirds', t('寬度:2/3 列')], ['wide', t('寬度:整列')]]
+
+/** The panel's layout as the users' wide screen shows it: drag a block to move it (onto a tab: to that page), drag its
+ * right edge to make it wider or narrower. */
+function LayoutCard({ p, edit, info }: { p: Panel; edit: (fn: (x: Panel) => void) => void; info: PanelDefinition }) {
+  const pages = p.pages ?? []
+  const [tab, setTab] = useState(pages[0]?.id ?? '')
+  const [drag, setDrag] = useState<string | null>(null)
+  const [over, setOver] = useState<string | null>(null)
+  const grid = useRef<HTMLDivElement>(null)
+  const byId = Object.fromEntries(p.controls.map(c => [c.id, c]))
+  const pageOf = (b: PanelBlock) => (pages.some(g => g.id === b.page) ? b.page! : pages[0]?.id ?? '')
+  const cur = pages.some(g => g.id === tab) ? tab : pages[0]?.id ?? ''
+  const shown = p.blocks.filter(b => pageOf(b) === cur)
+  const moveTo = (id: string, before: string | null, page: string) => edit(x => {
+    const i = x.blocks.findIndex(b => b.id === id)
+    const [b] = x.blocks.splice(i, 1)
+    if (page && page !== (x.pages ?? [])[0]?.id) b.page = page
+    else delete b.page                                              // the first page: where a block without one is
+    const j = before ? x.blocks.findIndex(o => o.id === before) : -1
+    x.blocks.splice(j < 0 ? x.blocks.length : j, 0, b)
+  })
+  const resize = (e: React.PointerEvent, b: PanelBlock) => {        // the right edge: the width follows the pointer
+    e.preventDefault(); e.stopPropagation()
+    const left = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect().left
+    const col = (grid.current?.clientWidth ?? 600) / COLS
+    const onMove = (m: PointerEvent) => {
+      const w = widthFor(Math.max(1, Math.round((m.clientX - left) / col)))
+      edit(x => { const blk = x.blocks.find(o => o.id === b.id); if (blk) blk.width = w })
+    }
+    const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp) }
+    window.addEventListener('pointermove', onMove); window.addEventListener('pointerup', onUp)
+  }
+  const drop = (e: React.DragEvent, fn: () => void) => { e.preventDefault(); if (drag) fn(); setDrag(null); setOver(null) }
+  const label = (b: PanelBlock) => WIDTHS.find(([v]) => v === (b.width ?? 'auto'))![1]
+  return (
+    <Card title={t('版面')} extra={<span className="text-xs text-stone-500">{t('寬螢幕上的樣子:拖拉區塊排順序(拖到分頁上 = 移到那頁),拖右邊邊緣改寬度;手機上一律一欄')}</span>}>
+      <div className="flex flex-col gap-3">
+        {pages.length > 0 && <div className="flex gap-1 border-b border-stone-200">
+          {pages.map(g => <button key={g.id} onClick={() => setTab(g.id)}
+            onDragOver={e => { if (drag) { e.preventDefault(); setOver(`tab:${g.id}`) } }} onDragLeave={() => setOver(null)}
+            onDrop={e => drop(e, () => { if (g.id !== cur) moveTo(drag!, null, g.id) })}
+            className={`px-3 py-1.5 text-sm -mb-px border-b-2 ${g.id === cur ? 'border-stone-900 font-medium' : 'border-transparent text-stone-500'} ${over === `tab:${g.id}` ? 'bg-sky-100' : ''}`}>{g.title}</button>)}
+        </div>}
+        <div ref={grid} className="grid grid-cols-6 gap-2" data-testid="layout">
+          {shown.map(b => (
+            <div key={b.id} draggable data-block={b.id} onDragStart={e => { setDrag(b.id); e.dataTransfer.effectAllowed = 'move' }}
+              onDragEnd={() => { setDrag(null); setOver(null) }}
+              onDragOver={e => { if (drag && drag !== b.id) { e.preventDefault(); setOver(b.id) } }} onDragLeave={() => setOver(o => (o === b.id ? null : o))}
+              onDrop={e => drop(e, () => { if (drag !== b.id) moveTo(drag!, b.id, pageOf(b)) })}
+              className={`${GRID_SPAN[span(b, byId)]} relative rounded-md border bg-white px-3 py-2 pr-5 cursor-grab select-none text-sm
+                ${drag === b.id ? 'opacity-40' : ''} ${over === b.id ? 'border-sky-500 ring-2 ring-sky-200' : 'border-stone-300'}`}>
+              <button className="font-medium text-left hover:underline" onClick={() => document.getElementById(`design-block-${b.id}`)?.scrollIntoView({ behavior: 'smooth' })}>{b.title}</button>
+              <div className="text-xs text-stone-500">{b.widget ? info.widgets[b.widget.kind] ?? b.widget.kind : t('{n} 項設定', { n: b.items.length + (b.toggle ? 1 : 0) })}
+                {' · '}{label(b)}{(b.width ?? 'auto') === 'auto' ? `(${span(b, byId) === COLS ? t('整列') : t('半列')})` : ''}</div>
+              <span onPointerDown={e => resize(e, b)} title={t('拖這裡改寬度')} data-edge={b.id}
+                className="absolute right-0 top-0 h-full w-3 cursor-ew-resize rounded-r-md bg-stone-100 hover:bg-sky-200 border-l border-stone-200" />
+            </div>
+          ))}
+          <div onDragOver={e => { if (drag) { e.preventDefault(); setOver('end') } }} onDragLeave={() => setOver(null)}
+            onDrop={e => drop(e, () => moveTo(drag!, null, cur))}
+            className={`col-span-6 rounded-md border border-dashed px-3 py-2 text-xs text-stone-400 ${over === 'end' ? 'border-sky-500 bg-sky-50' : 'border-stone-300'}`}>
+            {shown.length ? t('拖到這裡 = 放到這頁最後') : t('這頁還沒有區塊;把區塊拖到這裡或上面的分頁')}</div>
+        </div>
+      </div>
+    </Card>
+  )
+}
+// the layout card's own grid (always six columns, whatever the screen)
+const GRID_SPAN: Record<number, string> = { 2: 'col-span-2', 3: 'col-span-3', 4: 'col-span-4', 6: 'col-span-6' }
+
 function PagesCard({ p, edit }: { p: Panel; edit: (fn: (x: Panel) => void) => void }) {
   const pages = p.pages ?? []
   const count = (id: string, first: boolean) => p.blocks.filter(b => b.page === id || (first && !pages.some(g => g.id === b.page))).length

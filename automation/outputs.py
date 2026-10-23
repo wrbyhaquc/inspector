@@ -17,6 +17,7 @@ The secret fields (http headers, mqtt password, Home Assistant token) are kept a
 <runtime dir>/output_secrets.json {output id: {field: value}}: a pack carries where an output goes, never the key to
 it. load() puts them back together; an older outputs.json with secrets inside still works, save() moves them out.
 Sending runs in the background (it never holds up the watch loop); a failure is reported like a failed tap."""
+import atomic
 import concurrent.futures
 import json
 import os
@@ -265,14 +266,10 @@ def save(data_root, outputs):
     kept, secret = strip_secrets(outputs)
     sp = _secrets_path()
     os.makedirs(os.path.dirname(sp), exist_ok=True)
-    with open(sp + ".tmp", "w", encoding="utf-8") as f:
-        json.dump(secret, f, ensure_ascii=False, indent=1)
-    os.replace(sp + ".tmp", sp)
+    atomic.write_json(sp, secret, ensure_ascii=False, indent=1)
     p = os.path.join(data_root, FILE)
     os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p + ".tmp", "w", encoding="utf-8") as f:
-        json.dump(spec.stamp({"outputs": kept, "saved": time.time()}), f, ensure_ascii=False, indent=1)
-    os.replace(p + ".tmp", p)
+    atomic.write_json(p, spec.stamp({"outputs": kept, "saved": time.time()}), ensure_ascii=False, indent=1)
 
 
 def send(data_root, out_id, msg):

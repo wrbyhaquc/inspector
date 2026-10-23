@@ -273,7 +273,8 @@ def devices_list():
     except Exception as e:
         _bad(_("裝置來源無法使用:{e}", e=e))
     return [{"name": i.name, "label": (i.info or {}).get("name") or i.name, "ok": i.ok, "detail": i.detail,
-             "size": f"{i.size[0]}x{i.size[1]}" if i.size else ""} for i in insts]
+             "size": f"{i.size[0]}x{i.size[1]}" if i.size else "",
+             "replay": str((i.info or {}).get("kind", "")).startswith("recording/")} for i in insts]     # a recording played back
 
 
 @app.get("/api/drivers")

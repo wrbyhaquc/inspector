@@ -47,7 +47,8 @@ function DeviceCard({ d }: { d: LiveDevice }) {
 export default function Collection() {
   const qc = useQueryClient()
   const col = useQuery({ queryKey: ['collector'], queryFn: api.collector, refetchInterval: 2000 })
-  const devs = useQuery({ queryKey: ['devices'], queryFn: api.devices, staleTime: 30_000 })
+  const devs = useQuery({ queryKey: ['devices'], queryFn: api.devices, staleTime: 30_000,
+    select: ds => ds.filter(d => !d.replay) })                // a recording played back is not recorded again
   // remembered in this browser, so a page reload keeps the last settings
   const [interval, setIntervalSec] = usePersistentState('collect.interval', 3)
   const [minutes, setMinutes] = usePersistentState('collect.minutes', 0)

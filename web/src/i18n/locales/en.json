@@ -2197,5 +2197,15 @@
  "錄一段畫面": "Record a while",
  "錄下來的畫面用來定義狀態、檢查判斷、訓練模型;錄得越完整,判斷越準。": "The recording is used to define states, check the judging and train models; the more complete it is, the better things are judged.",
  "開始執行": "Start running",
- "頁面上怎麼稱呼一個畫面來源,例如「攝影機」「模擬器」": "What the pages call one picture source, e.g. \"camera\", \"emulator\""
+ "頁面上怎麼稱呼一個畫面來源,例如「攝影機」「模擬器」": "What the pages call one picture source, e.g. \"camera\", \"emulator\"",
+ "{n} 項設定": "{n} settings",
+ "半列": "half row",
+ "整列": "full row",
+ "寬度:1/3 列": "Width: a third of a row",
+ "寬度:2/3 列": "Width: two thirds of a row",
+ "寬螢幕上的樣子:拖拉區塊排順序(拖到分頁上 = 移到那頁),拖右邊邊緣改寬度;手機上一律一欄": "As a wide screen shows it: drag blocks to order them (onto a tab = to that page), drag the right edge to change the width; phones show one column",
+ "拖到這裡 = 放到這頁最後": "Drop here = the end of this page",
+ "拖這裡改寬度": "Drag to change the width",
+ "版面": "Layout",
+ "這頁還沒有區塊;把區塊拖到這裡或上面的分頁": "No blocks on this page yet; drag one here or onto a tab above"
 }

@@ -17,6 +17,7 @@ list each device goes through, or how long to stay on each. The design declares 
 A script, schedule or call passes a setting instead of a fixed value: an argument {"setting": id}. It is read when the
 run starts (the device's own value, else the shared one, else the device default, else the default), so a change
 applies from the next run on and never in the middle of one."""
+import atomic
 import json
 import os
 import re
@@ -53,9 +54,7 @@ def _read(p):
 
 def _write(p, obj):
     os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p + ".tmp", "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False, indent=1)
-    os.replace(p + ".tmp", p)
+    atomic.write_json(p, obj, ensure_ascii=False, indent=1)
     _cache.pop(p, None)
 
 

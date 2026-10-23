@@ -17,6 +17,7 @@ are never rewritten in place); text files are always copied, so nothing written 
 Absolute paths of the old folders inside json / jsonl files are rewritten to the new ones.
 --activate makes this machine use the new layout (inspector.json "data" / "work", <data>/active.json); taking "data"
 out of inspector.json again goes back to the old folder."""
+import atomic
 import argparse
 import json
 import os
@@ -54,9 +55,7 @@ class Copier:
             for a, b in self.rewrite:
                 t = t.replace(a, b)
             if t != s:
-                with open(dst + ".tmp", "w", encoding="utf-8", errors="surrogateescape") as f:
-                    f.write(t)
-                os.replace(dst + ".tmp", dst)
+                atomic.write_text(dst, t, errors="surrogateescape")
                 self.n["rewritten"] += 1
                 return
         if self.link and ext in LINK:
@@ -92,9 +91,7 @@ def _forms(path):
 
 def _write_json(p, d):
     os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p + ".tmp", "w", encoding="utf-8") as f:
-        json.dump(d, f, ensure_ascii=False, indent=1)
-    os.replace(p + ".tmp", p)
+    atomic.write_json(p, d, ensure_ascii=False, indent=1)
 
 
 def migrate(project, data, work=None, runtime=None, pack=None, plugin=None, pid=None, link=False, activate=False):

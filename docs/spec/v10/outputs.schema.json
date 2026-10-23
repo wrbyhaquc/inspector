@@ -1,6 +1,6 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
- "$id": "https://inspector.local/spec/v9/tests.schema.json",
+ "$id": "https://inspector.local/spec/v10/outputs.schema.json",
  "$defs": {
   "ref": {
    "description": "執行時從參數 / 使用者設定 / 變數 / 狀態(畫面上讀到的數字)取值",
@@ -706,58 +706,28 @@
    }
   }
  },
- "title": "腳本測試",
+ "title": "輸出",
  "type": "object",
  "properties": {
-  "tests": {
+  "outputs": {
    "type": "array",
    "items": {
     "type": "object",
     "required": [
      "id",
      "name",
-     "session",
-     "device",
-     "minutes",
-     "expect"
+     "type"
     ],
     "properties": {
      "id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
      },
      "name": {
       "type": "string"
      },
-     "session": {
+     "type": {
       "type": "string"
-     },
-     "device": {
-      "type": "string"
-     },
-     "start": {
-      "type": "number"
-     },
-     "minutes": {
-      "type": "number"
-     },
-     "sub_result": {
-      "enum": [
-       "success",
-       "fail"
-      ]
-     },
-     "sub_results": {
-      "type": "object"
-     },
-     "expect": {
-      "type": "array",
-      "items": {
-       "type": "object",
-       "required": [
-        "kind",
-        "when"
-       ]
-      }
      }
     }
    }
@@ -766,7 +736,7 @@
    "type": "number"
   },
   "format": {
-   "const": 9,
+   "const": 10,
    "description": "腳本規範版本"
   },
   "version": {

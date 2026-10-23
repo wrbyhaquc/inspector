@@ -21,6 +21,7 @@ the work and runtime folders), so installing a newer release keeps all of it.
 export takes the active pack (data folder layout); in the single-folder layout, --plugin <name> and the project.
 install puts a new pack in <data>/packs/<id>/, or upgrades the one there to a newer version (the previous one is kept
 in <data>/packs/.previous/); it never overwrites a pack that is being developed (a git working folder)."""
+import atomic
 import argparse
 import fnmatch
 import json
@@ -413,9 +414,7 @@ def use(pid, data=None, say=print):
     if not os.path.isdir(os.path.join(data, "packs", pid)):
         raise SystemExit(_("沒有裝 {id} 這個方案包", id=pid))
     p = os.path.join(data, "active.json")
-    with open(p + ".tmp", "w", encoding="utf-8") as f:
-        json.dump({"pack": pid}, f)
-    os.replace(p + ".tmp", p)
+    atomic.write_json(p, {"pack": pid})
     say(_("已改用方案包 {id};重新啟動 Inspector 後生效", id=pid))
 
 

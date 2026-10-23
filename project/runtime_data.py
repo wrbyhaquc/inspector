@@ -15,6 +15,7 @@ newer Inspector is refused (RuntimeTooNew) rather than misread or overwritten - 
 
 When a release changes the format of a KEPT file: raise FORMAT, add UPGRADES[old] = a function that rewrites the files,
 and list any new KEPT file here."""
+import atomic
 import json
 import os
 import shutil
@@ -80,9 +81,7 @@ def read(runtime_dir):
 def _stamp(runtime_dir, fmt):
     from .manifest import PLATFORM_VERSION
     p = os.path.join(runtime_dir, FILE)
-    with open(p + ".tmp", "w", encoding="utf-8") as f:
-        json.dump({"format": fmt, "platform": PLATFORM_VERSION, "updated": time.time()}, f, indent=1)
-    os.replace(p + ".tmp", p)
+    atomic.write_json(p, {"format": fmt, "platform": PLATFORM_VERSION, "updated": time.time()}, indent=1)
 
 
 def backup(runtime_dir, fmt):

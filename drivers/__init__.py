@@ -18,8 +18,8 @@ script runner and the web pages talk to - every enabled source, by its id - thro
 
 Built in: android (anything adb reaches; presets LDPlayer - its console names instances, its window is copied, it
 types Chinese -, MuMu, BlueStacks, Nox, MEmu, phones, other), window (any program's window; mouse and keyboard),
-screen (a rectangle of a screen), stream (RTSP / HTTP / USB cameras, NVR channels: a picture only) and video (video
-files played as sources: frames only).
+screen (a rectangle of a screen), stream (RTSP / HTTP / USB cameras, NVR channels: a picture only), video (video
+files played as sources: frames only) and recording (this project's own recordings played back: frames only).
 A category whose sources each need their own settings (a window's title, a screen rectangle) declares per_source and
 find(opts) -> Device | None; capture() and input() then also get opts (the source's own settings).
 A project's plugin can add a category (registry kind "source": a class taking (params, preset), with PRESETS)."""
@@ -86,13 +86,14 @@ def categories():
     """category id -> {"label", "cls", "params": {name: {"label", "type", "options", "help"}}, "presets": {...}}.
     Built in: android, video. A plugin adds a category with registry kind "source": a class with label, caps,
     params ({name: label} or the full form) and optionally PRESETS."""
-    from . import android, desktop, stream, video, window
+    from . import android, desktop, recording, stream, video, window
     from project.plugins import registry
     out = {"android": {"label": android.LABEL, "cls": android.Android, "params": android.PARAMS, "presets": android.PRESETS},
            "window": {"label": window.LABEL, "cls": window.Window, "params": window.PARAMS, "presets": window.PRESETS},
            "screen": {"label": desktop.LABEL, "cls": desktop.Desktop, "params": desktop.PARAMS, "presets": desktop.PRESETS},
            "stream": {"label": stream.LABEL, "cls": stream.Stream, "params": stream.PARAMS, "presets": stream.PRESETS},
-           "video": {"label": video.LABEL, "cls": video.VideoFiles, "params": video.PARAMS, "presets": video.PRESETS}}
+           "video": {"label": video.LABEL, "cls": video.VideoFiles, "params": video.PARAMS, "presets": video.PRESETS},
+           "recording": {"label": recording.LABEL, "cls": recording.Recording, "params": recording.PARAMS, "presets": recording.PRESETS}}
     for name, cls in registry().all("source").items():
         ps = getattr(cls, "params", {}) or {}
         ps = {k: (v if isinstance(v, dict) else {"label": v, "type": "text"}) for k, v in ps.items()}

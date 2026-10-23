@@ -1,4 +1,5 @@
 import { locale, t } from '../i18n'
+import { SPAN_CLASS, span as blockSpan } from '../lib/panelLayout'
 import { LangPicker } from '../components/LangPicker'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
@@ -113,10 +114,10 @@ export default function Panel({ canLogout = false }: { canLogout?: boolean }) {
           </div>
 
           {tab !== 'device' || !card
-            ? <div className="grid xl:grid-cols-2 gap-4 items-start">
+            ? <div className="grid xl:grid-cols-6 gap-4 items-start">
                 {d.blocks.filter(b => pageOf(b) === tab).map(b => <div key={b.id} id={`block-${b.id}`}
-                  className={`scroll-mt-24 ${wide(b, byId) ? 'xl:col-span-2' : ''} ${b.widget?.kind === 'devices' && !b.widget.show_image ? 'lg:hidden' : ''}`}>{blockFor(b)}</div>)}
-                {tab === pages[pages.length - 1].id && <div className="xl:col-span-2"><History d={d} byId={byId} show={showLog} setShow={setShowLog} devChoices={devChoices} /></div>}
+                  className={`scroll-mt-24 ${SPAN_CLASS[blockSpan(b, byId)]} ${b.widget?.kind === 'devices' && !b.widget.show_image ? 'lg:hidden' : ''}`}>{blockFor(b)}</div>)}
+                {tab === pages[pages.length - 1].id && <div className="xl:col-span-6"><History d={d} byId={byId} show={showLog} setShow={setShowLog} devChoices={devChoices} /></div>}
               </div>
             : <DeviceView n={card.device} card={card} d={d} byId={byId} change={change} busy={set.isPending} onMsg={setMsg} />}
         </main>
@@ -260,13 +261,6 @@ function TodoBar({ items, onGo, onMsg }: { items: PanelTodo[]; onGo: (g: PanelTo
 
 /** Is a per-emulator control (or button) for this emulator? (the server lists the ones it is for in "targets") */
 const forDev = (c: PanelControl, n: string) => !c.targets || c.targets.includes(n)
-
-/** A block that takes the whole width on a wide screen: long lists and logs, and settings asked per emulator. */
-function wide(b: PanelBlock, byId: Record<string, PanelControl>) {
-  if (b.width === 'wide' || b.width === 'narrow') return b.width === 'wide'
-  if (b.widget) return ['list', 'log', 'chat', 'devices'].includes(b.widget.kind)
-  return b.items.some(i => byId[i]?.scope === 'device' && byId[i]?.type !== 'action')
-}
 
 /** A block of controls: the shared ones, then each emulator's (one line each, opened to change). */
 function ControlBlock({ b, byId, devices, open, setOpen, change, busy, onMsg }: {

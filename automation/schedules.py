@@ -17,6 +17,7 @@ effective() is the design with those on top; that is what runs.
 
 Several due on one emulator: one after the other, in the order of their start time (then list order). "Done today"
 is kept per schedule and emulator (whatever the result) and can be reset from the page."""
+import atomic
 import datetime
 import json
 import os
@@ -105,9 +106,7 @@ def set_override(data_root, runtime_dir, sid, field, value):
         mine[field] = value
     d = {k: v for k, v in d.items() if v}
     os.makedirs(runtime_dir, exist_ok=True)
-    with open(p + ".tmp", "w", encoding="utf-8") as f:
-        json.dump({"schedules": d, "saved": time.time()}, f, ensure_ascii=False, indent=1)
-    os.replace(p + ".tmp", p)
+    atomic.write_json(p, {"schedules": d, "saved": time.time()}, ensure_ascii=False, indent=1)
     _cache.pop(p, None)
 
 
@@ -157,9 +156,7 @@ def save(data_root, items, subs, start=None):
     out = [{k: s[k] for k in keep if k in s} for s in items]
     p = os.path.join(data_root, FILE)
     os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p + ".tmp", "w", encoding="utf-8") as f:
-        json.dump(spec.stamp({"day_start": start, "schedules": out, "saved": time.time()}), f, ensure_ascii=False, indent=1)
-    os.replace(p + ".tmp", p)
+    atomic.write_json(p, spec.stamp({"day_start": start, "schedules": out, "saved": time.time()}), ensure_ascii=False, indent=1)
     _cache.pop(p, None)
     return out
 
@@ -230,9 +227,7 @@ class State:
 
     def write(self):
         try:
-            with open(self.path + ".tmp", "w", encoding="utf-8") as f:
-                json.dump(self.data, f, ensure_ascii=False)
-            os.replace(self.path + ".tmp", self.path)
+            atomic.write_json(self.path, self.data, ensure_ascii=False)
         except OSError:
             pass
 

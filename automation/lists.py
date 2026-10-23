@@ -29,6 +29,7 @@ Names in a list can differ by one character only (北棟一號入口 / 北棟二
 another name as like its own. So rows are never told one by one: the 5~6 rows on the screen are laid over the list (the
 library in list order, "pos") together, and the place where the whole run fits best wins (which()). The same is done while
 capturing: a new page is laid over the end of the last one, the rows that fit are the ones already walked."""
+import atomic
 import json
 import os
 import re
@@ -331,9 +332,7 @@ def note_scan(runtime_dir, spec, device, result):
         "missing": result.get("missing") or [], "complete": result.get("complete", True)}
     os.makedirs(runtime_dir, exist_ok=True)
     p = os.path.join(runtime_dir, SCANS)
-    with open(p + ".tmp", "w", encoding="utf-8") as f:
-        json.dump(d, f, ensure_ascii=False)
-    os.replace(p + ".tmp", p)
+    atomic.write_json(p, d, ensure_ascii=False)
 
 
 def _item(data_root, spec, device, bid):

@@ -27,6 +27,7 @@ schedules, the panel) are taken as they are (id = their name); others running on
 
 Sources(...) is the driver the rest of the platform talks to (drivers.current()): list / capture / input /
 watch_touch by id, over every kind that is on."""
+import atomic
 import json
 import os
 import re
@@ -69,9 +70,7 @@ def _read():
 def _write(cfg):
     p = _path()
     os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p + ".tmp", "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=1)
-    os.replace(p + ".tmp", p)
+    atomic.write_json(p, cfg, ensure_ascii=False, indent=1)
 
 
 def _referenced(root):

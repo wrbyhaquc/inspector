@@ -22,6 +22,7 @@ loaded. An older pack.json (no "format") is read as format 1 with what it has.
 
     python -m project.manifest check <pack folder>
     python -m project.manifest upgrade <pack folder>       rewrite pack.json in the current format"""
+import atomic
 import argparse
 import glob
 import json
@@ -151,9 +152,7 @@ def write(folder, d):
     d["created"] = d.get("created") or d["updated"]
     p = os.path.join(folder, FILE)
     os.makedirs(folder, exist_ok=True)
-    with open(p + ".tmp", "w", encoding="utf-8") as f:
-        json.dump(d, f, ensure_ascii=False, indent=1)
-    os.replace(p + ".tmp", p)
+    atomic.write_json(p, d, ensure_ascii=False, indent=1)
     return d
 
 

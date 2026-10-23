@@ -1,6 +1,6 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
- "$id": "https://inspector.local/spec/v9/script.schema.json",
+ "$id": "https://inspector.local/spec/v10/script.schema.json",
  "$defs": {
   "ref": {
    "description": "執行時從參數 / 使用者設定 / 變數 / 狀態(畫面上讀到的數字)取值",
@@ -706,7 +706,7 @@
    }
   }
  },
- "title": "主腳本 / 守門規則(腳本規範 v9)",
+ "title": "主腳本 / 守門規則(腳本規範 v10)",
  "type": "object",
  "required": [
   "id",
@@ -754,7 +754,7 @@
    "$ref": "#/$defs/action"
   },
   "format": {
-   "const": 9,
+   "const": 10,
    "description": "腳本規範版本"
   },
   "version": {

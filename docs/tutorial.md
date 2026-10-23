@@ -245,6 +245,10 @@ Saved, every rule reads as a sentence:
 
 "Stop" or "Pause" holds it; every real action is in the "Log".
 
+> **Try it on the recording first**: "Sources › + Add source", under "Recording replay" tick "This project's recordings" and scan: the stretch recorded in
+> chapter 3 is a source, played in the recorded timing and looped. Dry-run the script on it and "Details" shows what it
+> would do when the fish come up or the heron lands, without waiting for either. The recorder does not record it again.
+
 ## 10. Schedules: feeding on time
 
 **③ Automate › Schedules**
@@ -269,6 +273,8 @@ panel is their page, phones included.
 2. "Or add a monitor widget:": "Device status" (how each camera is, with "Small live screen"), "Log",
    notifications and commands (Discord / Telegram).
 3. "Tabs" put the blocks on "Now", "Settings" and "Notifications".
+4. The "Layout" card is how a wide screen shows it: drag blocks to order them (onto a tab: to that page) and drag a
+   block's right edge to change its width (a third, half, two thirds, the full row). Phones show one column.
 
 ![Operation panel design](tutorial/en/panel_design.png)
 

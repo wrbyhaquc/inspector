@@ -275,6 +275,7 @@ python -m project.manifest upgrade <方案包資料夾>
 | 螢幕區域(`desktop.py`) | 某個螢幕或其中一塊 |
 | 串流(`stream.py`) | RTSP / HTTP 攝影機、網路串流;只看不動手(動作可以交給別的來源或輸出) |
 | 錄影檔(`video.py`) | 資料夾裡每個錄影檔是一個來源,即時播放、播完重頭;只能取得畫面 |
+| 錄製重播(`recording.py`) | 這個專案錄好的每一段、每一台是一個來源,照錄製時的節奏播放(長停頓縮短)、播完重頭;拿發生過的狀況試狀態、腳本、執行頁和操作面板。只能取得畫面,錄製時不會再錄它 |
 | 外掛提供的 | 專案的外掛可以再加 |
 
 腳本用到來源做不到的動作時,儲存腳本會被擋下。
@@ -433,7 +434,7 @@ python -m runtime.replaytest [--id <測試代號>]     # 全部通過時結束�
 | 位置 | 內容 |
 |---|---|
 | `project/` | 各種位置(`__init__.py`、`python -m project where`)、外掛註冊表(`plugins.py`)、方案包的發行/安裝/升級(`pack.py`)、pack.json(`manifest.py`)、搬移舊專案資料夾(`layout.py`)、版本檔旁的設定與執行版自己的疊層(`overlay.py`)、執行資料夾的格式(`runtime_data.py`)、代號改名(`renames.py`) |
-| `drivers/` | 來源:介面與大類(`__init__.py`)、使用中的來源(`sources.py`)、Android(`android/`)、視窗(`window.py`)、螢幕(`desktop.py`)、串流(`stream.py`)、錄影檔(`video.py`)、畫面縮放(`fit.py`) |
+| `drivers/` | 來源:介面與大類(`__init__.py`)、使用中的來源(`sources.py`)、Android(`android/`)、視窗(`window.py`)、螢幕(`desktop.py`)、串流(`stream.py`)、錄影檔(`video.py`)、錄製重播(`recording.py`)、畫面縮放(`fit.py`) |
 | `collector/` | 收集器 |
 | `labeler/` | 自動標註:規則分派(`rules.py`)、通用規則(`generic.py`)、名稱庫(`gallery.py`)、組裝(`build.py`) |
 | `schema/` | 狀態定義的讀寫與驗證 |
@@ -453,10 +454,12 @@ python -m server --no-browser     # 後端 :8765
 cd web && npm run dev             # 前端 :5173(自動轉接 /api)
 cd web && npm run build           # 產生 web/dist,由後端直接提供
 pip install pytest && python -m pytest    # 自動測試(用暫時的資料夾:不會動到你的設定和方案包)
+pip install playwright && python -m playwright install chromium && python -m pytest e2e   # 用瀏覽器測頁面(先 npm run build)
 ```
 
 測試涵蓋腳本規範(公開的 Schema 和程式一致、舊檔能升級)、翻譯(每段文字每種語言都有)、通用畫面規則,以及以前壞過的行為。
 每次推送,GitHub 都會在 Windows 和 Linux 上跑這些測試,並檢查、建置網頁介面(`.github/workflows/ci.yml`)。
+`e2e/` 用真的瀏覽器操作建好的頁面,伺服器用暫時的資料夾:從空專案開始取名字、加攝影機、打開每一頁,並檢查英文頁面沒有沒翻到的文字。
 
 
 ## 已知限制
