@@ -79,7 +79,11 @@ _cache = {}
 
 
 def _read(p, default):
-    m = os.path.getmtime(p) if os.path.exists(p) else 0
+    try:                                               # time and size: a file rewritten within the clock's step still shows
+        st = os.stat(p)
+        m = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        m = 0
     hit = _cache.get(p)
     if hit and hit[0] == m:
         return hit[1]

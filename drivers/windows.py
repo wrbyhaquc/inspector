@@ -15,7 +15,7 @@ from PIL import Image
 _u = ctypes.windll.user32 if hasattr(ctypes, "windll") else None
 _g = ctypes.windll.gdi32 if hasattr(ctypes, "windll") else None
 _k = ctypes.windll.kernel32 if hasattr(ctypes, "windll") else None
-_ENUM = ctypes.WINFUNCTYPE(ctypes.c_bool, W.HWND, W.LPARAM)
+_ENUM = ctypes.WINFUNCTYPE(ctypes.c_bool, W.HWND, W.LPARAM) if hasattr(ctypes, "WINFUNCTYPE") else None   # Windows only
 PW_CLIENTONLY, PW_RENDERFULLCONTENT = 1, 2
 
 
