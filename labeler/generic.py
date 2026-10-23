@@ -13,6 +13,8 @@
                the state-definition page (references whose value is the character: 0-9 . , / % - :). The text
                becomes a number: params.part = "all" (the whole, commas dropped) | "left" / "right" (of a "/", e.g.
                "1250/2000"). A character that looks like none of them (score < params.match_min) -> undecided.
+               A mark much shorter than the digits is told by its place and shape, untaught (small_char()): "." at
+               the bottom of the line, "," reaching below it, "-" across the middle; any other one is a speck.
 
   bar          how full a bar is (a "ratio" state: a progress bar, a water level, a battery): the region is the whole bar,
                from where it starts filling (0%) to where it is full (100%). params.dir = the way it fills: "right"
@@ -154,15 +156,18 @@ def glyphs(img, box, colors, min_h=3):
         while j < w and cols[j]:
             j += 1
         rows = np.nonzero(m[:, i:j].any(axis=1))[0]
-        if len(rows) and rows[-1] - rows[0] + 1 >= min_h:
+        if len(rows) and (rows[-1] - rows[0] + 1 >= min_h or j - i >= 3 * min_h):     # a thin minus counts too
             y0, y1 = rows[0], rows[-1] + 1
             out.append(((x + i, x + j, y + y0, y + y1), m[y0:y1, i:j]))
         i = j
-    if out:                                       # specks of background much shorter than the text are not characters
-        tall = max(b[3] - b[2] for b, _x in out)
-        out = [g for g in out if (g[0][3] - g[0][2]) >= 0.5 * tall or g[1].sum() >= 0.3 * tall * tall]
-    if len(out) >= 3:                             # two characters touching: much wider than the others -> cut evenly
-        med = float(np.median([b[1] - b[0] for b, _x in out]))
+    if out:                                       # specks of background much shorter than the text are not characters,
+        tall = max(b[3] - b[2] for b, _x in out)  # but a point, a comma or a minus is (small_char())
+        line = text_line(out)
+        out = [g for g in out if (g[0][3] - g[0][2]) >= 0.5 * tall or g[1].sum() >= 0.3 * tall * tall
+               or small_char(g[0], line)]
+    full = [g for g in out if (g[0][3] - g[0][2]) >= 0.5 * max(b[3] - b[2] for b, _x in out)] if out else []
+    if len(full) >= 3:                            # two characters touching: much wider than the others -> cut evenly
+        med = float(np.median([b[1] - b[0] for b, _x in full]))     # (the full-height ones: a point is narrow)
         split = []
         for (x0, x1, y0, y1), m in out:
             k = int(round((x1 - x0) / med)) if med > 0 else 1
@@ -175,6 +180,43 @@ def glyphs(img, box, colors, min_h=3):
             else:
                 split.append(((x0, x1, y0, y1), m))
         out = split
+    return out
+
+
+def text_line(gs):
+    """(top, bottom) of the line of text: the span of its full-height characters."""
+    tall = max(b[3] - b[2] for b, _x in gs)
+    full = [b for b, _x in gs if (b[3] - b[2]) >= 0.5 * tall]
+    return min(b[2] for b in full), max(b[3] for b in full)
+
+
+def small_char(b, line):
+    """A mark much shorter than the digits, told by where it sits and its shape (no teaching needed): "." at the
+    bottom of the line, "," reaching below it, "-" across the middle; None = a speck (or a full-height character)."""
+    x0, x1, y0, y1 = b
+    top, bottom = line
+    tall = bottom - top
+    w, h = x1 - x0, y1 - y0
+    if tall <= 0 or h >= 0.5 * tall:
+        return None
+    mid = (y0 + y1) / 2
+    if w >= 1.5 * h and top + 0.3 * tall <= mid <= top + 0.75 * tall and w <= 0.9 * tall:
+        return "-"
+    if y0 >= top + 0.55 * tall and w <= 0.5 * tall and y1 >= bottom - 0.15 * tall:
+        return "," if y1 > bottom + 0.1 * tall and h > 1.3 * w else "."
+    return None
+
+
+def read_chars(img, gs, refs):
+    """[(character, score)] for glyphs(): a point, comma or minus by its place and shape, the rest by the taught
+    characters (read_glyph)."""
+    if not gs:
+        return []
+    line = text_line(gs)
+    out = []
+    for b, _x in gs:
+        c = small_char(b, line)
+        out.append((c, 1.0) if c else read_glyph(_glyph_rgb(img, b), refs))
     return out
 
 
@@ -238,8 +280,7 @@ def eval_digits(state, img, refs):
     box = _box(state, p.get("roi"))
     gs = glyphs(img, box, p.get("colors"))
     chars, scores = [], []
-    for b, _x in gs:
-        c, sc = read_glyph(_glyph_rgb(img, b), refs)
+    for c, sc in read_chars(img, gs, refs):
         chars.append(c or "?")
         scores.append(sc)
     text = "".join(chars)

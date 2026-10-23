@@ -449,7 +449,11 @@ python -m runtime.replaytest [--id <測試代號>]     # 全部通過時結束�
 python -m server --no-browser     # 後端 :8765
 cd web && npm run dev             # 前端 :5173(自動轉接 /api)
 cd web && npm run build           # 產生 web/dist,由後端直接提供
+pip install pytest && python -m pytest    # 自動測試(用暫時的資料夾:不會動到你的設定和方案包)
 ```
+
+測試涵蓋腳本規範(公開的 Schema 和程式一致、舊檔能升級)、翻譯(每段文字每種語言都有)、通用畫面規則,以及以前壞過的行為。
+每次推送,GitHub 都會在 Windows 和 Linux 上跑這些測試,並檢查、建置網頁介面(`.github/workflows/ci.yml`)。
 
 
 ## 已知限制

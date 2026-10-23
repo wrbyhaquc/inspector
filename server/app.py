@@ -1338,10 +1338,7 @@ def rule_glyphs(req: GlyphsReq):
     from labeler import generic
     img, gs = _glyphs_of(req.state, req.frame)
     refs = generic.load_templates(DATA_ROOT, req.state)
-    out = []
-    for b, _x in gs:
-        c, sc = generic.read_glyph(generic._glyph_rgb(img, b), refs)
-        out.append({"box": [int(v) for v in b], "char": c, "score": sc})
+    out = [{"box": [int(v) for v in b], "char": c, "score": sc} for (b, _x), (c, sc) in zip(gs, generic.read_chars(img, gs, refs))]
     v, info = generic.eval_digits(req.state, img, refs)
     return {"glyphs": out, "text": info["text"], "value": v, "taught": len(refs)}
 

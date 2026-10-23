@@ -22,7 +22,8 @@ Kept where it runs (<runtime dir>/sources.json): the same project can run on ano
             {"to": "none"}                 only watch: steps that act are refused when a script is saved
 
 Nothing found is used until someone ticks it (a new source is announced once). The first time (no sources.json) the
-devices running now and the ones the project already refers to are taken as they are (id = their name).
+sources the project declares (project.json "sources") and the devices it already refers to (scripts' deployment,
+schedules, the panel) are taken as they are (id = their name); others running on this computer are only found.
 
 Sources(...) is the driver the rest of the platform talks to (drivers.current()): list / capture / input /
 watch_touch by id, over every kind that is on."""
@@ -145,13 +146,9 @@ def load(root=None):
                                  "enabled": True, "added": now,
                                  "hand": {"to": "self" if "tap" in (getattr(kinds()[d["kind"]], "caps", ()) or ()) else "none"},
                                  **({"params": dict(d["params"])} if d.get("params") else {})})
-        names = set()
-        if not declared:                                  # an older project: what is found here is what it watches
-            try:
-                names = {d.name for d in kinds()[kind](old.get("params") or {}).list()}
-            except Exception:
-                pass
-        for n in sorted((names | _referenced(root or project.data_root())) - set(declared)):
+        # what else runs on this computer (every emulator, every window) is only found: the Sources page lists it to
+        # be picked - a new computer must not start using devices nobody chose
+        for n in sorted(_referenced(root or project.data_root()) - set(declared)):
             cfg["items"].append({"id": n, "kind": kind, "match": n, "name": "", "enabled": True, "added": now, "hand": {"to": "self"}})
         _write(cfg)
         return cfg

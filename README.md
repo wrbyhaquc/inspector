@@ -449,7 +449,12 @@ python -m runtime.replaytest [--id <test id>]     # exit code 0 when all pass
 python -m server --no-browser     # backend on :8765
 cd web && npm run dev             # frontend on :5173 (proxies /api)
 cd web && npm run build           # builds web/dist, served by the backend
+pip install pytest && python -m pytest    # the tests (a throwaway home: your settings and packs are not touched)
 ```
+
+The tests cover the script spec (the published schemas match the code, older files upgrade), the translations (every
+text in every language), the generic screen rules and behaviour that has broken before. GitHub runs them on Windows
+and Linux, with the web interface's type check and build, on every push (`.github/workflows/ci.yml`).
 
 
 ## Known limits
