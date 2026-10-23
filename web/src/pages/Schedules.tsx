@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { PageIntro } from '../components/PageIntro'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, type ArgValue, type Schedule, type ScheduleOverride, type ScheduleRunEntry } from '../api'
@@ -50,7 +51,7 @@ export default function Schedules() {
 
   return (
     <CondEnv.Provider value={{ info: info.data ?? null, devices }}>
-    <Page title={t('排程')} actions={<MoreButton onClick={() => setDay(true)}>{t('⚙ 每天 {p1} 重置', { p1: q.data?.day_start ?? '00:00' })}</MoreButton>} desc={t('時間到就在指定的{device}上執行一個子腳本(例如輪流處理清單裡的每一項)。每個排程每台每天只執行一次,可以重置;同時有好幾個到時間就依開始時間排隊。執行期間主腳本暫停,守門規則照常運作。', { device: words.device })}>
+    <Page title={t('排程')} intro={<PageIntro id="schedules" what={t('定時要做的事(例如每天餵食)放這裡,時間到就執行一個子腳本。')} start={t('按「+ 新增排程」,選時間、哪幾台和要執行的子腳本。')} ch={10} />} actions={<MoreButton onClick={() => setDay(true)}>{t('⚙ 每天 {p1} 重置', { p1: q.data?.day_start ?? '00:00' })}</MoreButton>} desc={t('時間到就在指定的{device}上執行一個子腳本(例如輪流處理清單裡的每一項)。每個排程每台每天只執行一次,可以重置;同時有好幾個到時間就依開始時間排隊。執行期間主腳本暫停,守門規則照常運作。', { device: words.device })}>
       <ErrorText error={q.error || save.error} />
       <Modal open={day} title={t('一天從幾點開始')} onClose={() => setDay(false)}>
         <p className="text-xs text-stone-600">{t('每個排程「今天跑過了」的紀錄在這個時間歸零(例如 App 的每日重置);排程的時間也以它為一天的開始。')}</p>

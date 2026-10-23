@@ -139,7 +139,7 @@ def _layout():
             save({**DEFAULT, "id": pid}, design)
         if not os.path.exists(os.path.join(pack, "pack.json")):      # a pack begun here: its pack.json too
             from . import manifest
-            manifest.write(pack, manifest.stamp({"id": pid, "name": _(DEFAULT["name"]), "plugin": None}, design))
+            manifest.write(pack, manifest.stamp({"id": pid, "name": _(DEFAULT["name"]), "plugin": None}))   # its design: this spec
         work = os.path.join(os.environ.get("INSPECTOR_WORK") or machine().get("work") or os.path.join(home, "work"), pid)
         os.makedirs(work, exist_ok=True)
     else:

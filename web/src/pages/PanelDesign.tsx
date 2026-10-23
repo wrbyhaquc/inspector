@@ -1,4 +1,5 @@
 import { t } from '../i18n'
+import { PageIntro } from '../components/PageIntro'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api, type PanelBlock, type PanelChatPreview, type PanelControl, type PanelDefinition, type PanelWidget, type SettingDecl } from '../api'
@@ -37,7 +38,7 @@ export default function PanelDesign() {
   }
 
   return (
-    <Page title={t('操作面板設計')} desc={t('給使用者(長輩、現場人員)的操作面板:用區塊整理「一件事」的開關和設定,每一項接到底層的排程或腳本。使用者只看得到這裡放的東西。')}>
+    <Page title={t('操作面板設計')} intro={<PageIntro id="panel-design" what={t('現場的人只看操作面板:現在怎樣、幾個按鈕、幾個設定;這頁決定面板上有什麼。')} start={t('加一個區塊,放進監看元件(狀態、數值)和開關,接到排程或腳本。')} ch={11} />} desc={t('給使用者(長輩、現場人員)的操作面板:用區塊整理「一件事」的開關和設定,每一項接到底層的排程或腳本。使用者只看得到這裡放的東西。')}>
       <div className="sticky top-0 z-20 -mx-6 px-6 py-3 bg-stone-50/95 backdrop-blur border-b border-stone-200 flex flex-wrap items-center gap-2">
         <input className={`${input} w-64 font-medium`} value={p.title} onChange={e => edit(x => { x.title = e.target.value })} />
         <span className="flex-1" />

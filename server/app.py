@@ -416,6 +416,39 @@ from automation import outputs as outputs_mod   # noqa: E402
 from runtime.judge import MIN_ANSWERS, MIN_PER_CLASS   # noqa: E402  (same bar as the model test)
 
 
+@app.get("/api/getting_started")
+def getting_started():
+    """The first-steps route on Home: which of its stops are done, judged from what the project already has."""
+    import automation
+    from automation import buttons as buttons_mod, outputs, subs as subs_mod
+    from drivers import sources
+    import schema as schema_mod
+    from . import review
+    from . import panel as pm
+    done = {}
+    done["project"] = project.load(DATA_ROOT).get("name") not in (None, "", project.DEFAULT["name"], _(project.DEFAULT["name"]))
+    try:
+        done["sources"] = any(it.get("enabled") for it in sources.load(DATA_ROOT)["items"])
+    except Exception:                                   # noqa: BLE001 - no sources yet
+        done["sources"] = False
+    done["record"] = bool(data.sessions())
+    try:
+        done["states"] = bool(schema_mod.load(DATA_ROOT).get("states"))
+    except (OSError, ValueError, KeyError):
+        done["states"] = False
+    done["answer"] = len(review.test_decisions()) >= 20
+    scripts = automation.load_all(DATA_ROOT)
+    done["actions"] = bool(outputs.load(DATA_ROOT) or buttons_mod.load(DATA_ROOT) or subs_mod.load_all(DATA_ROOT))
+    done["scripts"] = any(sit.get("rules") for sc in scripts for sit in sc.get("situations") or [])
+    done["run"] = os.path.exists(os.path.join(RUNTIME_DIR, RUNNER_LAST)) and any(
+        "live" in (sc.get("devices") or {}).values() for sc in scripts)
+    done["panel"] = bool(pm.load(DATA_ROOT).get("blocks"))
+    rel = os.path.join(project.data_home() or "", "releases")
+    done["export"] = bool(project.data_home()) and os.path.isdir(rel) and any(
+        f.startswith(project.active_pack() + "-") and f.endswith(".zip") for f in os.listdir(rel))
+    return {"done": done}
+
+
 @app.get("/api/next_steps")
 def next_steps():
     """The home page's to-do list: what a user should do next, in plain words, each with a link.
@@ -2910,12 +2943,47 @@ def system_restart():
     return {"ok": True}
 
 
+class ProjectSettings(BaseModel):
+    name: str
+    description: str = ""
+    words: dict = {}
+
+
+@app.post("/api/project/settings")
+def project_settings(req: ProjectSettings):
+    """The project's name, description and words (what a device / an item is called here); the pack's name and
+    description follow (a Studio: a Runtime keeps the design as installed)."""
+    from project import manifest
+    name = req.name.strip()
+    if not name or len(name) > 60:
+        _bad(_("專案名稱要 1~60 個字"))
+    p = _read_json(os.path.join(DATA_ROOT, project.FILE), {}) or dict(project.DEFAULT)
+    words = {**(p.get("words") or {})}
+    for k in ("device", "item"):
+        v = str(req.words.get(k) or "").strip()
+        if len(v) > 20:
+            _bad(_("用語最多 20 個字"))
+        if v:
+            words[k] = v
+    p.update({"name": name, "description": req.description.strip()[:500], "words": words})
+    try:
+        project.save({**project.load(DATA_ROOT), **p}, DATA_ROOT)
+    except ValueError as e:
+        _bad(e)
+    if project.pack_dir():                              # the pack is called what the project is
+        info = manifest.read(project.pack_dir()) or {}
+        manifest.write(project.pack_dir(), {**info, "name": name, "description": p["description"]})
+    return project_get()
+
+
 @app.get("/api/project")
 def project_get():
     """The project: its name, coordinate space, words (the pages read it once when they open)."""
     from project.plugins import registry, ui
     p = project.load(DATA_ROOT)
     reg = registry(DATA_ROOT)
+    if p["name"] == project.DEFAULT["name"]:            # not named yet: the default, in the page's language
+        p["name"] = _(p["name"])
     return {**{k: p[k] for k in ("id", "name", "description", "screen", "words")}, "plugins": reg.loaded, "ui": ui(reg),
             "edition": {"name": project.edition(), "training": _can_train() and project.edition() == "studio"},
             "run": project.run_defaults(DATA_ROOT), "pack": _pack_status()}

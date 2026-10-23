@@ -26,6 +26,8 @@ English · [繁體中文](README.zh-TW.md)
 
 <img src="https://raw.githubusercontent.com/wrbyhaquc/inspector-demo-farm/main/docs/panel.png" alt="The farm's operation panel: each camera with its own buttons" width="640">
 
+**Make one yourself**: [the tutorial](docs/tutorial.md) builds the fish pond from an empty project, one page at a time, with a screenshot for every step. Home's "First steps" card follows the same route and shows where you are on it.
+
 The platform knows nothing about any particular app, device or scene. What to watch, how to judge it and what to do are all settings of a **project**.
 Abilities a scene needs beyond that (its own screen rules, extra data sources, other kinds of devices) come from the project's **plugins**, and the two are bundled together as a **pack**.
 

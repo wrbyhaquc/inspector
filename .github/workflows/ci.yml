@@ -27,7 +27,7 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libgl1 fonts-dejavu-core
       - name: "Install (the runtime edition: no PyTorch)"
-        run: pip install -r requirements-runtime.txt pytest
+        run: pip install -r requirements-runtime.txt pytest httpx
       - name: Tests
         run: python -m pytest -q
 

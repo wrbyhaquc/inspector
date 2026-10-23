@@ -1802,5 +1802,7 @@
  "和上一版 {v} 一模一樣": "Exactly the same as the last release {v}",
  "方案包只能在 Studio 匯出": "Packs are exported from a Studio only",
  "版本要比上一版 {v} 新": "The version must be newer than the last release {v}",
- "找不到這個發行版": "No such release"
+ "找不到這個發行版": "No such release",
+ "專案名稱要 1~60 個字": "The project name needs 1-60 characters",
+ "用語最多 20 個字": "A word can be at most 20 characters"
 }

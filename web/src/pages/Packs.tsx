@@ -1,4 +1,5 @@
 import { t } from '../i18n'
+import { PageIntro } from '../components/PageIntro'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { api, type PackDone, type PackExported } from '../api'
@@ -34,7 +35,7 @@ export default function Packs() {
   const d = q.data
 
   return (
-    <Page title={t('方案包')} desc={edition.name === 'runtime'
+    <Page title={t('方案包')} intro={<PageIntro id="packs" what={t('做好的設計打包成方案包,裝到別台電腦(執行版)上執行。')} start={t('在「匯出發行版」填版本號,檢查沒問題就匯出。')} ch={12} />} desc={edition.name === 'runtime'
       ? t('這台是執行版:安裝別人做好的方案包、升級成新版本,或切換要執行哪一個。設計只能在 Studio 修改。')
       : t('這台電腦裝了哪些方案包、正在執行哪一個。執行中的方案包可以在下面「匯出發行版」做成發行版給別人安裝(也可以用 python -m project.pack export)。')}>
       <ErrorText error={q.error} />

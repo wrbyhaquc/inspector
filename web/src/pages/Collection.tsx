@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { PageIntro } from '../components/PageIntro'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, type LiveDevice } from '../api'
@@ -75,7 +76,7 @@ export default function Collection() {
   const stop = useMutation({ mutationFn: api.collectorStop, onSuccess: () => qc.invalidateQueries({ queryKey: ['collector'] }) })
 
   return (
-    <Page title={t('錄製')} desc={<>{t('錄製截圖與觸控,以及專案外掛另外記錄的資料;關掉介面不會中斷錄製。錄的是')} <Link to="/sources" className="underline">{t('來源')}</Link> {t('頁勾選「使用」的{device}。', { device: words.device })}</>}
+    <Page title={t('錄製')} intro={<PageIntro id="collect" what={t('錄下來的畫面用來定義狀態、檢查判斷、訓練模型;錄得越完整,判斷越準。')} start={t('設好分鐘數按「開始錄製」,錄的時候讓畫面出現每一種狀況。')} ch={3} />} desc={<>{t('錄製截圖與觸控,以及專案外掛另外記錄的資料;關掉介面不會中斷錄製。錄的是')} <Link to="/sources" className="underline">{t('來源')}</Link> {t('頁勾選「使用」的{device}。', { device: words.device })}</>}
       actions={running
         ? <Button variant="danger" onClick={() => stop.mutate()} disabled={stop.isPending}>{stop.isPending ? t('停止中…') : t('停止錄製')}</Button>
         : <Button variant="primary" onClick={() => start.mutate()} disabled={start.isPending || nothingSelected}
@@ -147,7 +148,7 @@ export default function Collection() {
                         const cur = only ?? devs.data!.map(x => x.name)
                         setOnly(on ? cur.filter(n => n !== d.name) : [...cur, d.name])
                       }} />
-                      {d.name}
+                      {dn(d.name)}
                       {!d.ok && <Pill tone="amber" title={d.detail}>{t('無法使用')}</Pill>}
                     </label>
                   )

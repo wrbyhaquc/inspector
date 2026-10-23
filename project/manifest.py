@@ -132,7 +132,7 @@ def check(d, folder=None):
         design = os.path.join(folder, "design")
         if os.path.isdir(design):
             top = design_spec(design)
-            if isinstance(s, int) and top > s:
+            if isinstance(s, int) and 0 < s < top:                     # 0: a new pack's, before its design had files
                 out.append(("warn", _("設計裡有用腳本規範 v{top} 寫的檔案,pack.json 寫的是 v{s}", top=top, s=s)))
     return out
 

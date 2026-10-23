@@ -1,4 +1,5 @@
 import { locale, t } from '../i18n'
+import { PageIntro } from '../components/PageIntro'
 import { MachineLanguage } from '../components/LangPicker'
 import { AskBar } from '../components/AskBar'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -69,7 +70,7 @@ export default function Shadow() {
   const asks = useQuery({ queryKey: ['asks'], queryFn: api.asks, refetchInterval: 2000, enabled: running })
 
   return (
-    <Page title={t('執行')} desc={t('模型即時看著每台{device},依腳本的規則決定要做什麼。「部署」決定哪台跑哪個腳本;要它先別動,按「停下來」或「暫停」。', { device: words.device })}
+    <Page title={t('執行')} intro={<PageIntro id="script" what={t('腳本在這裡實際跑起來;先試跑看它會做什麼,沒問題再正式執行。')} start={t('按「部署」選哪台跑哪個腳本,按「開始」;點「詳細」看每一步怎麼判斷。')} ch={9} />} desc={t('模型即時看著每台{device},依腳本的規則決定要做什麼。「部署」決定哪台跑哪個腳本;要它先別動,按「停下來」或「暫停」。', { device: words.device })}
       actions={<>
         <MoreButton onClick={() => setDrawer('notify')}>{t('🔔 通知與 Bot')}</MoreButton>
         <MoreButton onClick={() => setDrawer('settings')}>{t('⚙ 執行設定')}</MoreButton>
@@ -568,7 +569,7 @@ function DeviceCard({ d, states, v, live, stops = [], hold }: {
   const act = useMutation({ mutationFn: (kind: 'stop' | 'pause' | 'resume') => api.shadowAct({ device: d.name, kind, mode: kind === 'stop' ? 'stop' : undefined }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['shadow'] }) })
   const resumeOne = () => {
-    if (d.cause_now && !confirm(t('{name}:{p2}\n原因還在畫面上,繼續後會馬上再停下來。還是要繼續嗎?', { name: d.name, p2: hold?.why ?? '' }))) return
+    if (d.cause_now && !confirm(t('{name}:{p2}\n原因還在畫面上,繼續後會馬上再停下來。還是要繼續嗎?', { name: dn(d.name), p2: hold?.why ?? '' }))) return
     act.mutate('resume')
   }
   const st = d.state
@@ -626,7 +627,7 @@ function DeviceCard({ d, states, v, live, stops = [], hold }: {
         {live && <div className="flex flex-wrap items-center gap-2">
           {hold ? null : <>
             <Button disabled={act.isPending} onClick={() => act.mutate('pause')} title={t('腳本、情境和正在做的事都停在原地,按「繼續」從同一步接著做')}>{t('⏸ 暫停')}</Button>
-            <Button variant="danger" disabled={act.isPending} onClick={() => { if (confirm(t('{name} 停下來?正在做的事會取消(先做收尾),腳本和情境都停住,按「繼續」後從頭開始。', { name: d.name }))) act.mutate('stop') }}>{t('🛑 停下來')}</Button>
+            <Button variant="danger" disabled={act.isPending} onClick={() => { if (confirm(t('{name} 停下來?正在做的事會取消(先做收尾),腳本和情境都停住,按「繼續」後從頭開始。', { name: dn(d.name) }))) act.mutate('stop') }}>{t('🛑 停下來')}</Button>
           </>}
           <MoreButton onClick={() => setWin('acts')} title={t('立即執行排程、切換情境、執行子腳本')}>{t('⚡ 操作…')}</MoreButton>
           <span className="flex-1" />
@@ -641,10 +642,10 @@ function DeviceCard({ d, states, v, live, stops = [], hold }: {
             title={t('把這一刻的畫面存下來,之後回答正確答案,成為測試資料')}>{t('判斷錯了')}</Button>
           {flagged && Date.now() - flagged < 5000 && <span className="text-xs text-emerald-700">{t('已存下這張畫面,可以在「紀錄 › 標記的畫面」回答')}</span>}
         </div>
-        <Modal open={win === 'acts'} title={t('操作 {name}', { name: d.name })} onClose={() => setWin(null)}>
+        <Modal open={win === 'acts'} title={t('操作 {name}', { name: dn(d.name) })} onClose={() => setWin(null)}>
           <DeviceActions device={d.name} proc={d.proc} hold={hold ?? null} bare />
         </Modal>
-        <Modal open={win === 'more'} wide title={t('{name} 的詳細判斷', { name: d.name })} onClose={() => setWin(null)}>
+        <Modal open={win === 'more'} wide title={t('{name} 的詳細判斷', { name: dn(d.name) })} onClose={() => setWin(null)}>
           <div className="text-xs font-semibold text-stone-600">{t('每個腳本的判斷(含守門規則)')}</div>
           {d.decisions.map(dec => <DecisionBox key={dec.script} dec={dec} d={d} v={v} />)}
         {st && (
@@ -707,7 +708,7 @@ function History() {
               {rows.map((r, i) => (
                 <tr key={i} className="border-t border-stone-100 align-top">
                   <td className="py-1 pr-2 text-xs text-stone-500 num whitespace-nowrap">{clock(r.t)}</td>
-                  <td className="pr-2 text-xs whitespace-nowrap">{r.device}<div className="text-stone-400">{r.script_name}</div></td>
+                  <td className="pr-2 text-xs whitespace-nowrap">{dn(r.device)}<div className="text-stone-400">{r.script_name}</div></td>
                   <td className="pr-2 whitespace-nowrap">{r.action === 'alert' ? <span className={r.level === 'warn' ? 'text-rose-700' : ''}>{t('通知')}</span>
                     : r.executed ? <span className="text-rose-700 font-semibold">{t('▶ 已{text}', { text: r.text })}</span>
                     : r.tap || r.action === 'call' ? <span className="text-amber-800 font-medium">{t('會{text}', { text: r.text })}</span> : r.text}</td>
@@ -778,7 +779,7 @@ function FlagItem({ r, states }: { r: ShadowFlag; states: StateDef[] }) {
       <div className="flex gap-3">
         <a href={imageUrl(r.frame)} target="_blank" rel="noreferrer"><img src={imageUrl(r.frame, 320)} alt="" className="w-56 rounded" /></a>
         <div className="text-xs flex flex-col gap-1">
-          <div className="font-medium">{r.device} · {clock(r.t)}</div>
+          <div className="font-medium">{dn(r.device)} · {clock(r.t)}</div>
           <div className="text-stone-600">{t('模型:{p1}', { p1: Object.entries(r.pred).slice(0, 4).map(([k, v]) => {
             const n = valueName(states, k, v); return `${n.state} ${n.name}`
           }).join(t('、')) })}</div>
@@ -839,7 +840,7 @@ function Incidents({ states }: { states: StateDef[] }) {
               className={`text-left rounded-lg border bg-white px-3 py-2 ${cur === x.id ? 'border-stone-900 ring-2 ring-stone-900/10' : 'border-stone-200 hover:border-stone-400'}`}>
               <div className="flex items-center gap-2 text-sm">
                 <span className={`text-[11px] px-1.5 rounded ${tone}`}>{st}</span>
-                <span className="font-medium">{x.device}</span>
+                <span className="font-medium">{dn(x.device)}</span>
                 <span className="text-xs text-stone-500 num ml-auto">{dateTime(x.start)}</span>
               </div>
               <div className="text-sm truncate">{x.triggers.map(tx => tx.rule_name).join(t('、'))}</div>
@@ -872,7 +873,7 @@ function IncidentView({ id, states }: { id: string; states: StateDef[] }) {
   const [st, tone] = INC_STATUS[d.status] ?? [d.status, '']
   return (
     <div className="flex flex-col gap-4 min-w-0">
-      <Card title={<span className="flex items-center gap-2"><span className={`text-xs px-1.5 rounded ${tone}`}>{st}</span>{d.device}:{d.triggers.map(tx => tx.rule_name).join(t('、'))}</span>}
+      <Card title={<span className="flex items-center gap-2"><span className={`text-xs px-1.5 rounded ${tone}`}>{st}</span>{dn(d.device)}:{d.triggers.map(tx => tx.rule_name).join(t('、'))}</span>}
         extra={<span className="text-xs text-stone-500 num">{t('{p1} 起 ·', { p1: dateTime(d.start) })} {d.end ? t('持續 {p1}', { p1: duration(d.end - d.start) }) : t('還在追蹤')}</span>}>
         <div className="flex flex-col gap-3">
           <div className="text-xs text-stone-600 flex flex-col gap-0.5">

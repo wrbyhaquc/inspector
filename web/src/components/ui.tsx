@@ -2,7 +2,7 @@ import { t } from '../i18n'
 import { useEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
-export function Page({ title, desc, actions, children }: { title: string; desc?: ReactNode; actions?: ReactNode; children: ReactNode }) {
+export function Page({ title, desc, actions, intro, children }: { title: string; desc?: ReactNode; actions?: ReactNode; intro?: ReactNode; children: ReactNode }) {
   return (
     <div className="p-6 max-w-[1400px] mx-auto flex flex-col gap-5">
       <header className="flex items-end justify-between gap-4 flex-wrap">
@@ -12,6 +12,7 @@ export function Page({ title, desc, actions, children }: { title: string; desc?:
         </div>
         {actions && <div className="flex items-center gap-2">{actions}</div>}
       </header>
+      {intro}
       {children}
     </div>
   )

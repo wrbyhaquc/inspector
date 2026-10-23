@@ -1,4 +1,5 @@
 import { t } from '../i18n'
+import { PageIntro } from '../components/PageIntro'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -27,7 +28,7 @@ export default function Library() {
     ['buttons', t('按鈕({p1})', { p1: info ? info.buttons.filter(b => !perDeviceItem(info, b) && !b.list).length : 0 })],
     ['lists', t('清單({p1})', { p1: info?.lists.length ?? 0 })], ['vars', t('變數({p1})', { p1: info?.variables.length ?? 0 })], ['settings', t('使用者設定({p1})', { p1: info?.settings.length ?? 0 })], ['outputs', t('輸出({p1})', { p1: info?.outputs.length ?? 0 })], ['share', t('分享子腳本')], ['templates', t('範本({p1})', { p1: info?.templates.length ?? 0 })]]
   return (
-    <Page title={t('素材庫')} desc={t('腳本共用的零件。按鈕:取好名字的點擊位置(可以找圖示再點);變數:計數器、上次時間;範本:做好的腳本,改一改就能用。')}>
+    <Page title={t('素材庫')} intro={<PageIntro id="library" what={t('腳本動手時用的零件:畫面上的按鈕位置、控制設備的輸出、計數用的變數。')} start={t('要點畫面就新增「按鈕」;要控制設備(網址、MQTT…)就新增「輸出」,存好後按「測試」。')} ch={6} />} desc={t('腳本共用的零件。按鈕:取好名字的點擊位置(可以找圖示再點);變數:計數器、上次時間;範本:做好的腳本,改一改就能用。')}>
       <ErrorText error={q.error} />
       <div className="flex border-b border-stone-200 gap-1">
         {tabs.map(([k, tx]) => (

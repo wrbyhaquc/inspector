@@ -524,6 +524,8 @@ export interface PackExportCheck {
   checks: { level: 'error' | 'warn' | 'ok' | 'info'; text: string }[]
   changes: { added: string[]; removed: string[]; changed: string[] } | null
 }
+/** project.json as the pages see it: what it is called, its coordinate space and words */
+export interface ProjectSettings { id: string; name: string; description: string; screen: { width: number; height: number }; words: Record<string, string> }
 export interface PackExported { file: string; size: number; messages: string[] }
 
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
@@ -548,6 +550,9 @@ export const api = {
   language: () => req<{ machine: string; available: string[]; names: Record<string, string> }>('GET', '/api/language'),
   languageSet: (machine: string) => req<{ machine: string; available: string[]; names: Record<string, string> }>('POST', '/api/language', { machine }),
   overview: () => req<Overview>('GET', '/api/overview'),
+  projectGet: () => req<ProjectSettings>('GET', '/api/project'),
+  gettingStarted: () => req<{ done: Record<string, boolean> }>('GET', '/api/getting_started'),
+  projectSettingsSave: (b: { name: string; description: string; words: Record<string, string> }) => req<ProjectSettings>('POST', '/api/project/settings', b),
   packs: () => req<PacksInfo>('GET', '/api/packs'),
   /** the zip itself is the body */
   packInstall: async (file: File, o: { force?: boolean; activate?: boolean }) => {

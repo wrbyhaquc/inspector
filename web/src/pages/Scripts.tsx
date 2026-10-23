@@ -1,4 +1,5 @@
 import { t } from '../i18n'
+import { PageIntro } from '../components/PageIntro'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Fragment, createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
@@ -88,7 +89,7 @@ export default function Scripts() {
 
   return (
     <CondEnv.Provider value={{ info: info ?? null, devices: deviceNames, states }}>
-    <Page title={t('腳本')} desc={t('主腳本常駐執行,用「如果…就…」的規則決定要做什麼;多步驟的動作寫成子腳本,任何主腳本或子腳本都能呼叫(像函式一樣,可以帶參數)。同一台{device}同一時間只有一個腳本在操作,上面的主腳本優先。', { device: words.device })}>
+    <Page title={t('腳本')} intro={<PageIntro id="scripts" what={t('子腳本是一件一件的動作;主腳本一直看著狀態,第一條成立的規則就做它的步驟。')} start={t('先新增子腳本把動作寫好,再新增主腳本,加規則:如果…就依序做…')} ch={8} />} desc={t('主腳本常駐執行,用「如果…就…」的規則決定要做什麼;多步驟的動作寫成子腳本,任何主腳本或子腳本都能呼叫(像函式一樣,可以帶參數)。同一台{device}同一時間只有一個腳本在操作,上面的主腳本優先。', { device: words.device })}>
       <ErrorText error={q.error || order.error} />
       <div className="grid grid-cols-[260px_1fr] gap-4 items-start">
         <div className="flex flex-col gap-3 sticky top-3 max-h-[calc(100vh-1.5rem)] overflow-auto">

@@ -1,12 +1,14 @@
 import { t } from '../i18n'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, type NextStep } from '../api'
-import { Card, Empty, ErrorText, JobStatus, Page, Share, Stat } from '../components/ui'
+import { Button, Card, Empty, ErrorText, JobStatus, Page, Share, Stat } from '../components/ui'
 import { bytes, dateTime, pct, sessionTime } from '../lib/format'
 import { useSchema } from '../lib/schema'
 import { dn } from '../lib/sources'
 import { edition } from '../lib/project'
+import { tutorialLink } from '../lib/tutorial'
 
 const BAR: Record<string, string> = { green: 'bg-emerald-500', red: 'bg-rose-500', blue: 'bg-sky-500', amber: 'bg-amber-500', violet: 'bg-violet-500', stone: 'bg-stone-400' }
 
@@ -95,6 +97,103 @@ export default function Overview() {
   return <StudioOverview />
 }
 
+// the first-steps route: from an empty project to a pack, one stop per part of the platform (the tutorial's chapters)
+const STOPS: { id: string; title: string; why: string; how: string; to: string; ch: number }[] = [
+  { id: 'project', title: t('替專案取名字'), why: t('方案包和每一頁都用這個名字;「一台叫做」決定頁面怎麼稱呼一個畫面來源。'),
+    how: t('在下面的「專案」卡片填名稱和說明,按「儲存」。'), to: '/', ch: 1 },
+  { id: 'sources', title: t('接上畫面來源'), why: t('平台看的就是這些畫面:模擬器、手機、視窗、螢幕、攝影機或錄影檔。'),
+    how: t('「來源 › + 加入來源」:掃描這台電腦,或用位址加入攝影機。'), to: '/sources', ch: 2 },
+  { id: 'record', title: t('錄一段畫面'), why: t('定義狀態時拿來試規則、檢查準不準;錄到的畫面要涵蓋每一種狀況。'),
+    how: t('「錄製」:設好分鐘數按「開始錄製」,同時讓畫面出現各種狀況。'), to: '/collect', ch: 3 },
+  { id: 'states', title: t('定義要看的狀態'), why: t('狀態是腳本要問的事,例如「門開了沒」「水位多高」。'),
+    how: t('「要看的狀態 › + 新增狀態」:框出範圍、選畫面規則,用錄好的畫面檢查。'), to: '/states', ch: 4 },
+  { id: 'answer', title: t('回答問題'), why: t('用你的答案檢查判斷準不準;要訓練模型時,也是用這些答案。'),
+    how: t('「回答問題」:每個狀態答 20~30 題(按 1、2…)。'), to: '/review', ch: 5 },
+  { id: 'actions', title: t('準備動作'), why: t('腳本怎麼動手:點擊畫面上的位置,或透過輸出控制設備;寫成子腳本重複使用。'),
+    how: t('「素材庫」新增按鈕或輸出,再到「腳本」新增子腳本。'), to: '/library', ch: 6 },
+  { id: 'scripts', title: t('寫主腳本'), why: t('主腳本一直看著狀態,第一條成立的規則就做它的步驟。'),
+    how: t('「腳本 › + 新增主腳本」,加規則:如果…就依序做…'), to: '/scripts', ch: 8 },
+  { id: 'run', title: t('開始執行'), why: t('先試跑,看它會做什麼;沒問題再改成正式執行。'),
+    how: t('「執行 › 部署」選正式執行,按「開始」,用「詳細」看它怎麼判斷。'), to: '/script', ch: 9 },
+  { id: 'panel', title: t('設計操作面板'), why: t('現場的人看這一頁:現在怎樣、幾個按鈕、幾個設定。'),
+    how: t('「操作面板設計」:加區塊和監看元件。'), to: '/panel-design', ch: 11 },
+  { id: 'export', title: t('匯出方案包'), why: t('做成一個發行版,裝到別台電腦執行(執行版就夠)。'),
+    how: t('「方案包 › 匯出發行版」。'), to: '/packs', ch: 12 },
+]
+const ROUTE_KEY = 'inspector.route.open'
+
+/** From an empty project to a pack: where you are on the way, what each stop is for, and the tutorial's chapter. */
+function GettingStarted() {
+  const q = useQuery({ queryKey: ['gettingStarted'], queryFn: api.gettingStarted, refetchInterval: 15000 })
+  const done = q.data?.done ?? {}
+  const n = STOPS.filter(s => done[s.id]).length
+  const next = STOPS.find(s => !done[s.id])
+  const [open, setOpen] = useState(() => { try { return localStorage.getItem(ROUTE_KEY) !== '0' } catch { return true } })
+  const toggle = () => { const v = !open; try { localStorage.setItem(ROUTE_KEY, v ? '1' : '0') } catch { /* this page only */ } ; setOpen(v) }
+  if (!q.data) return null
+  return (
+    <Card title={t('入門路線')} extra={<span className="flex items-center gap-3 text-xs text-stone-500">
+      <span className="num">{t('完成 {n} / {total}', { n, total: STOPS.length })}</span>
+      <a className="text-sky-700 underline" href={tutorialLink()} target="_blank" rel="noreferrer">{t('完整教學 ↗')}</a>
+      <button className="text-stone-600 hover:text-stone-900" onClick={toggle}>{open ? t('收起 ▴') : t('展開 ▾')}</button></span>}>
+      {!open ? <div className="text-sm text-stone-600">{next ? t('下一站:{title}', { title: next.title }) : t('入門路線都完成了。')}</div> : (
+        <ol className="flex flex-col gap-1">
+          {STOPS.map((s, i) => {
+            const ok = !!done[s.id], here = s === next
+            return (
+              <li key={s.id} className={`rounded-lg px-3 py-2 flex gap-3 items-start ${here ? 'bg-amber-50 border border-amber-200' : ''}`}>
+                <span className={`mt-0.5 w-6 h-6 shrink-0 rounded-full grid place-items-center text-xs font-bold ${ok ? 'bg-emerald-600 text-white' : here ? 'bg-amber-500 text-stone-900' : 'bg-stone-200 text-stone-600'}`}>{ok ? '✓' : i + 1}</span>
+                <div className="flex-1 min-w-0">
+                  <div className={`font-medium ${ok ? 'text-stone-500' : 'text-stone-900'}`}>{s.title}{here && <span className="ml-2 text-xs text-amber-700">{t('下一站')}</span>}</div>
+                  {(here || !ok) && <div className="text-sm text-stone-600">{s.why}</div>}
+                  {here && <div className="text-sm text-stone-800 mt-0.5">{s.how}</div>}
+                </div>
+                <span className="flex gap-3 text-sm shrink-0">
+                  {s.to !== '/' && <Link to={s.to} className={here ? 'text-amber-800 font-medium' : 'text-stone-500 hover:text-stone-900'}>{t('去做 →')}</Link>}
+                  <a href={tutorialLink(s.ch)} target="_blank" rel="noreferrer" className="text-stone-500 hover:text-stone-900">{t('教學')}</a>
+                </span>
+              </li>
+            )
+          })}
+        </ol>
+      )}
+    </Card>
+  )
+}
+
+/** What this project is called and what it calls things: the pack (and every page) goes by these. */
+function ProjectCard() {
+  const q = useQuery({ queryKey: ['project'], queryFn: api.projectGet })
+  const [f, setF] = useState<{ name: string; description: string; device: string; item: string } | null>(null)
+  const p = q.data
+  const v = f ?? (p ? { name: p.name, description: p.description ?? '', device: p.words.device ?? '', item: p.words.item ?? '' } : null)
+  const save = useMutation({
+    mutationFn: () => api.projectSettingsSave({ name: v!.name, description: v!.description, words: { device: v!.device, item: v!.item } }),
+    onSuccess: () => window.location.reload(),          // the words are read once, when the pages open
+  })
+  if (!p || !v) return null
+  const input = 'border border-stone-300 rounded-md px-2 py-1 text-sm'
+  return (
+    <Card title={t('專案')} extra={<span className="text-xs text-stone-500 num">{t('畫面座標 {w}×{h}', { w: p.screen.width, h: p.screen.height })}</span>}>
+      <div className="grid md:grid-cols-[auto_1fr_auto_1fr] gap-x-3 gap-y-2 items-center text-sm">
+        <span className="text-stone-600">{t('名稱')}</span>
+        <input className={`${input} md:col-span-3`} value={v.name} onChange={e => setF({ ...v, name: e.target.value })} />
+        <span className="text-stone-600">{t('說明')}</span>
+        <input className={`${input} md:col-span-3`} value={v.description} placeholder={t('一句話:看什麼、做什麼')} onChange={e => setF({ ...v, description: e.target.value })} />
+        <span className="text-stone-600" title={t('頁面上怎麼稱呼一個畫面來源,例如「攝影機」「模擬器」')}>{t('一台叫做')}</span>
+        <input className={input} value={v.device} onChange={e => setF({ ...v, device: e.target.value })} />
+        <span className="text-stone-600" title={t('清單裡的一筆怎麼稱呼,例如「帳號」「魚池」')}>{t('一筆叫做')}</span>
+        <input className={input} value={v.item} onChange={e => setF({ ...v, item: e.target.value })} />
+      </div>
+      <div className="mt-3 flex items-center gap-3 flex-wrap">
+        <Button variant="primary" disabled={!f || !v.name.trim() || save.isPending} onClick={() => save.mutate()}>{t('儲存')}</Button>
+        <span className="text-xs text-stone-500">{t('方案包的名稱和說明也會跟著改。')}</span>
+      </div>
+      <ErrorText error={save.error} />
+    </Card>
+  )
+}
+
 function StudioOverview() {
   const q = useQuery({ queryKey: ['overview'], queryFn: api.overview, refetchInterval: 5000 })
   const o = q.data
@@ -107,7 +206,9 @@ function StudioOverview() {
   return (
     <Page title={t('下一步')} desc={t('平台整理出現在該做的事。照 ① 要看什麼 → ② 教它看懂 → ③ 自動化 的順序,點右邊的按鈕就會帶你到對應的頁面。')}>
       <ErrorText error={q.error} />
+      <GettingStarted />
       <NextStepsCard />
+      <ProjectCard />
       <h2 className="text-sm font-semibold text-stone-700 mt-2">{t('數字一覽')} {o && <span className="font-normal text-xs text-stone-500">{t('資料目錄')} <code>{o.data_root}</code></span>}</h2>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Stat label={t('錄製次數')} value={o?.sessions ?? '—'} sub={o ? t('觸控 {touches} 次', { touches: o.touches }) : undefined} />

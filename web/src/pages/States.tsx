@@ -1,4 +1,5 @@
 import { t } from '../i18n'
+import { PageIntro } from '../components/PageIntro'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -118,7 +119,7 @@ export default function States() {
   const cur = states[sel]
 
   return (
-    <Page title={t('要看的狀態')} desc={t('模型要辨識哪些狀態、每個狀態看畫面的哪個範圍、有哪些選項。標籤程式、人工確認、資料瀏覽的截圖與框線都依照這份定義。每次儲存都是一個新版本。')}
+    <Page title={t('要看的狀態')} intro={<PageIntro id="states" what={t('腳本要問的每一件事都在這裡定義:看畫面的哪裡、有哪些答案、用什麼規則判斷。')} start={t('按「+ 新增狀態」,框出範圍、選畫面規則,再用錄好的畫面「分析」或「在 24 張畫面上試量」。')} ch={4} />} desc={t('模型要辨識哪些狀態、每個狀態看畫面的哪個範圍、有哪些選項。標籤程式、人工確認、資料瀏覽的截圖與框線都依照這份定義。每次儲存都是一個新版本。')}
       actions={<>
         <MoreButton onClick={() => setVersions(true)}>{t('版本紀錄(目前 v{p1})', { p1: schema?.version ?? '–' })}</MoreButton>
         {dirty && <Button variant="ghost" onClick={() => setDraft(clone(schema!.states))}>{t('放棄修改')}</Button>}

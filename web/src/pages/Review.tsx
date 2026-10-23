@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { PageIntro } from '../components/PageIntro'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, browseLink, type AnswerValue, type Decision, type StateDef } from '../api'
@@ -24,7 +25,7 @@ export default function Review() {
   const galleries = (sch.data?.schema.states ?? []).filter(s => s.source.kind === 'gallery')
   const tab = galleries.some(g => g.id === saved) ? saved : 'labels'
   return (
-    <Page title={t('回答問題')} desc={tab === 'labels'
+    <Page title={t('回答問題')} intro={<PageIntro id="review" what={t('你的答案是標準答案:用來量判斷的準確率,也是訓練模型的資料。')} start={t('先選一個狀態,每題按數字鍵 1、2… 回答;每個狀態答 20~30 題就夠檢查了。')} ch={5} />} desc={tab === 'labels'
       ? t('逐張看畫面回答問題。題目由「要看的狀態」決定。這份答案是測試集,用來衡量自動標籤和之後模型的真實準確率。預設不顯示自動標籤,避免被影響。')
       : t('替畫面上切出來的名稱命名。每個不同的名稱只要命名一次,之後產生標籤時就靠這份名稱庫辨識。')}>
       {galleries.length > 0 && <div className="flex rounded-md border border-stone-300 overflow-hidden w-fit">

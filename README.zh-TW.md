@@ -26,6 +26,8 @@
 
 <img src="https://raw.githubusercontent.com/wrbyhaquc/inspector-demo-farm/main/docs/panel.zh-TW.png" alt="農場的操作面板:每台攝影機有自己的按鈕" width="640">
 
+**自己做一個**:[教學](docs/tutorial.zh-TW.md)從一個空專案開始,一頁一頁做出魚塭,每一步都有截圖。首頁的「入門路線」卡片走的是同一條路,也會告訴你現在走到哪裡。
+
 平台本身不認得任何一個 App、裝置或場景。要看什麼、怎麼判斷、要做什麼,全部是**專案**的設定;
 某個場景需要的特殊能力(專屬的畫面規則、額外的資料來源、別種裝置),由專案的**外掛**提供,再一起打包成**方案包**。
 

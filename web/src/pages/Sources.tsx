@@ -1,4 +1,5 @@
 import { t } from '../i18n'
+import { PageIntro } from '../components/PageIntro'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type ReactNode } from 'react'
 import { api, type SourceHand, type SourceItem, type SourceKindInfo, type SourceNative, type SourceParam, type SourceView } from '../api'
@@ -20,7 +21,7 @@ export default function Sources() {
   const d = q.data
   const fresh = (d?.new ?? []).filter(n => !n.ignored)
   return (
-    <Page title={t('來源')} desc={t('這台電腦要看哪些畫面、各叫什麼名字。只有勾選「使用」的才會被錄製、監看和執行腳本;名稱只是給人看的,隨時可以改。')}
+    <Page title={t('來源')} intro={<PageIntro id="sources" what={t('這頁是平台的眼睛:列出要看的畫面,其他頁面都從這裡挑。')} start={t('按「+ 加入來源」,掃描這台電腦或填攝影機的位址;加入後勾選「使用」。')} ch={2} />} desc={t('這台電腦要看哪些畫面、各叫什麼名字。只有勾選「使用」的才會被錄製、監看和執行腳本;名稱只是給人看的,隨時可以改。')}
       actions={<>
         <Button variant="primary" onClick={() => setAdding(true)}>{t('+ 加入來源')}</Button>
         <MoreButton onClick={() => setKinds(true)}>{t('⚙ 種類與進階設定')}</MoreButton>

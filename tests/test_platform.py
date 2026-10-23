@@ -172,3 +172,31 @@ def test_export_check_compares_with_the_last_release(tmp_path):
     project.save({**p, "description": "changed"})
     moved = pack.export_check(out=out)
     assert "design/project.json" in moved["changes"]["changed"] and not moved["changes"]["added"]
+
+
+def test_naming_the_project_is_the_first_stop_of_the_route(monkeypatch):
+    from fastapi.testclient import TestClient
+    import server.app as app
+    c = TestClient(app.app, client=("127.0.0.1", 50000))
+    assert c.get("/api/project", headers={"X-Lang": "en"}).json()["name"] == "New project"   # not named yet: in the page's language
+    assert c.get("/api/getting_started").json()["done"]["project"] is False
+    monkeypatch.setenv("INSPECTOR_EDITION", "studio")                                       # the design is changed in Studio only
+    assert c.post("/api/project/settings", json={"name": " ", "description": "", "words": {}}).status_code == 400
+    assert c.post("/api/project/settings", json={"name": "Pond", "description": "", "words": {"device": "x" * 21}}).status_code == 400
+    r = c.post("/api/project/settings", json={"name": "Pond", "description": "One camera", "words": {"device": "camera"}})
+    assert r.status_code == 200 and r.json()["name"] == "Pond" and r.json()["words"]["device"] == "camera"
+    done = c.get("/api/getting_started").json()["done"]
+    assert done["project"] is True and not any(v for k, v in done.items() if k != "project")
+
+
+def test_a_new_pack_does_not_warn_about_its_own_spec(tmp_path):
+    from automation import spec
+    from project import manifest
+    design = tmp_path / "design" / "meta"
+    design.mkdir(parents=True)
+    (design / "order.json").write_text(json.dumps(spec.stamp({"order": []})), encoding="utf-8")
+    new = manifest.stamp({"id": "pond", "name": "Pond"})
+    assert new["requires"]["spec"] == spec.FORMAT
+    assert not [x for x in manifest.check(new, str(tmp_path)) if "pack.json" in x[1]]
+    made_by_0_2_0 = {**new, "requires": {**new["requires"], "spec": 0}}           # 0.2.0 recorded 0 for an empty design
+    assert not [x for x in manifest.check(made_by_0_2_0, str(tmp_path)) if "pack.json" in x[1]]
