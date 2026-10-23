@@ -16,13 +16,17 @@ def _take_lock():
     """One Inspector at a time: an OS lock on a file, held as long as this process lives (released even if it is
     killed). -> True if this process has it."""
     global _lock
-    import msvcrt
     import os
     from . import RUNTIME_DIR
     os.makedirs(RUNTIME_DIR, exist_ok=True)
     f = open(os.path.join(RUNTIME_DIR, "inspector.lock"), "a+")
     try:
-        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+        if sys.platform == "win32":
+            import msvcrt
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+        else:                                            # Linux / macOS
+            import fcntl
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         f.close()
         return False
