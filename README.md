@@ -12,13 +12,16 @@ English · [繁體中文](README.zh-TW.md)
 - **Lets people run it**: a simple operation panel for phones, Discord / Telegram notifications and chat commands, every action logged.
 - **Ships as packs**: export a whole setup as a versioned release and install or upgrade it on another computer (Studio to design, Runtime to run).
 
-**See it work**: [a simulated fish pond](https://github.com/wrbyhaquc/inspector-demo-pond) with a camera and four switches. Nobody touches anything in this clip:
-at night the fish come up gasping and Inspector turns the aerator on; in the morning a heron lands and it is scared away.
-Try it in 10 minutes, no model to train.
+**See it work**: two simulated scenes, each tried in 10 minutes with no model to train. Nobody touches anything in these clips.
+
+- [A fish pond](https://github.com/wrbyhaquc/inspector-demo-pond), one camera: at night the fish come up gasping and Inspector turns the aerator on; in the morning a heron lands and it is scared away.
+- [A small farm](https://github.com/wrbyhaquc/inspector-demo-farm), two cameras: it reads the greenhouse thermometer and opens the roof vents, waters only the bed that dried out, sounds the alarm at a fox, and shuts the hen house door once every hen is in.
 
 ![Inspector looking after a simulated fish pond](https://raw.githubusercontent.com/wrbyhaquc/inspector-demo-pond/main/docs/demo.gif)
 
-<img src="https://raw.githubusercontent.com/wrbyhaquc/inspector-demo-pond/main/docs/panel.png" alt="The operation panel the pond's keeper uses" width="640">
+![Inspector looking after a simulated farm: a greenhouse and a hen house](https://raw.githubusercontent.com/wrbyhaquc/inspector-demo-farm/main/docs/demo.gif)
+
+<img src="https://raw.githubusercontent.com/wrbyhaquc/inspector-demo-farm/main/docs/panel.png" alt="The farm's operation panel: each camera with its own buttons" width="640">
 
 The platform knows nothing about any particular app, device or scene. What to watch, how to judge it and what to do are all settings of a **project**.
 Abilities a scene needs beyond that (its own screen rules, extra data sources, other kinds of devices) come from the project's **plugins**, and the two are bundled together as a **pack**.
