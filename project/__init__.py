@@ -80,9 +80,9 @@ _cache = {}
 
 
 def _read(p, default):
-    try:                                               # time and size: a file rewritten within the clock's step still shows
+    try:                       # time, size and the file itself: one replaced within the clock's step (save()) still shows
         st = os.stat(p)
-        m = (st.st_mtime_ns, st.st_size)
+        m = (st.st_mtime_ns, st.st_size, st.st_ino)
     except OSError:
         m = 0
     hit = _cache.get(p)

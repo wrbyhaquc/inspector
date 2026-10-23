@@ -48,9 +48,13 @@ def test_export_leaves_out_deleted_scripts(tmp_path):
 
 
 # ---------------------------------------------------------------- how a design is meant to run (project.json "run")
+_n = [0]
+
+
 def _design(tmp_path, **extra):
-    d = tmp_path / "design"
-    d.mkdir(exist_ok=True)
+    _n[0] += 1                                        # a folder of its own each time: no cache to outwit
+    d = tmp_path / f"design{_n[0]}"
+    d.mkdir()
     (d / "project.json").write_text(json.dumps({"id": "t", "screen": {"width": 1280, "height": 720}, **extra}), encoding="utf-8")
     return str(d)
 
