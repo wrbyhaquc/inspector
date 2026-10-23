@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, type Hold, imageUrl, shadowLiveUrl, type TimelineRow, type AnswerValue, type ShadowDevice, type ShadowFlag, type JudgeInfo, type ShadowState, type ShadowStatus, type StateDef, type Script, type JobInfo, type ShadowControl } from '../api'
-import { screen, words } from '../lib/project'
+import { projectInfo, screen, words } from '../lib/project'
 import { NotifySettings } from './Notify'
 import { Button, Card, Drawer, Modal, MoreButton, Empty, ErrorText, LogView, Page, Pill } from '../components/ui'
 import DeviceActions from './DeviceActions'
@@ -52,7 +52,8 @@ export default function Shadow() {
   const states = sch.data?.schema.states ?? []
   const q = useQuery({ queryKey: ['shadow'], queryFn: api.shadowStatus, refetchInterval: 1000 })
   const [run, setRun] = usePersistentState('shadow.run', '')
-  const [interval, setIntervalS] = usePersistentState('shadow.interval', 1)
+  // remembered per pack; until set here, what the pack recommends (project.json "run")
+  const [interval, setIntervalS] = usePersistentState(`shadow.interval.${projectInfo.id}`, projectInfo.interval ?? 1)
   const [tabSaved, setTab] = usePersistentState<RunTab>('run.tab', 'watch')
   const tab: RunTab = RUN_TABS.some(([k]) => k === tabSaved) ? tabSaved : 'watch'
   const [drawer, setDrawer] = useState<'notify' | 'settings' | null>(null)

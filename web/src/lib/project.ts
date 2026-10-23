@@ -9,7 +9,7 @@ import { SOURCE_TEXT } from './schema'
 export const screen = { w: 1280, h: 720 }
 /** what this project calls things (e.g. a device is a 模擬器, an item of a per-device list is a 帳號) */
 export const words: Record<string, string> = { device: t('裝置'), item: t('項目') }
-export const projectInfo = { id: '', name: '' }
+export const projectInfo: { id: string; name: string; interval?: number } = { id: '', name: '' }
 /** what this installation is: a studio designs, teaches and exports packs; a runtime installs packs and runs them
  *  (no design pages, no PyTorch, so it cannot train) */
 export const edition: { name: 'studio' | 'runtime'; training: boolean } = { name: 'studio', training: true }
@@ -27,6 +27,7 @@ export async function loadProject() {
     Object.assign(words, p.words ?? {})
     projectInfo.id = p.id ?? ''
     projectInfo.name = p.name ?? ''
+    projectInfo.interval = Number(p.run?.interval) || undefined   // how often the design is meant to be looked at
     edition.training = p.edition?.training ?? true
     edition.name = p.edition?.name === 'runtime' ? 'runtime' : 'studio'
     Object.assign(FLAG_TEXT, p.ui?.flags ?? {})

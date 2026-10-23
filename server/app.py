@@ -2640,8 +2640,9 @@ def _start_runner_with_server():
         return
     last = _read_json(os.path.join(RUNTIME_DIR, RUNNER_LAST), {}) or {}
     try:
-        shadow_start(ShadowStart(interval=float(last.get("interval") or 1.0), run=last.get("run") or ""))
-        print(_("腳本執行已啟動(每 {p1} 秒,模型 {p2})", p1=format(float(last.get('interval') or 1.0), 'g'), p2=last.get('run') or _("最新的")), flush=True)
+        interval = float(last.get("interval") or project.run_defaults(DATA_ROOT).get("interval") or 1.0)
+        shadow_start(ShadowStart(interval=interval, run=last.get("run") or ""))
+        print(_("腳本執行已啟動(每 {p1} 秒,模型 {p2})", p1=format(interval, 'g'), p2=last.get('run') or _("最新的")), flush=True)
     except HTTPException as e:
         print(_("腳本執行沒有啟動:{detail}", detail=e.detail), flush=True)
 
@@ -2689,7 +2690,9 @@ def shadow_control(req: ShadowControl):
 
 @app.get("/api/shadow/control")
 def shadow_control_get():
-    return _read_json(os.path.join(RUNTIME_DIR, "control.json"), {}) or {}
+    """This computer's settings, over the ones the design recommends (project.json "run")."""
+    run = {k: v for k, v in project.run_defaults(DATA_ROOT).items() if k != "interval"}
+    return {**run, **(_read_json(os.path.join(RUNTIME_DIR, "control.json"), {}) or {})}
 
 
 @app.post("/api/shadow/stop")
@@ -2862,7 +2865,7 @@ def project_get():
     reg = registry(DATA_ROOT)
     return {**{k: p[k] for k in ("id", "name", "description", "screen", "words")}, "plugins": reg.loaded, "ui": ui(reg),
             "edition": {"name": project.edition(), "training": _can_train() and project.edition() == "studio"},
-            "pack": _pack_status()}
+            "run": project.run_defaults(DATA_ROOT), "pack": _pack_status()}
 
 
 def _pack_status():

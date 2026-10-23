@@ -16,7 +16,7 @@ _u = ctypes.windll.user32 if hasattr(ctypes, "windll") else None
 _g = ctypes.windll.gdi32 if hasattr(ctypes, "windll") else None
 _k = ctypes.windll.kernel32 if hasattr(ctypes, "windll") else None
 _ENUM = ctypes.WINFUNCTYPE(ctypes.c_bool, W.HWND, W.LPARAM)
-PW_RENDERFULLCONTENT = 2
+PW_CLIENTONLY, PW_RENDERFULLCONTENT = 1, 2
 
 
 class _BMIH(ctypes.Structure):
@@ -169,7 +169,9 @@ class WindowCapture:
         bmp = _g.CreateCompatibleBitmap(hdc, w, h)
         old = _g.SelectObject(mdc, bmp)
         try:
-            if not _u.PrintWindow(self.render, mdc, PW_RENDERFULLCONTENT):
+            # the client area only: a top-level window would otherwise be drawn with its frame and title bar, shifted
+            # against the client coordinates taps are sent in
+            if not _u.PrintWindow(self.render, mdc, PW_CLIENTONLY | PW_RENDERFULLCONTENT):
                 return None
             bi = _BMIH(ctypes.sizeof(_BMIH), w, -h, 1, 32, 0, 0, 0, 0, 0, 0)
             buf = ctypes.create_string_buffer(w * h * 4)

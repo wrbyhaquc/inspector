@@ -297,6 +297,7 @@ class Shadow:
     def control(self):
         self._var_requests()
         c = dict(CONTROL_DEFAULT)
+        c.update({k: v for k, v in project.run_defaults(self.data_root).items() if k in c})   # the design's, under this computer's
         try:
             c.update(json.load(open(os.path.join(self.fast, "control.json"), encoding="utf-8")))
         except (OSError, ValueError):
@@ -333,7 +334,7 @@ class Shadow:
         if device:
             self.incidents.note(device, a["t"], "alert", text, level=level)
         self._append_log({**a, "action": "alert", "reason": level})
-        print(f"{datetime.datetime.now():%H:%M:%S} {device:14} ! {text}", flush=True)
+        print(f"{datetime.datetime.now():%H:%M:%S} {device or '-':14} ! {text}", flush=True)   # None: not about one device
 
     def _health_news(self, n, state, text):
         """Told once per change: lost / frozen (warn), back to normal (info). slow only shows on the pages."""
@@ -346,9 +347,11 @@ class Shadow:
 
     def _source_news(self, drv, found, names=None):
         """A source found for the first time (not used until someone ticks it), or one whose screen is not the
-        project's size (taps would land elsewhere): said once."""
+        project's size (taps would land elsewhere): said once. A project that declares its sources (project.json
+        "sources") is not told about others found here: every new window on the computer would be news otherwise."""
         from drivers import describe, sources
-        for k, d in getattr(drv, "fresh", None) or []:
+        declared = bool(project.load(self.data_root).get("sources"))
+        for k, d in ([] if declared else getattr(drv, "fresh", None) or []):
             kind = (describe().get(k) or {}).get("label", k).split("(")[0]
             self.alert(None, _("發現新的來源「{name}」({kind}{p3}):到「來源」頁按「使用」才會用它", name=d.name, kind=kind, p3=' · ' + d.detail if d.detail else ''), "info")
         names = names if names is not None else {d.name for d in found}   # a source in use that is not there any more

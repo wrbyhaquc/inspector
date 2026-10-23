@@ -18,7 +18,10 @@ Two levels:
                                                    來源 page decides (<runtime>/sources.json, drivers/sources.py)
                   "sources": {"<id>": {"kind", "name", "params"}},  the sources the design uses, made so on a new
                                                    computer (e.g. a camera's stream address); nothing else found
-                                                   there is added on its own then
+                                                   there is added (or announced) on its own then
+                  "run": {"interval", "max_per_min"},  how the design is meant to run (a fast game: 0.3 s and 60
+                                                   actions a minute) - the defaults here; what is set on this
+                                                   computer wins, and the platform's limits hold (run_defaults())
                   "plugins": ["<name>", ...]}      packs/<name>/ to load (rules, label sources, sources, outputs ...)
 Without any of these, the data folder layout below is used in <that same folder>/data (made on first use).
 "project" (or INSPECTOR_PROJECT) keeps an older single project folder working; its runtime folder is then "runtime"
@@ -277,6 +280,20 @@ def save(p, root=None):
         json.dump(p, f, ensure_ascii=False, indent=1)
     os.replace(path + ".tmp", path)
     _cache.pop(path, None)
+
+
+def run_defaults(root=None):
+    """project.json "run" within the platform's limits: {"interval": 0.3..10 s, "max_per_min": 1..60} (only those given)."""
+    r = load(root).get("run") or {}
+    out = {}
+    try:
+        if r.get("interval") is not None:
+            out["interval"] = min(10.0, max(0.3, float(r["interval"])))
+        if r.get("max_per_min") is not None:
+            out["max_per_min"] = min(60, max(1, int(r["max_per_min"])))
+    except (TypeError, ValueError):
+        pass
+    return out
 
 
 def screen(root=None):
