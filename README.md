@@ -390,7 +390,7 @@ Pick a stretch of a recording and let a script (even an unsaved version) run ove
 
 ## Script spec (automation/spec.py)
 
-The file formats of scripts, sub-scripts, variables, outputs, the operation panel and script tests are versioned (currently version 8).
+The file formats of scripts, sub-scripts, variables, outputs, the operation panel and script tests are versioned (currently version 9).
 JSON Schemas are in `docs/spec/v<N>/` (written by `python -m automation.spec_schema --write docs/spec/v<N>`) and served at `/api/spec/schema/<script|sub|variables|outputs|panel|tests>`.
 
 - Every file records its `"format"`; older files are upgraded when read, files newer than this Inspector are refused.

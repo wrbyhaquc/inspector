@@ -1,9 +1,9 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
- "$id": "https://inspector.local/spec/v8/outputs.schema.json",
+ "$id": "https://inspector.local/spec/v9/variables.schema.json",
  "$defs": {
   "ref": {
-   "description": "At run time, take the value from a parameter / user setting / variable / state (a number read from the screen)",
+   "description": "執行時從參數 / 使用者設定 / 變數 / 狀態(畫面上讀到的數字)取值",
    "oneOf": [
     {
      "type": "object",
@@ -72,7 +72,7 @@
    ]
   },
   "num": {
-   "description": "A number, or at run time the value of a parameter / setting / variable",
+   "description": "數字,或執行時從參數 / 設定 / 變數取值",
    "oneOf": [
     {
      "type": "number"
@@ -83,7 +83,7 @@
    ]
   },
   "text": {
-   "description": "Text (use {id} to insert a variable or parameter), or a value taken at run time",
+   "description": "文字(可用 {代號} 帶入變數或參數),或執行時取值",
    "oneOf": [
     {
      "type": "string"
@@ -94,7 +94,7 @@
    ]
   },
   "point": {
-   "description": "Position: a button from the button library, coordinates, a position parameter or a user setting",
+   "description": "位置:按鈕庫的按鈕、座標、點位參數或使用者設定",
    "oneOf": [
     {
      "type": "object",
@@ -193,7 +193,7 @@
      ]
     },
     "value": {
-     "description": "Value to compare: an option, a number or a reference"
+     "description": "比較的值:選項、數字或參照"
     },
     "for": {
      "type": "number",
@@ -245,7 +245,7 @@
    }
   },
   "when": {
-   "description": "Conditions: \"or\" outside, \"and\" inside",
+   "description": "條件:外層「或者」,內層「而且」",
    "type": "array",
    "items": {
     "type": "array",
@@ -256,7 +256,7 @@
   },
   "args": {
    "type": "object",
-   "description": "Parameters of the sub-script call: ID → value (position, number, text, list or reference)"
+   "description": "呼叫子腳本的參數:代號 → 值(位置、數字、文字、清單或參照)"
   },
   "action": {
    "type": "object",
@@ -363,7 +363,7 @@
     },
     "do": {
      "$ref": "#/$defs/steps",
-     "description": "The steps done in order when the conditions hold (the same steps as sub-scripts)"
+     "description": "條件成立時依序做的步驟(和子腳本同一套步驟)"
     },
     "cooldown": {
      "type": "number",
@@ -416,7 +416,7 @@
        "type": "null"
       }
      ],
-     "description": "The steps done once on entering this situation"
+     "description": "進入這個情境時做一次的步驟"
     },
     "max_seconds": {
      "type": [
@@ -467,12 +467,12 @@
     },
     "situation": {
      "type": "string",
-     "description": "Switch situation: the situation to switch to"
+     "description": "切換情境:要切到的情境"
     },
     "after": {
      "type": "object",
      "additionalProperties": false,
-     "description": "After this action: wait some seconds, or wait until a condition holds",
+     "description": "做完這個操作之後:等幾秒,或等到條件成立",
      "properties": {
       "seconds": {
        "$ref": "#/$defs/num"
@@ -493,10 +493,10 @@
     },
     "fail_goto": {
      "type": "string",
-     "description": "The situation to switch to when the sub-script call fails (the version 7 way)"
+     "description": "呼叫子腳本失敗時切到的情境(第 7 版留下的寫法)"
     },
     "options": {
-     "description": "Ask the user: the options (2–6), each with the steps to do when chosen",
+     "description": "問使用者:選項(2~6 個),每個選了要做的步驟",
      "type": "array",
      "minItems": 2,
      "maxItems": 6,
@@ -519,7 +519,7 @@
      }
     },
     "default": {
-     "description": "Ask the user: the option chosen when nobody answers (0 = fail)",
+     "description": "問使用者:沒人回答時選第幾個(0 = 失敗)",
      "type": "integer",
      "minimum": 0,
      "maximum": 6
@@ -535,11 +535,11 @@
     },
     "say": {
      "type": "string",
-     "description": "Shown to users: what it is doing (plain words)"
+     "description": "給使用者看:正在做什麼(白話)"
     },
     "say_fail": {
      "type": "string",
-     "description": "Shown to users: what to say when this step fails (plain words)"
+     "description": "給使用者看:這一步失敗時說什麼(白話)"
     },
     "to": {
      "$ref": "#/$defs/point"
@@ -706,28 +706,41 @@
    }
   }
  },
- "title": "Output",
+ "title": "變數",
  "type": "object",
  "properties": {
-  "outputs": {
+  "vars": {
    "type": "array",
    "items": {
     "type": "object",
     "required": [
-     "id",
      "name",
-     "type"
+     "scope",
+     "reset"
     ],
+    "additionalProperties": false,
     "properties": {
-     "id": {
+     "name": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9_]*$"
      },
-     "name": {
+     "label": {
       "type": "string"
      },
-     "type": {
-      "type": "string"
+     "scope": {
+      "enum": [
+       "device",
+       "global"
+      ]
+     },
+     "reset": {
+      "enum": [
+       "daily",
+       "never"
+      ]
+     },
+     "initial": {
+      "type": "number"
      }
     }
    }
@@ -736,8 +749,8 @@
    "type": "number"
   },
   "format": {
-   "const": 8,
-   "description": "Script spec version"
+   "const": 9,
+   "description": "腳本規範版本"
   },
   "version": {
    "type": "integer"

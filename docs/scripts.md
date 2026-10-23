@@ -64,4 +64,4 @@ Some steps only make sense in certain places:
 - **Someone operating**: when someone touches the device's screen it **pauses** automatically, and **resumes** by itself after the set number of seconds without touches (same situation; the paused time does not count toward the situation's stay).
   A running schedule waits and carries on from the same step; a sub-script started by a rule is cancelled (the person has changed the screen), and the rules decide again and call it again if needed.
 
-The spec (JSON format) is in [spec/](spec/); the current version is 8.
+The spec (JSON format) is in [spec/](spec/); the current version is 9.

@@ -312,6 +312,16 @@ function ControlEditor({ c, info, open, onOpen, onChange, onMove, onDelete, firs
               <input className={`${input} w-48`} placeholder={t('(用名稱)')} disabled={!!c.chat_off} value={c.chat ?? ''} onChange={e => onChange(x => { x.chat = e.target.value || undefined })} /></label>
             <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={!!c.chat_off} onChange={e => onChange(x => { x.chat_off = e.target.checked || undefined })} />{t('只放在頁面,聊天裡不能用')}</label>
           </div>}
+          {c.scope === 'device' && sourceIds(info.devices).length > 1 && <div className="flex flex-wrap items-center gap-2"
+            title={t('例如溫室的按鈕只放在溫室攝影機那一列;都不勾 = 每一台')}>
+            <span className="text-stone-600">{t('只給這幾台')}</span>
+            {sourceIds(info.devices).map(n => <label key={n} className="flex items-center gap-1 text-xs">
+              <input type="checkbox" checked={(c.devices ?? []).includes(n)} onChange={e => onChange(x => {
+                const v = (x.devices ?? []).filter(d => d !== n).concat(e.target.checked ? [n] : [])
+                x.devices = v.length ? v : undefined
+              })} />{n}</label>)}
+            {!c.devices?.length && <span className="text-xs text-stone-500">{t('(每一台)')}</span>}
+          </div>}
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-stone-600">{t('接到')}</span>
             <select className={input} value={b.kind} onChange={e => onChange(x => {

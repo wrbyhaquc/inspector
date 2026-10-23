@@ -181,13 +181,13 @@ class PanelChat:
             return self.press(e, device, value, devices, by)
         if not value:                                                # show it
             if c.get("scope") == "device":
-                ds = [device] if device else devices
+                ds = [device] if device else [n for n in devices if pm.applies(c, n)]
                 lines = [f"{L(n)}:{show(self.root, c, pm.value(self.root, c, n), n)}" for n in ds]
                 return {"text": f"{e['name']}\n" + "\n".join(lines), "buttons": self._choices(e, device) if device else None}
             return {"text": f"{e['name']}:{show(self.root, c, pm.value(self.root, c))}", "buttons": self._choices(e, None)}
         if c.get("scope") == "device" and not device:
             return {"text": _("「{name}」每台各自設定,要改哪一台?", name=e['name']),
-                    "buttons": self._rows([(L(n), f"cmd:{e['name']} {n} {value}") for n in devices])}   # i18n: keep
+                    "buttons": self._rows([(L(n), f"cmd:{e['name']} {n} {value}") for n in devices if pm.applies(c, n)])}   # i18n: keep
         new = parse(self.root, c, device, value)
         old = show(self.root, c, pm.value(self.root, c, device), device)
         pm._check(self.root, c, device, new)                         # refuse a bad value now, not after 確認

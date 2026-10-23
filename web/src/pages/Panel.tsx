@@ -200,7 +200,7 @@ function DeviceCard({ c, chosen, onPick, stop, onMsg }: {
     <div role="button" tabIndex={0} onClick={onPick} onKeyDown={e => { if (e.key === 'Enter') onPick() }}
       className={`shrink-0 lg:shrink w-64 lg:w-auto cursor-pointer text-left rounded-xl bg-white border border-stone-200 border-l-[6px] ${EDGE[c.tone]} px-3 py-2 flex flex-col gap-1 hover:bg-stone-50 ${chosen ? 'ring-2 ring-stone-900 ring-offset-1' : ''}`}>
       <div className="flex items-center gap-2">
-        <b className="flex-1 min-w-0 break-all leading-tight">{dn(c.device)}</b>
+        <b className="flex-1 min-w-0 break-words leading-tight">{dn(c.device)}</b>
         <span className={`shrink-0 text-sm px-2 py-0.5 rounded-full font-bold ${CHIP[c.tone]}`}>{c.label ?? ''}</span>
       </div>
       {p?.name
@@ -258,6 +258,9 @@ function TodoBar({ items, onGo, onMsg }: { items: PanelTodo[]; onGo: (g: PanelTo
   )
 }
 
+/** Is a per-emulator control (or button) for this emulator? (the server lists the ones it is for in "targets") */
+const forDev = (c: PanelControl, n: string) => !c.targets || c.targets.includes(n)
+
 /** A block that takes the whole width on a wide screen: long lists and logs, and settings asked per emulator. */
 function wide(b: PanelBlock, byId: Record<string, PanelControl>) {
   if (b.width === 'wide' || b.width === 'narrow') return b.width === 'wide'
@@ -279,6 +282,7 @@ function ControlBlock({ b, byId, devices, open, setOpen, change, busy, onMsg }: 
   const globalActs = items.filter(c => c.scope !== 'device' && c.type === 'action')
   const perDev = items.filter(c => c.scope === 'device' && c.type !== 'action')
   const devActs = items.filter(c => c.scope === 'device' && c.type === 'action')
+  const rowDevs = devices.filter(n => [...perDev, ...devActs].some(c => forDev(c, n)))     // the emulators this block is for
   return (
     <section className="bg-white rounded-2xl border border-stone-200 p-4 flex flex-col gap-4">
       <div className="flex items-start gap-4">
@@ -289,24 +293,25 @@ function ControlBlock({ b, byId, devices, open, setOpen, change, busy, onMsg }: 
       <div className={`flex flex-col gap-4 ${off ? 'opacity-60' : ''}`}>
         {globals.map(c => <Control key={c.id} c={c} value={c.value} choices={(c.choices as PanelOption[]) ?? []} onChange={v => change(c, v)} busy={busy} />)}
         {globalActs.length > 0 && <div className="flex flex-wrap gap-3">{globalActs.map(c => <ActionButton key={c.id} c={c} onMsg={onMsg} />)}</div>}
-        {(perDev.length > 0 || devActs.length > 0) && <DeviceTable devices={devices} perDev={perDev} devActs={devActs} change={change} busy={busy} onMsg={onMsg} />}
-        {(perDev.length > 0 || devActs.length > 0) && devices.map(n => {
+        {(perDev.length > 0 || devActs.length > 0) && <DeviceTable devices={rowDevs} perDev={perDev} devActs={devActs} change={change} busy={busy} onMsg={onMsg} />}
+        {rowDevs.map(n => {
+          const mine = perDev.filter(c => forDev(c, n))
           const key = `${b.id}|${n}`
           const isOpen = open === key
           const doing = devActs.length ? ((devActs[0].value as Record<string, { name?: string; loop?: string | null; paused?: boolean } | null>) ?? {})[n] : null
           return (
             <div key={n} className="rounded-xl border border-stone-200 lg:hidden">
               <div className="px-4 py-3 flex flex-wrap items-center gap-3">
-                <button onClick={() => perDev.length && setOpen(isOpen ? null : key)} className="flex-1 min-w-48 text-left flex items-center gap-3">
+                <button onClick={() => mine.length && setOpen(isOpen ? null : key)} className="flex-1 min-w-48 text-left flex items-center gap-3">
                   <b className="shrink-0">{dn(n)}</b>
-                  <span className="flex-1 text-stone-600 text-base">{perDev.length ? summary(perDev, c => devValue(c, n), c => devChoices(c, n)) : ''}
+                  <span className="flex-1 text-stone-600 text-base">{mine.length ? summary(mine, c => devValue(c, n), c => devChoices(c, n)) : ''}
                     {doing?.name && <span className="block text-sky-800">{t('正在進行:{name}{p2}', { name: doing.name, p2: doing.loop ? `(${doing.loop.split(' ').pop()})` : '' })}{doing.paused ? t(' · 暫停中') : ''}</span>}</span>
-                  {perDev.length > 0 && <span className="shrink-0 text-base text-sky-700">{isOpen ? t('收起 ▴') : t('改設定 ▾')}</span>}
+                  {mine.length > 0 && <span className="shrink-0 text-base text-sky-700">{isOpen ? t('收起 ▴') : t('改設定 ▾')}</span>}
                 </button>
                 {devActs.map(c => <ActionButton key={c.id} c={c} device={n} onMsg={onMsg} />)}
               </div>
               {isOpen && <div className="px-4 pb-4 flex flex-col gap-4 border-t border-stone-100 pt-3">
-                {perDev.map(c => <Control key={c.id} c={c} value={devValue(c, n)} choices={devChoices(c, n)} onChange={v => change(c, v, n)} busy={busy} />)}
+                {mine.map(c => <Control key={c.id} c={c} value={devValue(c, n)} choices={devChoices(c, n)} onChange={v => change(c, v, n)} busy={busy} />)}
               </div>}
             </div>
           )
@@ -343,7 +348,8 @@ function DeviceTable({ devices, perDev, devActs, change, busy, onMsg }: {
                 {doing?.name && <div className="text-sm text-sky-800">{t('正在進行:{name}{p2}', { name: doing.name, p2: doing.loop ? `(${doing.loop.split(' ').pop()})` : '' })}</div>}</td>
               {perDev.map(c => (
                 <td key={c.id} className={`py-2 px-3 ${out && c !== join ? 'opacity-40' : ''}`}>
-                  <Cell c={c} value={devValue(c, n)} choices={devChoices(c, n)} busy={busy} onChange={v => change(c, v, n)} onOpen={() => setEdit({ c, n })} />
+                  {forDev(c, n) ? <Cell c={c} value={devValue(c, n)} choices={devChoices(c, n)} busy={busy} onChange={v => change(c, v, n)} onOpen={() => setEdit({ c, n })} />
+                    : <span className="text-stone-300">—</span>}
                 </td>
               ))}
               {devActs.length > 0 && <td className="py-2 pl-3"><div className="flex flex-wrap gap-2">{devActs.map(c => <ActionButton key={c.id} c={c} device={n} onMsg={onMsg} small />)}</div></td>}
@@ -402,7 +408,7 @@ function DeviceView({ n, card, d, byId, change, busy, onMsg }: {
   const devChoices = (c: PanelControl) => (c.choices as Record<string, PanelOption[]>)?.[n] ?? []
   const acts = d.blocks.flatMap(b => b.widget ? [] : b.items.map(i => byId[i]).filter(c => c && c.scope === 'device' && c.type === 'action'))
   const doing = acts.length ? ((acts[0].value as Record<string, { name?: string; loop?: string | null; paused?: boolean } | null>) ?? {})[n] : null
-  const blocks = d.blocks.filter(b => !b.widget && b.items.some(i => byId[i]?.scope === 'device' && byId[i]?.type !== 'action'))
+  const blocks = d.blocks.filter(b => !b.widget && b.items.some(i => byId[i]?.scope === 'device' && byId[i]?.type !== 'action' && forDev(byId[i], n)))
   const lists = d.blocks.filter(b => b.widget?.kind === 'list' && b.data?.by_device?.[n])
   return (
     <div className="grid xl:grid-cols-2 gap-4 items-start">
@@ -420,7 +426,7 @@ function DeviceView({ n, card, d, byId, change, busy, onMsg }: {
       </section>
       {blocks.map(b => {
         const tg = b.toggle ? byId[b.toggle] : undefined
-        const own = b.items.map(i => byId[i]).filter(c => c && c.scope === 'device' && c.type !== 'action')
+        const own = b.items.map(i => byId[i]).filter(c => c && c.scope === 'device' && c.type !== 'action' && forDev(c, n))
         return (
           <section key={b.id} className="bg-white rounded-2xl border border-stone-200 p-4 flex flex-col gap-4">
             <div><h2 className="text-xl font-bold">{b.title}</h2>

@@ -44,10 +44,12 @@ What each version added (older files are upgraded by upgrade()):
                  "after": {"seconds": n} | {"until": when, "timeout": n, "on_timeout": "fail" | "continue"}
        call      "on_fail": "fail" | "continue" | "stop"
        condition compare {"left", "op", "right"}: two numbers; values may be {"sum": [...]}
-     7 -> 8: every rule's "action" becomes "do", every "on_enter" a list."""
+     7 -> 8: every rule's "action" becomes "do", every "on_enter" a list.
+  9  operation panel controls "devices": [source id | "#tag"] - a per-device control only for these sources (e.g. the
+     greenhouse's buttons only on the greenhouse camera); without it, every source"""
 from i18n import _
 
-FORMAT = 8
+FORMAT = 9
 
 
 def stamp(obj):
@@ -73,7 +75,7 @@ def upgrade(obj):
     """An older file brought to the current format.
     0 -> 1: the wait step's "seconds_param" (the only field that could take a parameter) becomes
             "seconds": {"param": ...} like every other value.
-    1 -> 2, 2 -> 3, 3 -> 4, 4 -> 5, 5 -> 6, 6 -> 7: nothing to change (they only add).
+    1 -> 2, 2 -> 3, 3 -> 4, 4 -> 5, 5 -> 6, 6 -> 7, 8 -> 9: nothing to change (they only add).
     7 -> 8: a rule's "action" becomes "do" (a step list), a situation's "on_enter" a step list (action_steps())."""
     if version(obj) >= FORMAT or not isinstance(obj, dict):
         return obj

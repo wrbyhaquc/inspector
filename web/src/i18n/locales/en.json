@@ -2109,5 +2109,8 @@
  "重新啟動 Inspector": "Restart Inspector",
  "重新啟動中,完成後這一頁會自己重新整理…": "Restarting; this page reloads by itself when done…",
  "開發中": "In development",
- "首頁": "Home"
+ "首頁": "Home",
+ "只給這幾台": "Only for these",
+ "例如溫室的按鈕只放在溫室攝影機那一列;都不勾 = 每一台": "E.g. the greenhouse buttons only on the greenhouse camera's row; none ticked = every one",
+ "(每一台)": "(every one)"
 }

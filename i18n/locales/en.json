@@ -1782,5 +1782,7 @@
  "已把 {name} 從 {old} 版升級到 {new} 版(舊版留在 {prev});使用者的值、錄影與執行資料都保留": "Upgraded {name} from {old} to {new} (the previous version is kept in {prev}); the users' values, recordings and runtime data are kept",
  "這些設定過的值在新版本找不到對應的項目(不會再有作用):": "These values set here have nothing to belong to in the new version (they no longer do anything): ",
  "這台電腦設定過的值找不到對應的項目(方案包改名或刪除了):": "Values set on this computer belong to nothing in the pack (renamed or removed): ",
- "沒有模型:只用畫面規則": "No model: screen rules only"
+ "沒有模型:只用畫面規則": "No model: screen rules only",
+ "「{label}」不用在這台": "\"{label}\" is not for this one",
+ "每台各自的控制項只給這些來源(代號或 #標籤);不填 = 每一台": "A per-device control only for these sources (ids or #tag); empty = every one"
 }

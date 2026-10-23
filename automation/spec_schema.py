@@ -141,7 +141,9 @@ def _schema(kind):
             "min": {"type": ["number", "null"]}, "max": {"type": ["number", "null"]}, "unit": {"type": "string"},
             "scale": {"type": "number"}, "options": {"oneOf": [{"type": "string", "pattern": "^list:"}, {"type": "array"}]},
             "chat": {"type": "string", "description": _("在聊天 Bot 裡的名稱(不填 = 用名稱)")},
-            "chat_off": {"type": "boolean", "description": _("只放在頁面,聊天裡不能用")}}}
+            "chat_off": {"type": "boolean", "description": _("只放在頁面,聊天裡不能用")},
+            "devices": {"type": "array", "items": {"type": "string"},
+                        "description": _("每台各自的控制項只給這些來源(代號或 #標籤);不填 = 每一台")}}}
         block = {"type": "object", "required": ["id", "title"], "additionalProperties": False, "properties": {
             "id": {"type": "string"}, "title": {"type": "string"}, "help": {"type": "string"}, "toggle": {"type": "string"},
             "items": {"type": "array", "items": {"type": "string"}},

@@ -36,6 +36,7 @@ from .plugins import plugin_dir
 from i18n import _
 
 SKIP = ["*.before_*", "*.tmp", "*_log.jsonl", "__pycache__", "*.pyc", ".git", ".gitignore", ".gitattributes",
+        ".deleted",                                    # deleted scripts / sub-scripts: the designer's bin, not shipped
         "access.json"]                                 # PINs of an older layout (they live in the runtime folder now)
 MODEL_FILES = ("model.onnx", "model.json", "eval.json", "predictions.jsonl", "config.json", "metrics.jsonl", "status.json")
 

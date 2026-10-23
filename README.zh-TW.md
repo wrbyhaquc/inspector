@@ -389,7 +389,7 @@ python -m runtime [--run <訓練編號>] [--interval 1]     # 平常從介面「
 
 ## 腳本規範(automation/spec.py)
 
-腳本、子腳本、變數、輸出、操作面板、腳本測試的檔案格式有版本(目前第 8 版)。
+腳本、子腳本、變數、輸出、操作面板、腳本測試的檔案格式有版本(目前第 9 版)。
 JSON Schema 在 `docs/spec/v<N>/`(由 `python -m automation.spec_schema --write docs/spec/v<N>` 產生),網頁也可以從 `/api/spec/schema/<script|sub|variables|outputs|panel|tests>` 取得。
 
 - 每份檔案記錄 `"format"`;舊檔讀進來自動升級,比這個 Inspector 新的版本會被拒絕讀取。

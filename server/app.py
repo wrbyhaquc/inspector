@@ -3011,10 +3011,12 @@ def panel_get():
                 out_controls.append({**c, "value": state, "choices": [], "targets": tg})
                 continue
             if c.get("scope") == "device":
-                vals = {n: pm.value(DATA_ROOT, c, n) for n in devices}
-                opts = {n: pm.options(DATA_ROOT, c, n) for n in devices}
-            else:
-                vals, opts = pm.value(DATA_ROOT, c), pm.options(DATA_ROOT, c, None)
+                mine = [n for n in devices if pm.applies(c, n)]      # the devices it is for: a row / a cell each
+                vals = {n: pm.value(DATA_ROOT, c, n) for n in mine}
+                opts = {n: pm.options(DATA_ROOT, c, n) for n in mine}
+                out_controls.append({**c, "value": vals, "choices": opts, "targets": mine})
+                continue
+            vals, opts = pm.value(DATA_ROOT, c), pm.options(DATA_ROOT, c, None)
             out_controls.append({**c, "value": vals, "choices": opts})
         except (ValueError, KeyError, OSError) as e:
             out_controls.append({**c, "error": str(e)})

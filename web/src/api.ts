@@ -157,7 +157,8 @@ export interface ScheduleRun { id: string; schedule: string; schedule_name: stri
 export interface PanelOption { label: string; value: unknown }
 export interface PanelControl {
   id: string; label: string; help?: string; type: 'toggle' | 'time' | 'number' | 'multi' | 'single' | 'action'; scope?: 'global' | 'device'
-  targets?: string[]                          // action: the emulators a global button acts on
+  targets?: string[]                          // the emulators it is for (a per-emulator one) / a global button acts on
+  devices?: string[]                          // the design: a per-emulator control only for these (ids / "#tag")
   unit?: string; min?: number; max?: number; value?: unknown; choices?: PanelOption[] | Record<string, PanelOption[]>; error?: string
   bind?: { kind: string; [k: string]: unknown }; options?: `list:${string}` | PanelOption[]; scale?: number
   chat?: string; chat_off?: boolean            // its name in a chat bot / only on the page

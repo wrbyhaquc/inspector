@@ -8,7 +8,9 @@ panel.json  {"title", "devices": [emulators shown, in order] (empty = all),
                          "items": [control ids, in order]}],      one block per thing the user thinks about
              "controls": [{"id", "label", "help", "type", "scope": "global" | "device", "bind": {...},
                            "min", "max", "unit", "scale", "options": [{"label", "value"}],
-                           "chat": its name in a chat (optional), "chat_off": true = only on the page}]}
+                           "chat": its name in a chat (optional), "chat_off": true = only on the page,
+                           "devices": [source ids / "#tag"] - a per-device control only for these (optional; e.g.
+                           a greenhouse's buttons only on the greenhouse camera's row)}]}
 The same design is what a paired person may do from a chat bot (server/panel_chat.py).
 
 types:  toggle   on / off
@@ -253,11 +255,14 @@ def save(data_root, panel, check=True):
                 c["options"] = s["pick_from"]
         if check:                                  # the target must exist (read its value once)
             from drivers.sources import expand
-            dev = (expand(panel.get("devices")) or [None])[0] if c.get("scope") == "device" else None
+            dev = next((d for d in expand(panel.get("devices")) if applies(c, d)), None) if c.get("scope") == "device" else None
             try:
                 value(data_root, c, dev)
             except (ValueError, KeyError, OSError) as e:
                 raise ValueError(_("「{label}」接的設定讀不到:{e}", label=c['label'], e=e))
+    for c in panel.get("controls", []):
+        if not c.get("devices") or c.get("scope") != "device":     # only a per-device control is for some devices
+            c.pop("devices", None)
     for c in panel.get("controls", []):
         if not c.get("chat"):
             c.pop("chat", None)
@@ -342,6 +347,8 @@ def value(data_root, c, device=None):
 
 
 def _check(data_root, c, device, v):
+    if not applies(c, device):
+        raise ValueError(_("「{label}」不用在這台", label=c['label']))
     t = c["type"]
     if t == "toggle" and not isinstance(v, bool):
         raise ValueError(_("請選擇開或關"))
@@ -422,10 +429,18 @@ def apply(data_root, c, device, v):
     return old, new
 
 
+def applies(c, device):
+    """Is a per-device control for this device? Its "devices" (ids / "#tag") name the ones it is for; none = all."""
+    if c.get("scope") != "device" or not c.get("devices") or device is None:
+        return True
+    from drivers.sources import expand
+    return device in expand(c["devices"])
+
+
 def act_targets(data_root, c, device, devices):
     """The emulators an action button acts on: the one pressed for, or (global button) every panel emulator - only
-    those that take part, for a schedule."""
-    targets = [device] if c.get("scope") == "device" else list(devices)
+    those that take part, for a schedule, and only those a per-device button is for."""
+    targets = [d for d in ([device] if c.get("scope") == "device" else list(devices)) if applies(c, d)]
     if c["bind"]["kind"] == "act_schedule":
         part = _schedule(data_root, c["bind"]["schedule"]).get("devices") or []
         targets = [d for d in targets if d in part]
