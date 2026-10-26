@@ -462,6 +462,9 @@ text in every language), the generic screen rules and behaviour that has broken 
 and Linux, with the web interface's type check and build, on every push (`.github/workflows/ci.yml`).
 `e2e/` drives the built pages in a real browser against a server on a throwaway home: from an empty project, name it,
 add a camera, open every page, and the English pages show no untranslated text.
+`python -m tools.soak --minutes 30` runs the runner on a recording played back and fails if memory, handles or files
+keep growing; GitHub runs it every night (`.github/workflows/soak.yml`). The run's records (action pictures, incidents,
+schedule runs, daily logs) are kept 30 days (Run › settings; 0 = keep everything); recordings, answers and models stay.
 
 
 ## Known limits

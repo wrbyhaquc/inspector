@@ -144,3 +144,26 @@ def test_small_marks_by_place_and_shape():
     assert generic.small_char((10, 34, 38, 44), line) == "-"
     assert generic.small_char((10, 13, 22, 25), line) is None         # a speck near the top
     assert generic.small_char((10, 30, 20, 60), line) is None         # full height: a digit, not a mark
+
+
+# ---------------------------------------------------------------- suggested thresholds (colour ratio)
+
+def test_thresholds_are_suggested_in_the_empty_stretch_between_two_groups():
+    import random
+    from labeler.generic import suggest_ratio
+    rnd = random.Random(3)
+    no, yes = [rnd.uniform(0, 0.003) for _ in range(120)], [rnd.uniform(0.009, 0.03) for _ in range(15)]
+    s = suggest_ratio(no + yes)
+    assert s["basis"] == "gap" and 0.003 < s["low_max"] < s["high_min"] < 0.009
+    assert (s["high"], s["low"], s["unsure"]) == (15, 120, 0)
+    assert suggest_ratio(no)["none"] == "one_group"                                # nothing to split yet
+    assert suggest_ratio([0.0, 0.5])["none"] == "few_frames"
+
+
+def test_answers_decide_the_thresholds_and_none_of_them_comes_out_wrong():
+    from labeler.generic import suggest_ratio
+    answers = [(0.001, "low"), (0.002, "low"), (0.004, "low"), (0.003, "high"), (0.006, "high"), (0.008, "high")]
+    s = suggest_ratio([r for r, _a in answers] * 3, answers)
+    assert s["basis"] == "answers" and s["wrong"] == 0
+    assert s["low_max"] < 0.003 and s["high_min"] > 0.004          # the two answers on each other's side: undecided
+    assert s["unsure_answers"] == 2

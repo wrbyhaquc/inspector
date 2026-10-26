@@ -503,8 +503,9 @@ def next_steps():
         stl = _runner_live() or {}
         for dv in stl.get("devices") or []:
             hl = dv.get("health") or {}
-            if hl.get("state") in ("lost", "frozen"):
-                add("watch", "warn", _("「{x}」", x=sources.label(dv["name"], DATA_ROOT)) + " " + str(hl.get("text") or ""), _("看一下那台:程式還開著嗎、網路通嗎、畫面是不是停住了。"), "/sources", _("去看看"))
+            if hl.get("state") in ("lost", "blank", "frozen"):
+                add("watch", "warn", _("「{x}」", x=sources.label(dv["name"], DATA_ROOT)) + " " + str(hl.get("text") or ""),
+                    _("看一下那台:程式還開著嗎、網路通嗎、鏡頭有沒有被擋住、畫面是不是停住了。"), "/sources", _("去看看"))
     except Exception as e:
         add("watch", "warn", _("來源讀不到"), str(e), "/sources", _("去看看"))
     if not sess:
@@ -1338,6 +1339,13 @@ def rules_preview(req: RulePreview):
         if st["source"]["rule"] != "color_ratio" or not isinstance(e, generic.Unfinished):
             _bad(e)                                     # allow previewing before thresholds / classes are set
     frames = frames_random(min(req.n, 400), req.seed) if req.n <= 48 else _random_frames(min(req.n, 400), req.seed)
+    ratio = st["source"]["rule"] == "color_ratio" and req.n > 48
+    answered = {}                                   # frame -> a person's answer for this state (the analysis uses them)
+    if ratio:
+        have = {f for fr in _all_frames().values() for f in fr}
+        answered = {f: r["answers"][st["id"]] for f, r in review.decisions().items()
+                    if f in have and (r.get("answers") or {}).get(st["id"]) is not None}
+        frames = list(dict.fromkeys(frames + sorted(answered)[:200]))
     tpls = generic.load_templates(DATA_ROOT, st) if st["source"]["rule"] in ("template", "digits") else None
     labels = {data.rel(r["frame"]): r for r in data.labels().values()}
     gate = st["source"].get("params", {}).get("gate_state")
@@ -1345,10 +1353,18 @@ def rules_preview(req: RulePreview):
     def one(f):
         ctx = {gate: labels.get(f, {}).get(gate)} if gate else None
         v, sc = generic.evaluate(st, _load_rgb(f), tpls, ctx)
-        return {"frame": f, "value": v, **sc}
+        return {"frame": f, "value": v, **sc, **({"answer": answered[f]} if f in answered else {})}
 
     with concurrent.futures.ThreadPoolExecutor(8) as ex:
-        return {"items": list(ex.map(one, frames)), "templates": len(tpls or [])}
+        items = list(ex.map(one, frames))
+    out = {"items": items, "templates": len(tpls or [])}
+    if ratio:                                       # thresholds that split these frames (and keep the answers right)
+        p = st["source"].get("params") or {}
+        side = {p.get("high_value"): "high", p.get("low_value"): "low"}
+        out["suggest"] = generic.suggest_ratio([i.get("ratio") for i in items if not i.get("gated")],
+                                               [(i["ratio"], side[i["answer"]]) for i in items
+                                                if "answer" in i and i.get("ratio") is not None and i["answer"] in side])
+    return out
 
 
 class GlyphsReq(BaseModel):
@@ -2687,6 +2703,8 @@ class ShadowControl(BaseModel):
     auto_save_per_hour: int | None = None
     live_view: bool | None = None      # show the devices' screens on the page
     freeze_seconds: int | None = None  # a source whose picture does not change this long is "frozen" (0 = never)
+    blank_seconds: int | None = None   # ... whose picture is one colour (black, no signal) this long is "blank" (0 = never)
+    keep_days: int | None = None       # the run's records kept this long (0 = all; runtime/retention.py)
     start_wait_s: float | None = None  # after a start / a source coming back: seconds with a healthy picture before acting
     unblock: bool = False              # clear paused rules
     resume: dict | None = None         # clear one: {"device", "script", "rule"} (rule None / "(整個腳本)" = a stopped script)
@@ -2699,7 +2717,7 @@ def shadow_control(req: ShadowControl):
     p = os.path.join(RUNTIME_DIR, "control.json")
     c = _read_json(p, {}) or {}
     for k in ("max_per_min", "max_strikes", "manual_pause_s", "auto_save", "auto_save_per_hour", "live_view",
-              "freeze_seconds", "start_wait_s"):
+              "freeze_seconds", "blank_seconds", "keep_days", "start_wait_s"):
         v = getattr(req, k)
         if v is not None:
             c[k] = v
@@ -3066,7 +3084,7 @@ TONES = {"green": N_("正常"), "blue": N_("進行中"), "amber": N_("注意"), 
 def _device_status(n, st, names):
     """What one emulator is doing, in plain words, for the operation panel: {"online", "now", "tone", "label"}.
     green 正常 (idle / its main script's situation) · blue 進行中 (a schedule / sub-script) · amber 注意 (paused,
-    someone operating it, picture frozen) · red 要處理 (a rule stopped it, no picture) · grey 已停止 (stopped by a person,
+    someone operating it, picture frozen) · red 要處理 (a rule stopped it, no picture, a black / one-colour picture) · grey 已停止 (stopped by a person,
     not used, the system not running)."""
     def out(online, now, tone, label=None):
         return {"online": online, "now": now, "tone": tone, "label": label or _(TONES[tone])}
@@ -3086,6 +3104,8 @@ def _device_status(n, st, names):
     hl = d.get("health") or {}
     if hl.get("state") == "lost":
         return out(False, _("沒有畫面(關掉了或斷線)"), "red", _("看不到"))
+    if hl.get("state") == "blank":                          # it is there, but there is nothing to see
+        return out(True, str(hl.get("text") or ""), "red", _("看不到畫面"))
     if d.get("hold"):
         h = d["hold"]
         if h.get("mode") == "pause":

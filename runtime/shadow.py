@@ -90,7 +90,7 @@ from labeler import generic, rules as auto_rules
 
 from . import arbiter
 
-from . import incidents as incidents_mod, judge, quality as quality_mod
+from . import incidents as incidents_mod, judge, quality as quality_mod, retention
 from .joblog import JobLog
 from project import word
 from i18n import _
@@ -104,7 +104,9 @@ CONTROL_DEFAULT = {"max_per_min": 12, "max_strikes": 3, "unblock": 0,
                    "auto_save_per_hour": 20,    # ... at most this many per hour (all devices)
                    "live_view": True,
                    "start_wait_s": 5,           # after starting / a source coming back: this long with a picture before acting
-                   "freeze_seconds": 300}       # a source whose picture does not change this long is "frozen" (0 = never)
+                   "freeze_seconds": 300,       # a source whose picture does not change this long is "frozen" (0 = never)
+                   "blank_seconds": 60,         # ... whose picture is one colour (black, no signal) this long is "blank" (0 = never)
+                   "keep_days": 30}             # the run's records (action pictures, incidents, logs) kept this long (0 = all; runtime/retention.py)
 LIVE_VIEW_IDLE = 15      # seconds without a page asking for a live frame = nobody is watching, stop writing them
 CONF_LOW = 0.6           # model confidence below this = unsure
 SAVE_GAP = 60            # seconds between two saved frames of one device
@@ -338,13 +340,13 @@ class Shadow:
         print(f"{datetime.datetime.now():%H:%M:%S} {device or '-':14} ! {text}", flush=True)   # None: not about one device
 
     def _health_news(self, n, state, text):
-        """Told once per change: lost / frozen (warn), back to normal (info). slow only shows on the pages."""
+        """Told once per change: lost / blank / frozen (warn), back to normal (info). slow only shows on the pages."""
         from drivers.sources import label
-        if state in ("lost", "frozen"):
+        if state in ("lost", "blank", "frozen"):
             self.alert(n, _("來源「{p1}」{text}", p1=label(n, self.data_root), text=text))
         elif state == "ok" and getattr(self, "_told_bad", {}).get(n):
             self.alert(n, _("來源「{p1}」恢復正常", p1=label(n, self.data_root)), "info")
-        self.__dict__.setdefault("_told_bad", {})[n] = state in ("lost", "frozen")
+        self.__dict__.setdefault("_told_bad", {})[n] = state in ("lost", "blank", "frozen")
 
     def _source_news(self, drv, found, names=None):
         """A source found for the first time (not used until someone ticks it), or one whose screen is not the
@@ -926,7 +928,8 @@ class Shadow:
             self._flag_if_requested(n, frames.get(n), st, decisions)
             self._snap_if_requested(n, frames.get(n))
             run = self.procs.get(n)
-            hs, htext, hchanged, hinfo = self.health.check(n, self.clock(), int(self.ctrl.get("freeze_seconds", 300) or 0))
+            hs, htext, hchanged, hinfo = self.health.check(n, self.clock(), int(self.ctrl.get("freeze_seconds", 300) or 0),
+                                                                int(self.ctrl.get("blank_seconds", 60) or 0))
             if hchanged:
                 self._health_news(n, hs, htext)
                 if hs == "frozen":
@@ -2027,6 +2030,16 @@ class Shadow:
             for r in reasons), flush=True)
 
     # ---------- main loop ----------
+    def _clean(self):
+        keep = int(self.ctrl.get("keep_days", retention.KEEP_DAYS) or 0)
+        try:
+            gone = retention.clean(self.dir, self.fast, project.work_of(self.data_root), keep)
+        except Exception as e:                               # noqa: BLE001 - cleaning must never stop the runner
+            print(_("清理舊紀錄失敗:{e}", e=e), flush=True)
+            return
+        if gone["files"]:
+            print(_("清理超過 {days} 天的紀錄:{n} 個檔案、{mb} MB", days=keep, n=gone["files"], mb=round(gone["bytes"] / 2 ** 20, 1)), flush=True)
+
     def run(self):
         stop = os.path.join(self.fast, "stop")
         if os.path.exists(stop):
@@ -2038,9 +2051,13 @@ class Shadow:
         src_file = sources_mod._path()
         src_m = os.path.getmtime(src_file) if os.path.exists(src_file) else 0
         ticks = 0
+        clean_at = 0.0
         try:
             while not os.path.exists(stop):
                 t0 = time.time()
+                if t0 >= clean_at:                           # old records: in the background, the loop does not wait
+                    clean_at = t0 + retention.CHECK_EVERY
+                    threading.Thread(target=self._clean, daemon=True, name="retention").start()
                 m = os.path.getmtime(src_file) if os.path.exists(src_file) else 0
                 if t0 - last_scan > 10 or m != src_m:       # the 來源 page changed something: at once
                     names, last_scan, src_m = self.devices(), t0, m

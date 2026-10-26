@@ -250,3 +250,55 @@ def test_the_recorder_does_not_record_a_replay(monkeypatch):
     monkeypatch.setattr(col, "DeviceCtx", lambda owner, inst: types.SimpleNamespace(start=lambda: None, inst=inst, thread=None))
     col.Collector.rescan(c)
     assert told == [["CAM"]] and list(c.devs) == ["CAM"]
+
+
+# ---------------------------------------------------------------- source health
+
+def test_a_black_or_one_colour_picture_is_told_a_dark_scene_is_not():
+    import numpy as np
+    from runtime.health import Health
+    h = Health()
+    rnd = np.random.default_rng(1)
+    night = np.clip(rnd.normal(35, 15, (360, 640, 3)), 0, 255).astype(np.uint8)       # a pond at night: dark, but a picture
+    for t in range(0, 200, 2):
+        h.frame("POND", night if t % 4 else night[::-1], 20, 1000.0 + t)
+        h.frame("CAM", np.zeros((360, 640, 3), np.uint8), 20, 1000.0 + t)             # a covered lens
+        h.frame("NVR", np.full((360, 640, 3), (20, 40, 160), np.uint8), 20, 1000.0 + t)  # a recorder's "no signal" blue
+    assert h.check("POND", 1198.0)[0] == "ok"
+    state, text, changed, _info = h.check("CAM", 1198.0)
+    assert state == "blank" and changed and "全黑" in text
+    assert h.check("NVR", 1198.0)[0] == "blank" and "單色" in h.check("NVR", 1198.0)[1]
+    assert h.check("CAM", 1198.0, blank_s=0)[0] != "blank"                            # 0 = not looked for
+    h.frame("CAM", night, 20, 1199.0)                                                  # the lens uncovered
+    assert h.check("CAM", 1199.5)[0] == "ok"
+
+
+# ---------------------------------------------------------------- keeping the run's records for a while
+
+def test_old_run_records_are_deleted_and_recordings_open_incidents_and_recent_days_are_kept(tmp_path):
+    import datetime
+    from runtime import retention
+    shadow, rt, work = tmp_path / "work" / "shadow", tmp_path / "rt", tmp_path / "work"
+
+    def put(path, text="x"):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    put(shadow / "actions" / "20260901" / "1_CAM.jpg")
+    put(shadow / "actions" / "20261020" / "2_CAM.jpg")
+    put(shadow / "incidents" / "20260901_120000_CAM" / "incident.json", json.dumps({"status": "resolved"}))
+    put(shadow / "incidents" / "20260902_120000_CAM" / "incident.json", json.dumps({"status": "open"}))
+    put(shadow / "schedules" / "20260901_080000_feed_CAM" / "job.json")
+    put(shadow / "log" / "20260901.jsonl")
+    put(shadow / "log" / "20261025.jsonl")
+    put(rt / "quality" / "20260901.jsonl")
+    put(work / ".jobs" / "20260901_101010_1_shadow.log")
+    put(work / "sessions" / "20260901_090000" / "session.json")                 # a recording: never
+    put(shadow / "actions" / "notes.txt")                                          # no date: never
+    today = datetime.date(2026, 10, 26)
+    assert retention.clean(str(shadow), str(rt), str(work), 0, today) == {"files": 0, "bytes": 0}   # 0 = keep all
+    gone = retention.clean(str(shadow), str(rt), str(work), 30, today)
+    assert gone["files"] == 6
+    left = sorted(str(p.relative_to(tmp_path)).replace("\\", "/") for p in tmp_path.rglob("*") if p.is_file())
+    assert left == ["work/sessions/20260901_090000/session.json", "work/shadow/actions/20261020/2_CAM.jpg",
+                    "work/shadow/actions/notes.txt", "work/shadow/incidents/20260902_120000_CAM/incident.json",
+                    "work/shadow/log/20261025.jsonl"]

@@ -1,7 +1,7 @@
 import { t } from '../i18n'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { api, imageUrl, ruleTemplateUrl, type AnswerValue, type HsvRange, type RulePreviewItem, type RuleTemplate, type StateDef } from '../api'
+import { api, imageUrl, ruleTemplateUrl, type AnswerValue, type HsvRange, type RatioSuggestion, type RulePreviewItem, type RuleTemplate, type StateDef } from '../api'
 import { COLORS } from '../lib/schema'
 import { Zoom } from './FrameView'
 import QuickAnswers from './QuickAnswers'
@@ -294,11 +294,13 @@ function RatioAnalysis({ s, box, setP }: { s: StateDef; box: number[]; setP: (k:
   const xOf = (r: number) => (r / max) * W
   const count = (v: AnswerValue | null) => items.filter(i => i.value === v).length
   const name = (v: AnswerValue | null) => v == null ? t('無法判斷') : s.classes?.find(c => c.value === v)?.name ?? String(v)
+  const sug = run.data?.suggest
+  const answered = items.filter(i => i.answer != null).length
 
   return (
     <section className="flex flex-col gap-2">
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="font-medium text-stone-700">{t('3. 用 200 張畫面檢查')}</div>
+        <div className="font-medium text-stone-700">{t('3. 用 200 張畫面檢查')}{answered > 0 && <span className="font-normal text-xs text-stone-500">{t('(另外加上你回答過的 {n} 張)', { n: answered })}</span>}</div>
         <Button onClick={() => { setBin(null); run.mutate(Date.now() % 1000) }} disabled={run.isPending || !(p.colors?.length)}>{run.isPending ? t('計算中…') : t('分析')}</Button>
         <span className="text-xs text-stone-500">{t('理想的樣子:長條分成左右兩群,中間空空的。門檻設在空的地方。')}</span>
       </div>
@@ -314,6 +316,8 @@ function RatioAnalysis({ s, box, setP }: { s: StateDef; box: number[]; setP: (k:
             ))}
             {p.low_max != null && <line x1={xOf(p.low_max)} x2={xOf(p.low_max)} y1={0} y2={H} stroke="#e11d48" strokeDasharray="4 3" />}
             {p.high_min != null && <line x1={xOf(p.high_min)} x2={xOf(p.high_min)} y1={0} y2={H} stroke="#059669" strokeDasharray="4 3" />}
+            {sug && !sug.none && <rect x={xOf(sug.low_max)} width={Math.max(1, xOf(sug.high_min) - xOf(sug.low_max))} y={0} height={H} fill="#0284c7" opacity={0.12}>
+              <title>{t('建議的門檻之間(判斷不出來的範圍)')}</title></rect>}
             <text x={2} y={H + 14} fontSize="11" fill="#78716c">0%</text>
             <text x={W - 2} y={H + 14} fontSize="11" fill="#78716c" textAnchor="end">{(max * 100).toFixed(1)}%</text>
           </svg>
@@ -322,6 +326,8 @@ function RatioAnalysis({ s, box, setP }: { s: StateDef; box: number[]; setP: (k:
             {items.some(i => i.gated) && <span>{t('(先決條件擋下 {length} 張)', { length: items.filter(i => i.gated).length })}</span>}
             <span className="text-stone-400">{t('紅線 = 低門檻,綠線 = 高門檻;點長條看那些畫面')}</span>
           </div>
+          {sug && <Suggestion sug={sug} name={name} high={p.high_value} low={p.low_value} same={!sug.none && p.low_max === sug.low_max && p.high_min === sug.high_min}
+            apply={() => { if (!sug.none) { setP('low_max', sug.low_max); setP('high_min', sug.high_min) } }} />}
           {bin !== null && (
             <div className="flex flex-col gap-1">
               <div className="flex gap-3 items-center text-xs text-stone-600">
@@ -335,6 +341,28 @@ function RatioAnalysis({ s, box, setP }: { s: StateDef; box: number[]; setP: (k:
         </>
       )}
     </section>
+  )
+}
+
+/** The thresholds the analysis suggests, what they would make of these frames, and a button to take them. */
+function Suggestion({ sug, name, high, low, same, apply }: { sug: RatioSuggestion; name: (v: AnswerValue | null) => string
+  high: AnswerValue; low: AnswerValue; same: boolean; apply: () => void }) {
+  if (sug.none) return <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{{
+    one_group: t('建議不出門檻:這些畫面的比例都在同一群。錄到的畫面可能還沒有另一種狀況(先錄一段有的),或換一種顏色、縮小範圍。'),
+    few_frames: t('建議不出門檻:畫面太少(至少要 10 張)。'),
+    answers_mixed: t('建議不出門檻:你的答案兩種的比例混在一起分不開。試試換一種顏色或縮小範圍。'),
+  }[sug.none]}</div>
+  const pct = (v: number) => `${+(v * 100).toPrecision(2)}%`
+  return (
+    <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950 flex flex-wrap items-center gap-x-4 gap-y-1" data-testid="suggestion">
+      <b>{t('建議門檻')}</b>
+      <span className="num">{t('比例 ≥ {high}→{hv},≤ {low}→{lv}', { high: sug.high_min, hv: name(high), low: sug.low_max, lv: name(low) })}
+        <span className="text-sky-800/70">{` (${pct(sug.high_min)} / ${pct(sug.low_max)})`}</span></span>
+      <span className="text-xs text-sky-800">{sug.basis === 'answers' ? t('依你回答過的畫面:答案都不會判錯') : t('依畫面比例的分佈:兩群中間空的地方')}</span>
+      <span className="text-xs num">{t('這些畫面會是:{hv} {h} 張、{lv} {l} 張、判斷不出 {u} 張', { hv: name(high), h: sug.high, lv: name(low), l: sug.low, u: sug.unsure })}
+        {sug.basis === 'answers' && sug.unsure_answers > 0 && t(';你的答案有 {n} 張在中間,會判斷不出來', { n: sug.unsure_answers })}</span>
+      <Button variant={same ? 'ghost' : 'primary'} disabled={same} onClick={apply}>{same ? t('已套用') : t('套用建議')}</Button>
+    </div>
   )
 }
 

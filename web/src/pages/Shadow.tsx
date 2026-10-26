@@ -408,6 +408,10 @@ function Settings({ st, states, running, run, setRun, interval, setInterval, onS
             <NumField min={0} max={600} className={`${field} w-16`} value={c.start_wait_s ?? 5} onSave={v => set.mutate({ start_wait_s: v })} />{t('秒')}</label>
           <label className="flex items-center gap-1" title={t('畫面完全沒變這麼久就通知「畫面卡住」(程式當掉、串流停住);填 0 = 不偵測。靜止的畫面(例如晚上的攝影機)可以設長一點')}>{t('畫面沒變化')}
             <NumField min={0} max={86400} className={`${field} w-20`} value={c.freeze_seconds ?? 300} onSave={v => set.mutate({ freeze_seconds: v })} />{t('秒就算卡住')}</label>
+          <label className="flex items-center gap-1" title={t('畫面一片黑或單色這麼久就通知(鏡頭被擋住、沒有訊號);填 0 = 不偵測。晚上暗暗的畫面不算,還看得到東西就不算')}>{t('畫面全黑或單色')}
+            <NumField min={0} max={86400} className={`${field} w-20`} value={c.blank_seconds ?? 60} onSave={v => set.mutate({ blank_seconds: v })} />{t('秒就通知')}</label>
+          <label className="flex items-center gap-1" title={t('動作的畫面、緊急事件、排程紀錄、每天的紀錄,超過這麼多天就刪掉(每 6 小時清一次);填 0 = 全部保留。錄製的畫面、答案、模型不會刪')}>{t('執行紀錄保留')}
+            <NumField min={0} max={3650} className={`${field} w-16`} value={c.keep_days ?? 30} onSave={v => set.mutate({ keep_days: v })} />{t('天')}</label>
         </div>
       </Card>
       <Card title={t('收集與顯示')} extra={savedNote}>
@@ -919,7 +923,7 @@ function IncidentView({ id, states }: { id: string; states: StateDef[] }) {
 /** A number that is saved when you are done typing (Enter or leaving the box), not on every key: a half-typed or
  * empty box must never be saved (clearing "20" to type "120" used to save 0). */
 const CONTROL_DEFAULT: ShadowControl = { max_per_min: 12, max_strikes: 3, manual_pause_s: 60, auto_save: true, auto_save_per_hour: 20,
-  live_view: true, start_wait_s: 5, freeze_seconds: 300 }   // as runtime/shadow.py CONTROL_DEFAULT
+  live_view: true, start_wait_s: 5, freeze_seconds: 300, blank_seconds: 60, keep_days: 30 }   // as runtime/shadow.py CONTROL_DEFAULT
 
 function NumField({ value, min, max, className, onSave }: { value: number; min: number; max: number; className: string; onSave: (v: number) => void }) {
   const [text, setText] = useState(String(value))

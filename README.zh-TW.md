@@ -460,6 +460,8 @@ pip install playwright && python -m playwright install chromium && python -m pyt
 測試涵蓋腳本規範(公開的 Schema 和程式一致、舊檔能升級)、翻譯(每段文字每種語言都有)、通用畫面規則,以及以前壞過的行為。
 每次推送,GitHub 都會在 Windows 和 Linux 上跑這些測試,並檢查、建置網頁介面(`.github/workflows/ci.yml`)。
 `e2e/` 用真的瀏覽器操作建好的頁面,伺服器用暫時的資料夾:從空專案開始取名字、加攝影機、打開每一頁,並檢查英文頁面沒有沒翻到的文字。
+`python -m tools.soak --minutes 30` 用錄製重播讓腳本執行程式長時間跑,記憶體、handle 或檔案一直變多就算失敗;GitHub 每天晚上跑一次(`.github/workflows/soak.yml`)。
+執行紀錄(動作的畫面、緊急事件、排程紀錄、每天的紀錄)保留 30 天(「執行 › 設定」可改,0 = 全部保留);錄製的畫面、答案、模型不會刪。
 
 
 ## 已知限制

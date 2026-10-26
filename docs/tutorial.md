@@ -115,6 +115,9 @@ bar is), so no model needs training.
 5. **Set the thresholds from the bars.** The ideal picture is two groups with an empty gap between them: the
    thresholds go into the gap. Here the frames without fish at the surface are all at 0% and those with them at about
    0.6%–0.8%, so set Ratio ≥ `0.004` → Yes and Ratio ≤ `0.002` → No and press "Analyze" again.
+   "**Suggested thresholds**" under the bars finds the empty stretch between the groups (once you have answered
+   questions, from your answers: none of them comes out wrong); "Use the suggestion" fills them in. Use it when the
+   bars agree.
 
 ![Color ratio: check on 200 frames](tutorial/en/state_rule.png)
 

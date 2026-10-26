@@ -103,6 +103,68 @@ def eval_color(state, img):
     return None, {"ratio": round(r, 4)}
 
 
+def suggest_ratio(ratios, answers=(), min_side=0.03):
+    """Thresholds for a colour-ratio rule from the ratios of many frames.
+
+    answers: [(ratio, "high" | "low")] for frames a person answered. With at least 3 of each, the thresholds keep
+    every answer right: low_max just under the lowest "high" answer that is above every "low" one, high_min just
+    over the highest "low" answer below every "high" one (answers on both sides of each other stay undecided).
+    Without them: the widest empty stretch between two groups of frames (each at least min_side of them), its
+    middle third left undecided. -> {"low_max", "high_min", "basis": "answers" | "gap", "high", "low", "unsure",
+    "wrong", "unsure_answers"} or {"none": why} when the frames do not split."""
+    rs = sorted(float(r) for r in ratios if r is not None)
+    hi = sorted(r for r, a in answers if a == "high")
+    lo = sorted(r for r, a in answers if a == "low")
+    if len(hi) >= 3 and len(lo) >= 3:
+        if max(lo) < min(hi):                                       # apart: the thresholds in the empty stretch
+            a, b = max(lo), min(hi)
+            low, high = a + (b - a) / 3, a + 2 * (b - a) / 3
+        else:                                                       # mixed: the mixed stretch stays undecided
+            below = [r for r in lo if r < min(hi)]
+            above = [r for r in hi if r > max(lo)]
+            if not below or not above:
+                return {"none": "answers_mixed"}
+            low, high = max(below), min(above)
+            low, high = low + (min(hi) - low) / 2, high - (high - max(lo)) / 2
+        basis = "answers"
+    else:
+        if len(rs) < 10:
+            return {"none": "few_frames"}
+        need = max(2, int(len(rs) * min_side))
+        best = None                                 # the widest stretch for its place: 0.003 -> 0.009 beats 0.012 -> 0.02
+        for i in range(need - 1, len(rs) - need):
+            gap = rs[i + 1] - rs[i]
+            score = gap / max(rs[i + 1], 0.002, rs[-1] / 20)
+            if gap >= 0.0005 and (best is None or score > best[0]):
+                best = (score, rs[i], rs[i + 1])
+        steps = sorted(y - x for x, y in zip(rs, rs[1:]) if y > x)
+        usual = steps[len(steps) // 2] if steps else 0
+        if best is None or best[0] < 0.3 or best[2] - best[1] < 15 * usual:    # not much wider than the frames' own spacing
+            return {"none": "one_group"}
+        _score, a, b = best
+        low, high = a + (b - a) / 3, a + 2 * (b - a) / 3
+        basis = "gap"
+    low, high = _nice(low, "down"), _nice(high, "up")
+    if high <= low:
+        high = round(low + 0.0001, 4)
+    out = {"low_max": low, "high_min": high, "basis": basis,
+           "high": sum(r >= high for r in rs), "low": sum(r <= low for r in rs)}
+    out["unsure"] = len(rs) - out["high"] - out["low"]
+    out["wrong"] = sum(1 for r, a in answers if (a == "high" and r <= low) or (a == "low" and r >= high))
+    out["unsure_answers"] = sum(1 for r, a in answers if low < r < high)
+    return out
+
+
+def _nice(x, way):
+    """x with 2 significant digits (0.00437 -> 0.0043 down / 0.0044 up), at least 0.0001"""
+    import math
+    if x <= 0:
+        return 0.0 if way == "down" else 0.0001
+    step = 10 ** (math.floor(math.log10(x)) - 1)
+    v = (math.floor if way == "down" else math.ceil)(x / step) * step
+    return round(max(v, 0.0001 if way == "up" else 0.0), 6)
+
+
 # ---------------------------------------------------------------- templates
 def tpl_dir(data_root, state_id):
     return os.path.join(data_root, "meta", "rule_templates", state_id)

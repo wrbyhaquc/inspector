@@ -1234,7 +1234,6 @@
  "目前的{p1}": "Current {p1}",
  "目前的專案({root})沒有使用外掛 {plugin}": "The current project ({root}) does not use plugin {plugin}",
  "相加": "Sum",
- "看一下那台:程式還開著嗎、網路通嗎、畫面是不是停住了。": "Check that device: is the program still open, is the network up, has the screen frozen?",
  "看不到": "Not visible",
  "看不到這個狀態": "This state is not visible",
  "看不到這台(沒有開或視窗縮到最小)": "This device cannot be seen (not open, or the window is minimized)",
@@ -1814,5 +1813,12 @@
  "錄製重播": "Recording replay",
  "錄製重播只能看;動作請在「來源」交給另一個來源或送到輸出": "A recording replay can only be watched; send its actions to another source or an output under \"Sources\"",
  "預設 1;2 = 兩倍速": "1 by default; 2 = twice as fast",
- "寬螢幕上:自動 / 1/3 列 / 半列 / 2/3 列 / 整列": "On a wide screen: auto / a third / half / two thirds / the full row"
+ "寬螢幕上:自動 / 1/3 列 / 半列 / 2/3 列 / 整列": "On a wide screen: auto / a third / half / two thirds / the full row",
+ "{p1} 秒": "{p1} s",
+ "畫面一片單色 {secs}(可能沒有訊號或鏡頭被擋住)": "The picture has been one colour for {secs} (no signal, or the lens is covered)",
+ "畫面全黑 {secs}(鏡頭被擋住、沒有訊號或太暗)": "The picture has been black for {secs} (the lens covered, no signal or too dark)",
+ "看一下那台:程式還開著嗎、網路通嗎、鏡頭有沒有被擋住、畫面是不是停住了。": "Check that device: is the program still open, is the network up, is the lens covered, has the screen frozen?",
+ "看不到畫面": "No picture",
+ "清理舊紀錄失敗:{e}": "Cleaning old records failed: {e}",
+ "清理超過 {days} 天的紀錄:{n} 個檔案、{mb} MB": "Deleted records older than {days} days: {n} files, {mb} MB"
 }

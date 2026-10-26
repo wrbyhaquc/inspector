@@ -124,7 +124,11 @@ export interface GalleryInfo {
 
 // ---------- generic rules ----------
 export interface HsvRange { h: [number, number]; s: [number, number]; v: [number, number] }
-export interface RulePreviewItem { frame: string; value: AnswerValue | null; ratio?: number | null; scores?: Record<string, number>; gated?: string; text?: string; min_score?: number | null; why?: string }
+export interface RulePreviewItem { frame: string; value: AnswerValue | null; ratio?: number | null; scores?: Record<string, number>; gated?: string; text?: string; min_score?: number | null; why?: string
+  answer?: AnswerValue }     // a person's answer for this frame
+/** thresholds that split the analysed frames (labeler/generic.py suggest_ratio) */
+export type RatioSuggestion = { none: 'one_group' | 'few_frames' | 'answers_mixed' }
+  | { low_max: number; high_min: number; basis: 'answers' | 'gap'; high: number; low: number; unsure: number; wrong: number; unsure_answers: number; none?: undefined }
 /** what a 讀數字 rule finds on one frame: each character, what it is read as */
 export interface GlyphsInfo { glyphs: { box: [number, number, number, number]; char: string | null; score: number }[]; text: string; value: number | null; taught: number }
 export interface RuleTemplate { file: string; value: AnswerValue; frame: string; box: number[]; created: number }
@@ -264,10 +268,10 @@ export interface DeviceActions {
 }
 export interface ShadowControl {
   max_per_min: number; max_strikes: number; unblock?: number; start_wait_s?: number
-  manual_pause_s?: number; auto_save?: boolean; auto_save_per_hour?: number; live_view?: boolean; freeze_seconds?: number
+  manual_pause_s?: number; auto_save?: boolean; auto_save_per_hour?: number; live_view?: boolean; freeze_seconds?: number; blank_seconds?: number; keep_days?: number
 }
 export interface ShadowAlert { t: number; device: string; text: string; level: string }
-export interface DeviceHealth { state: 'ok' | 'slow' | 'lost' | 'frozen'; text: string; fps: number; age: number | null; ms: number; since: number }
+export interface DeviceHealth { state: 'ok' | 'slow' | 'lost' | 'blank' | 'frozen'; text: string; fps: number; age: number | null; ms: number; since: number }
 export interface ShadowDevice {
   name: string; window: string | null; health?: DeviceHealth; state: Record<string, ShadowState> | null; decisions: ShadowDecision[]
   proc?: ProcInfo | null; taps_last_min?: number
@@ -658,7 +662,7 @@ export const api = {
   randomFrames: (n = 12, seed = 0) => req<string[]>('GET', `/api/frames/random?${qs({ n, seed })}`),
   framesBrowse: (session: string, device: string, offset = 0, limit = 24) =>
     req<{ total: number; offset: number; items: string[] }>('GET', `/api/frames/browse?${qs({ session, device, offset, limit })}`),
-  rulesPreview: (state: StateDef, n = 24, seed = 0) => req<{ items: RulePreviewItem[]; templates: number }>('POST', '/api/rules/preview', { state, n, seed }),
+  rulesPreview: (state: StateDef, n = 24, seed = 0) => req<{ items: RulePreviewItem[]; templates: number; suggest?: RatioSuggestion }>('POST', '/api/rules/preview', { state, n, seed }),
   ruleGlyphs: (state: StateDef, frame: string) => req<GlyphsInfo>('POST', '/api/rules/glyphs', { state, frame }),
   ruleGlyphTeach: (state: StateDef, frame: string, index: number, char: string) =>
     req<GlyphsInfo>('POST', '/api/rules/glyph', { state, frame, index, char }),

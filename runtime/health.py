@@ -3,9 +3,13 @@
   ok      frames arrive and change
   slow    frames arrive, but taking one takes long (the source or the computer is busy)
   lost    no frame for LOST_S seconds (closed, disconnected, minimised)
+  blank   the picture one colour (almost no difference across it) for the blank time (control "blank_seconds",
+          default BLANK_S; 0 = never): a covered lens, a camera with no signal (a recorder's blue / black screen),
+          a screen that went black. A dark night is not blank: there is still something to see (pond at night: a
+          spread of about 15, an emulator's darkest screens about 12; blank is under BLANK_SPREAD)
   frozen  every frame the same for the freeze time (control "freeze_seconds", default FREEZE_S; 0 = never): the
           program hung, the stream stopped moving, the picture is a still
-A change to lost / frozen is told once (an alert, so notifications follow), and so is getting back to normal."""
+A change to lost / blank / frozen is told once (an alert, so notifications follow), and so is getting back to normal."""
 import collections
 import time
 
@@ -16,6 +20,8 @@ LOST_S = 15
 FREEZE_S = 300
 SLOW_MS = 1000
 SAME = 0.6           # mean difference (0-255) of a small thumbnail below which two frames are "the same"
+BLANK_S = 60
+BLANK_SPREAD = 4     # standard deviation (0-255) of a small grey thumbnail below which the picture is one colour
 
 
 class Health:
@@ -24,7 +30,8 @@ class Health:
 
     def _dev(self, n):
         return self.d.setdefault(n, {"ok": collections.deque(maxlen=120), "ms": collections.deque(maxlen=30), "last": 0.0,
-                                     "thumb": None, "same_since": None, "state": "ok", "since": time.time()})
+                                     "thumb": None, "same_since": None, "blank_since": None, "bright": 0.0, "state": "ok",
+                                     "since": time.time()})
 
     def frame(self, n, img, ms, now):
         """A frame was taken (img) in ms milliseconds."""
@@ -38,12 +45,15 @@ class Health:
         else:
             h["same_since"] = None
         h["thumb"] = t
+        grey = t.mean(axis=2) if t.ndim == 3 else t
+        h["bright"] = float(grey.mean())
+        h["blank_since"] = (h["blank_since"] or now) if float(grey.std()) < BLANK_SPREAD else None
 
     def miss(self, n, ms, now):
         h = self._dev(n)
         h["ms"].append(ms)
 
-    def check(self, n, now, freeze_s=FREEZE_S):
+    def check(self, n, now, freeze_s=FREEZE_S, blank_s=BLANK_S):
         """-> (state, text, changed): changed = the state is different from last time."""
         h = self._dev(n)
         age = now - h["last"] if h["last"] else None
@@ -52,6 +62,10 @@ class Health:
         ms = sum(h["ms"]) / len(h["ms"]) if h["ms"] else 0
         if age is None or age > LOST_S:
             state, text = "lost", _("沒有畫面") + (_("({p1} 秒)", p1=int(age)) if age else "")
+        elif blank_s and h["blank_since"] and now - h["blank_since"] >= blank_s:
+            secs = _("{p1} 分鐘", p1=int((now - h["blank_since"]) // 60)) if now - h["blank_since"] >= 60 else _("{p1} 秒", p1=int(now - h["blank_since"]))
+            state, text = "blank", (_("畫面全黑 {secs}(鏡頭被擋住、沒有訊號或太暗)", secs=secs) if h["bright"] < 20
+                                    else _("畫面一片單色 {secs}(可能沒有訊號或鏡頭被擋住)", secs=secs))
         elif freeze_s and h["same_since"] and now - h["same_since"] >= freeze_s:
             still = now - h["same_since"]
             state, text = "frozen", _("畫面 {p1} 分鐘沒有變化(可能當機或畫面停住)", p1=int(still // 60)) if still >= 60 else _("畫面 {p1} 秒沒有變化(可能當機或畫面停住)", p1=int(still))
