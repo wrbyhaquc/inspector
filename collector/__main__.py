@@ -14,9 +14,12 @@ def main():
     ap.add_argument("--no-touch", action="store_true", help=_("不記錄觸控"))
     ap.add_argument("--capture", default=Settings.capture,
                     help=_("截圖方式(由來源種類決定;例如 Android:window = 從 Windows 擷取視窗,預設;adb = 在裝置內截圖)"))
+    ap.add_argument("--format", choices=("png", "jpg"), default=Settings.frame_format, help=_("畫面存成 png(原樣)或 jpg(小約 4 倍)"))
+    ap.add_argument("--quality", type=int, default=Settings.jpeg_quality, help=_("jpg 的畫質 50~100"))
     a = ap.parse_args()
     s = Settings(data_root=a.data or __import__("project").data_root(), base_interval=a.interval, capture=a.capture,
-                 duration=a.minutes * 60, only=a.only, record_touches=not a.no_touch)
+                 duration=a.minutes * 60, only=a.only, record_touches=not a.no_touch, frame_format=a.format,
+                 jpeg_quality=max(50, min(100, a.quality)))
     Collector(s).run()
 
 

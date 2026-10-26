@@ -146,7 +146,8 @@ export interface JudgeSource { source: 'model' | 'rule' | 'none'; reason: string
 export interface UrgentCheck { min_acc: number; min_n: number; states: Record<string, { level: 'ok' | 'warn' | 'bad'; text: string; used_by: string[] }> }
 export interface IncidentTrigger { key: string; script: string; script_name: string; rule: string; rule_name: string; text: string; reason: string; t: number; mode: string }
 export interface IncidentEntry { t: number; kind: string; text: string; frame?: string; sid?: string; value?: unknown; level?: string; urgent?: boolean }
-export interface Incident { id: string; device: string; start: number; end: number | null; status: string; triggers: IncidentTrigger[]; watch: string[]; entries: IncidentEntry[] }
+export interface Incident { id: string; device: string; start: number; end: number | null; status: string; triggers: IncidentTrigger[]; watch: string[]; entries: IncidentEntry[]
+  clip?: [number, string][] }     // a frame a second from before the trigger to after it: [time, name]
 export interface IncidentSummary {
   id: string; device: string; start: number; end: number | null; status: string; triggers: IncidentTrigger[]
   actions: number; urgent_actions: number; warnings: number; not_done: string[]; frame: string | null
@@ -268,7 +269,7 @@ export interface DeviceActions {
 }
 export interface ShadowControl {
   max_per_min: number; max_strikes: number; unblock?: number; start_wait_s?: number
-  manual_pause_s?: number; auto_save?: boolean; auto_save_per_hour?: number; live_view?: boolean; freeze_seconds?: number; blank_seconds?: number; keep_days?: number
+  manual_pause_s?: number; auto_save?: boolean; auto_save_per_hour?: number; live_view?: boolean; freeze_seconds?: number; blank_seconds?: number
 }
 export interface ShadowAlert { t: number; device: string; text: string; level: string }
 export interface DeviceHealth { state: 'ok' | 'slow' | 'lost' | 'blank' | 'frozen'; text: string; fps: number; age: number | null; ms: number; since: number }
@@ -529,6 +530,28 @@ export interface PackExportCheck {
   changes: { added: string[]; removed: string[]; changed: string[] } | null
 }
 /** project.json as the pages see it: what it is called, its coordinate space and words */
+/** where the disk goes (server/storage.py); bytes */
+export interface Storage {
+  sizes: { recordings: number; records: number; models: number; answers: number; other: number }; total: number
+  per_day: { recordings: number; records: number }; growing: number; free: number; disk_total: number
+  days_left: number | null; keep_days: number; record_days: number; t: number
+  keep: Record<KeepKind, number>; min_free_gb: number; when_full: 'stop' | 'cycle'
+}
+export type KeepKind = 'actions' | 'incidents' | 'schedules' | 'logs'
+/** what cleaning the run's records would delete / deleted */
+export interface CleanResult { files: number; bytes: number; kinds: Partial<Record<KeepKind, { files: number; bytes: number }>> }
+export interface CleanRecord { t: number; by: 'runner' | 'user' | 'room'; what: 'records' | 'recordings' | 'models' | 'stopped'; files: number; bytes: number
+  kinds?: CleanResult['kinds']; sessions?: string[]; runs?: string[]; why?: string }
+/** this computer's storage settings: how new recordings keep their frames */
+export interface StorageSettings { record_format: 'png' | 'jpg'; jpeg_quality: number; keep: Record<KeepKind, number>; keep_models: number; min_free_gb: number; when_full: 'stop' | 'cycle' }
+/** moving the work folder (project/relocate.py) */
+export interface LocationCheck { ok: boolean; problems: string[]; from: string | null; to: string | null; bytes: number; files: number; free: number | null }
+export interface StorageLocation {
+  current: string | null; pack_work: string; movable: boolean; running_from: string; restart_needed: boolean; old_exists: boolean
+  move: { phase?: 'copy' | 'check' | 'done' | 'failed' | 'deleting' | 'deleted'; from?: string; to?: string; files?: number; files_done?: number
+    bytes?: number; bytes_done?: number; error?: string | null; t?: number }
+  job: JobInfo | null
+}
 export interface ProjectSettings { id: string; name: string; description: string; screen: { width: number; height: number }; words: Record<string, string> }
 export interface PackExported { file: string; size: number; messages: string[] }
 
@@ -556,6 +579,18 @@ export const api = {
   overview: () => req<Overview>('GET', '/api/overview'),
   projectGet: () => req<ProjectSettings>('GET', '/api/project'),
   gettingStarted: () => req<{ done: Record<string, boolean> }>('GET', '/api/getting_started'),
+  storage: (fresh = false) => req<Storage>('GET', `/api/storage${fresh ? '?fresh=true' : ''}`),
+  storageClean: () => req<CleanResult & { storage: Storage }>('POST', '/api/storage/clean'),
+  storageCleanPreview: () => req<CleanResult>('GET', '/api/storage/clean'),
+  storageHistory: () => req<{ items: CleanRecord[] }>('GET', '/api/storage/history'),
+  storageModelsPreview: () => req<{ runs: string[]; bytes: number }>('GET', '/api/storage/models'),
+  storageModelsClean: () => req<{ runs: string[]; bytes: number }>('POST', '/api/storage/models'),
+  storageLocation: () => req<StorageLocation>('GET', '/api/storage/location'),
+  storageSettings: () => req<StorageSettings>('GET', '/api/storage/settings'),
+  storageSettingsSave: (b: Partial<StorageSettings>) => req<StorageSettings>('POST', '/api/storage/settings', b),
+  storageLocationCheck: (to: string) => req<LocationCheck>('POST', '/api/storage/location/check', { to }),
+  storageLocationMove: (to: string) => req<{ job: JobInfo; stopped_runner: boolean }>('POST', '/api/storage/location/move', { to }),
+  storageLocationDeleteOld: () => req<{ job: JobInfo }>('POST', '/api/storage/location/delete_old'),
   projectSettingsSave: (b: { name: string; description: string; words: Record<string, string> }) => req<ProjectSettings>('POST', '/api/project/settings', b),
   packs: () => req<PacksInfo>('GET', '/api/packs'),
   /** the zip itself is the body */
@@ -656,6 +691,8 @@ export const api = {
   incidents: (limit = 100) => req<{ items: IncidentSummary[] }>('GET', `/api/incidents?limit=${limit}`),
   incident: (id: string) => req<Incident>('GET', `/api/incidents/${encodeURIComponent(id)}`),
   incidentFrameUrl: (id: string, name: string) => `/api/incidents/${encodeURIComponent(id)}/frame/${encodeURIComponent(name)}`,
+  incidentToRecording: (id: string) => req<{ session: string; device: string; start: number; minutes: number }>('POST', `/api/incidents/${encodeURIComponent(id)}/recording`),
+  incidentClipUrl: (id: string, name: string) => `/api/incidents/${encodeURIComponent(id)}/clip/${encodeURIComponent(name)}`,
   statesUrgentCheck: (ids: string[] = []) => req<UrgentCheck>('GET', `/api/states/urgent_check${ids.length ? `?ids=${ids.map(encodeURIComponent).join(',')}` : ''}`),
   statesJudge: (run = '') => req<JudgeInfo>('GET', `/api/states/judge${run ? `?run=${encodeURIComponent(run)}` : ''}`),
   statesRestore: (version: number, note = '') => req<Schema>('POST', '/api/states/restore', { version, note }),

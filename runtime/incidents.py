@@ -7,13 +7,18 @@ next, the sub-script steps, situation changes, how the watched states changed, a
   <shadow dir>/incidents/<id>/incident.json   {"id", "device", "start", "end", "status", "triggers", "watch",
                                                "entries": [{"t", "kind", "text", "frame"?, ...}]}
   <shadow dir>/incidents/<id>/<ms>.jpg         frames: the trigger, every input, every FRAME_EVERY seconds, the end
+  <shadow dir>/incidents/<id>/clip/<ms>.jpg    the clip (事件影片): a frame a second from PRE_S seconds before the
+                                               trigger (the runner keeps them in memory, small) to CLIP_AFTER seconds
+                                               after; "clip": [[t, name]] in incident.json; the pages play it back
 
 An incident stays open while any urgent rule on that emulator matches, and TAIL seconds after the last one stopped
 (so the follow-up shows); another urgent rule matching meanwhile joins the same incident. status: open / resolved /
 timeout (still matching after MAX_SECONDS) / stopped (the runner stopped)."""
+import collections
 import datetime
 import json
 import os
+import threading
 
 from PIL import Image
 from i18n import _
@@ -25,6 +30,15 @@ FRAME_EVERY = 10         # a frame at least this often while it is open
 FRAME_GAP = 2            # ... and at most this often for inputs (the trigger, the resolution and the end always get one)
 RESOLVE_AFTER = 3        # not matching this long = over (an icon that blinks is still the same incident)
 SAVE_EVERY = 3
+PRE_S = 15               # the clip: seconds before the trigger (kept in memory, CLIP_EVERY apart) ...
+CLIP_AFTER = 45          # ... and after it
+CLIP_EVERY = 1.0
+CLIP_W = 640             # the clip's frames are about this wide (every k-th pixel: no resampling while the runner looks)
+
+
+def _small(frame):
+    k = max(1, frame.shape[1] // CLIP_W)
+    return frame[::k, ::k].copy()
 
 
 def _urgent(decisions):
@@ -35,6 +49,18 @@ class Incidents:
     def __init__(self):
         self.open = {}                                   # device -> incident (with private "_" fields)
         self.on_event = None                             # (kind, device, text, frame, now) -> None: tell people (notify)
+        self.pre = {}                                    # device -> deque of (t, small frame): the clip before a trigger
+
+    def keep(self, n, frame, now):
+        """Every tick: the last PRE_S seconds of each source, a small frame every CLIP_EVERY seconds."""
+        if frame is None:
+            return
+        q = self.pre.setdefault(n, collections.deque())
+        if q and now - q[-1][0] < CLIP_EVERY:
+            return
+        q.append((now, _small(frame)))
+        while q and now - q[0][0] > PRE_S:
+            q.popleft()
 
     # ---------- before the tick's actions: open an incident when an urgent rule matches ----------
     def begin(self, root, n, now, st, decisions, frame):
@@ -48,9 +74,13 @@ class Incidents:
             inc = {"id": iid, "device": n, "start": round(now, 3), "end": None, "status": "open", "triggers": [],
                    "watch": [], "entries": [], "frames": 0,
                    "_dir": os.path.join(root, iid), "_exec": {}, "_last": {}, "_snap": {}, "_resolved": None,
-                   "_saved": 0.0, "_frame_t": 0.0, "_miss": None}
-            os.makedirs(inc["_dir"], exist_ok=True)
+                   "_saved": 0.0, "_frame_t": 0.0, "_miss": None, "clip": [], "_clip_t": 0.0}
+            os.makedirs(os.path.join(inc["_dir"], "clip"), exist_ok=True)
             self.open[n] = inc
+            before = list(self.pre.get(n) or [])         # the seconds before: written in the background
+            inc["clip"] = [[round(t, 3), f"{int(t * 1000)}.jpg"] for t, _f in before]
+            inc["_clip_t"] = before[-1][0] if before else 0.0
+            threading.Thread(target=_write_clip, args=(inc["_dir"], before), daemon=True, name="clip").start()
         for d in urg:
             key = f"{d['script']}/{d['rule']}"
             if key in (x["key"] for x in inc["triggers"]):
@@ -109,6 +139,11 @@ class Incidents:
                 if old.get("situations", {}).get(k) not in (None, v):
                     self._add(inc, now, "situation", _("情境:{p1} → {v}", p1=old['situations'][k], v=v))
         inc["_snap"] = snap
+        if frame is not None and now - inc["start"] <= CLIP_AFTER and now - inc["_clip_t"] >= CLIP_EVERY:
+            name = f"{int(now * 1000)}.jpg"
+            if _write_clip(inc["_dir"], [(now, _small(frame))]):
+                inc["clip"].append([round(now, 3), name])
+            inc["_clip_t"] = now
         if frame is not None and now - inc["_frame_t"] >= FRAME_EVERY:
             self._add(inc, now, "frame", "", frame=frame)
         if urg:
@@ -174,3 +209,14 @@ class Incidents:
     def status(self):
         return [{"id": i["id"], "device": n, "start": i["start"], "triggers": [t["rule_name"] for t in i["triggers"]],
                  "resolved": i["_resolved"]} for n, i in self.open.items()]
+
+
+def _write_clip(folder, frames):
+    """[(t, small frame)] -> clip/<ms>.jpg; True if all were written"""
+    ok = True
+    for t, f in frames:
+        try:
+            Image.fromarray(f).save(os.path.join(folder, "clip", f"{int(t * 1000)}.jpg"), quality=75)
+        except (OSError, ValueError):
+            ok = False
+    return ok

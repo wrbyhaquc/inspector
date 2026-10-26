@@ -105,8 +105,8 @@ CONTROL_DEFAULT = {"max_per_min": 12, "max_strikes": 3, "unblock": 0,
                    "live_view": True,
                    "start_wait_s": 5,           # after starting / a source coming back: this long with a picture before acting
                    "freeze_seconds": 300,       # a source whose picture does not change this long is "frozen" (0 = never)
-                   "blank_seconds": 60,         # ... whose picture is one colour (black, no signal) this long is "blank" (0 = never)
-                   "keep_days": 30}             # the run's records (action pictures, incidents, logs) kept this long (0 = all; runtime/retention.py)
+                   "blank_seconds": 60}         # ... whose picture is one colour (black, no signal) this long is "blank" (0 = never)
+SPACE_EVERY = 600        # seconds between looks at the free space (project/space.py)
 LIVE_VIEW_IDLE = 15      # seconds without a page asking for a live frame = nobody is watching, stop writing them
 CONF_LOW = 0.6           # model confidence below this = unsure
 SAVE_GAP = 60            # seconds between two saved frames of one device
@@ -910,6 +910,7 @@ class Shadow:
                 i = next((k for k, d in enumerate(decisions) if d["script"] == e["script"]), len(decisions))
                 decisions.insert(i, e)
             self._urgent_watch(decisions)
+            self.incidents.keep(n, frames.get(n), t0)       # the seconds before an incident (its clip)
             self.incidents.begin(os.path.join(self.dir, "incidents"), n, t0, st, decisions, frames.get(n))
             self._execute(n, st, decisions, frames.get(n), t0, manual)
             for e in enter:                                   # done, unless it is only waiting for its turn
@@ -2030,15 +2031,30 @@ class Shadow:
             for r in reasons), flush=True)
 
     # ---------- main loop ----------
-    def _clean(self):
-        keep = int(self.ctrl.get("keep_days", retention.KEEP_DAYS) or 0)
+    def _space_news(self):
+        """The disk under the free space to keep (this computer's storage settings): told once, and when it is back."""
+        from project import space
         try:
-            gone = retention.clean(self.dir, self.fast, project.work_of(self.data_root), keep)
+            st = space.load(self.fast)
+            short = space.low(self.dir, st)
+            gb = round(space.free(self.dir) / 2 ** 30, 1)
+        except OSError:
+            return
+        if short and not getattr(self, "_told_space", False):
+            self.alert(None, _("磁碟空間不夠:只剩 {free} GB(至少要留 {keep} GB)。到「儲存空間」看看哪些可以清,或換一個資料位置", free=gb, keep=st["min_free_gb"]))
+        elif not short and getattr(self, "_told_space", False):
+            self.alert(None, _("磁碟空間恢復:剩 {free} GB", free=gb), "info")
+        self._told_space = short
+
+    def _clean(self):
+        from project import space
+        try:
+            gone = retention.clean(self.dir, self.fast, project.work_of(self.data_root), space.load(self.fast)["keep"])
         except Exception as e:                               # noqa: BLE001 - cleaning must never stop the runner
             print(_("清理舊紀錄失敗:{e}", e=e), flush=True)
             return
         if gone["files"]:
-            print(_("清理超過 {days} 天的紀錄:{n} 個檔案、{mb} MB", days=keep, n=gone["files"], mb=round(gone["bytes"] / 2 ** 20, 1)), flush=True)
+            print(_("清理過期的執行紀錄:{n} 個檔案、{mb} MB", n=gone["files"], mb=round(gone["bytes"] / 2 ** 20, 1)), flush=True)
 
     def run(self):
         stop = os.path.join(self.fast, "stop")
@@ -2051,13 +2067,16 @@ class Shadow:
         src_file = sources_mod._path()
         src_m = os.path.getmtime(src_file) if os.path.exists(src_file) else 0
         ticks = 0
-        clean_at = 0.0
+        clean_at = space_at = 0.0
         try:
             while not os.path.exists(stop):
                 t0 = time.time()
                 if t0 >= clean_at:                           # old records: in the background, the loop does not wait
                     clean_at = t0 + retention.CHECK_EVERY
                     threading.Thread(target=self._clean, daemon=True, name="retention").start()
+                if t0 >= space_at:
+                    space_at = t0 + SPACE_EVERY
+                    self._space_news()
                 m = os.path.getmtime(src_file) if os.path.exists(src_file) else 0
                 if t0 - last_scan > 10 or m != src_m:       # the 來源 page changed something: at once
                     names, last_scan, src_m = self.devices(), t0, m

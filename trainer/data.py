@@ -141,7 +141,11 @@ def build(data_root, holdout=(), sch=None):
             test_times[(r["session"], r["device"])].append(r["t"])
 
     items = []
+    sessions = os.path.join(project.work_of(data_root), "sessions")
+    gone = {s for s in {r["session"] for r in labels} if not os.path.isdir(os.path.join(sessions, s))}
     for r in labels:
+        if r["session"] in gone:                        # a recording deleted since it was labelled (to make room)
+            continue
         f = rel(data_root, r["frame"])
         it = {"frame": f, "session": r["session"], "device": r["device"], "id": r["id"], "t": r["t"],
               "targets": {h["id"]: target(h, r, hidden) for h in hs},

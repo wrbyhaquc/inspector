@@ -102,6 +102,9 @@ class Names:
         return sit
 
     def sub(self, sid):
+        if sid.startswith("~") and "." in sid:                     # a rule's own steps: "~<script>.<rule>"
+            script, rule = sid[1:].split(".", 1)
+            return f"{self.script(script)}:{self.rule(script, rule)}"
         return (self.subs.get(sid) or {}).get("name", sid)
 
     def rule(self, sid, rid):
@@ -212,6 +215,8 @@ def suggest(result, names):
         if d["kind"] == "call" and d.get("sub") not in calls:
             calls.append(d["sub"])
     out += [{"kind": "call", "sub": s, "when": "ever"} for s in calls]
+    sent = list(dict.fromkeys(d.get("output") for d in data if d["kind"] == "output"))   # the equipment it drove
+    out += [{"kind": "output", "output": o, "when": "ever"} for o in sent]
     if not any(d["kind"] == "input" for d in data):
         out.append({"kind": "input", "when": "never"})
     stops = {d.get("script") for d in data if d["kind"] == "stop"}

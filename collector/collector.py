@@ -27,13 +27,18 @@ from .config import Settings
 from i18n import _
 import project
 
+ROOM_EVERY = 60          # seconds between looks at the free space (project/space.py)
+
 
 def _now_str(ts=None):
     return datetime.datetime.fromtimestamp(ts or time.time()).strftime("%H:%M:%S")
 
 
-def _write_png(path, img, level):
-    Image.fromarray(img).save(path, compress_level=level)
+def _write_frame(path, img, s):
+    if path.endswith(".jpg"):
+        Image.fromarray(img).save(path, quality=s.jpeg_quality)
+    else:
+        Image.fromarray(img).save(path, compress_level=s.png_level)
 
 
 class Frame:
@@ -89,7 +94,7 @@ class DeviceCtx:
             pre = before[-1] if before else None
         pre_id = self._save(pre, "pre_touch") if pre else None
         rec = {"session": self.c.session_id, "device": self.inst.name, **g, **self.c.name_gesture(g),
-               "pre_frame": f"frames/{pre_id}.png" if pre_id else None,
+               "pre_frame": f"frames/{pre_id}.{self.c.ext}" if pre_id else None,
                "pre_frame_age": round(g["t_down"] - pre.t_done, 3) if pre else None}
         rec.update(self.c.snapshot(self.inst.name, g["t_down"]))
         with self.lock:
@@ -171,10 +176,10 @@ class DeviceCtx:
             if f.sid:
                 return f.sid
             f.sid = str(int(f.t_req * 1000))
-            self.c.writer.submit(_write_png, os.path.join(self.dir, "frames", f.sid + ".png"),
-                                 f.img, self.c.s.png_level)
+            self.c.writer.submit(_write_frame, os.path.join(self.dir, "frames", f"{f.sid}.{self.c.ext}"),
+                                 f.img, self.c.s)
             rec = {"id": f.sid, "session": self.c.session_id, "device": self.inst.name, "trigger": trigger,
-                   "t_req": round(f.t_req, 3), "t_done": round(f.t_done, 3), "frame": f"frames/{f.sid}.png",
+                   "t_req": round(f.t_req, 3), "t_done": round(f.t_done, 3), "frame": f"frames/{f.sid}.{self.c.ext}",
                    "capture": f.src, **more}
             rec.update(snap)
             self.samples_f.write(json.dumps(rec, ensure_ascii=False) + "\n"); self.samples_f.flush()
@@ -206,6 +211,7 @@ class Collector:
         self.lock = threading.RLock()
         self.rescan_now = threading.Event()
         self.driver = drivers.current(settings.data_root)
+        self.ext = "jpg" if settings.frame_format == "jpg" else "png"
         from project.plugins import registry
         self.recorders = {n: f(self) for n, f in registry(settings.data_root).all("recorder").items()}
         self.writer = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="png")
@@ -328,6 +334,38 @@ class Collector:
         except OSError as e:
             print(_("{p1} 狀態檔寫入失敗(不影響錄製):{e}", p1=_now_str(), e=e))
 
+    def _room(self):
+        """The free space to keep on this disk (this computer's storage settings, project/space.py): when it runs
+        short, make room by deleting the oldest recordings nothing needs ("cycle"), or stop recording ("stop").
+        -> False = stop."""
+        from project import space
+        from runtime import retention
+        rt = project.runtime_dir()
+        st = space.load(rt)
+        if not space.low(self.session_dir, st):
+            return True
+        if st["when_full"] == "cycle":
+            gone = space.make_room(project.work_of(self.s.data_root), self.s.data_root, rt, st, self.session_id)
+            if gone["sessions"]:
+                print(_("{p1} 空間不夠:刪掉最舊的 {n} 段錄影({mb} MB)騰出空間", p1=_now_str(), n=len(gone["sessions"]),
+                        mb=round(gone["bytes"] / 2 ** 20)), flush=True)
+            if gone["ok"]:
+                return True
+            why = _("磁碟只剩 {free} GB(至少要留 {keep} GB),能刪的舊錄影都刪了還不夠,停止錄製",
+                    free=round(space.free(self.session_dir) / 2 ** 30, 1), keep=st["min_free_gb"])
+        else:
+            why = _("磁碟只剩 {free} GB(至少要留 {keep} GB),停止錄製", free=round(space.free(self.session_dir) / 2 ** 30, 1),
+                    keep=st["min_free_gb"])
+        print(f"{_now_str()} {why}", flush=True)
+        retention.note(rt, "room", "stopped", 0, 0, {"why": why})
+        try:
+            from notify import Notifier
+            Notifier(rt).emit("warn", None, why)
+            time.sleep(3)                                # its thread sends before this process ends
+        except Exception:                                # noqa: BLE001 - telling people must never stop the stop
+            pass
+        return False
+
     def run(self):
         print(_("資料目錄:{session_dir}", session_dir=self.session_dir))
         if os.path.exists(self.stop_path):
@@ -338,7 +376,7 @@ class Collector:
         print(_("{p1} 開始錄製(另外記錄:{extra}),按 Ctrl+C 停止\n", p1=_now_str(), extra=extra))
         self._write_session(end=False)
         last_scan = last_status = time.time()
-        last_file = 0.0
+        last_file = last_room = 0.0
         try:
             while not self.stopping.is_set():
                 now = time.time()
@@ -354,6 +392,10 @@ class Collector:
                     self.rescan_now.clear(); self.rescan(); last_scan = now
                 if now - last_status >= self.s.status_every:
                     self.status(); last_status = now
+                if now - last_room >= ROOM_EVERY:
+                    last_room = now
+                    if not self._room():
+                        break
                 time.sleep(0.2)
         except KeyboardInterrupt:
             print(_("\n收到 Ctrl+C,正在停止…"))

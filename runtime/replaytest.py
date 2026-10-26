@@ -44,7 +44,7 @@ def run(data_root, runtime_dir, ids=None):
     for i, t in enumerate(tests, 1):
         print(f"[{i}/{len(tests)}] {t['name']}", flush=True)
         t0 = time.time()
-        rec = {"run_at": t0, "model": os.path.basename(os.path.dirname(model))}
+        rec = {"run_at": t0, "model": os.path.basename(os.path.dirname(model)) if model else None}   # None: screen rules only
         try:
             r = replay(data_root, {"id": f"test_{t['id']}", **{k: t.get(k) for k in ("session", "device", "start", "minutes",
                                                                                    "sub_result", "sub_results")}},

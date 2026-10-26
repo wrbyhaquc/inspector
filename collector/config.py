@@ -13,6 +13,9 @@ class Settings:
     slow_ring_active_interval: float = 1.0
     ring_seconds: float = 8.0             # how far back the in-memory buffer reaches (pre-touch frames)
     png_level: int = 3                    # PNG compression 0-9 (3 = good speed/size balance)
+    frame_format: str = "png"             # how frames are kept: "png" (exact) or "jpg" (about 4x smaller; the screen
+                                          # rules answer the same nearly always - server/storage settings)
+    jpeg_quality: int = 90
     event_offsets: tuple = (0.3, 0.8, 1.5)  # extra samples after an event (a touch, or a recorder's)
     event_cooldown: float = 2.0           # min seconds between event bursts per device
     active_interval: float = 1.0          # routine sampling while someone is touching the screen

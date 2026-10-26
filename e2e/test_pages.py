@@ -7,7 +7,7 @@ from conftest import HAN
 INTRO = [("/sources", "sources"), ("/collect", "collect"), ("/states", "states"), ("/review", "review"),
          ("/library", "library"), ("/scripts", "scripts"), ("/script", "script"), ("/schedules", "schedules"),
          ("/panel-design", "panel-design"), ("/packs", "packs")]
-OTHERS = ["/", "/browse", "/labels", "/train", "/results", "/tests"]
+OTHERS = ["/", "/browse", "/labels", "/train", "/results", "/tests", "/storage"]
 
 
 def card(page, title):

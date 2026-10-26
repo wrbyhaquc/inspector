@@ -17,6 +17,7 @@ import numpy as np
 from PIL import Image
 from pydantic import BaseModel
 
+import atomic
 import project
 from i18n import N_, _, tr
 from . import DATA_ROOT, PROJECT_ROOT, RUNTIME_DIR, WORK_ROOT, data, review
@@ -328,6 +329,8 @@ def collector_start(req: CollectorStart):
     if not re.fullmatch(r"[a-z_]+", req.capture or ""):
         _bad(_("截圖方式不正確"))
     args += ["--capture", req.capture]
+    rec = _storage_settings()                       # how frames are kept on this computer (the storage page)
+    args += ["--format", rec["record_format"], "--quality", str(rec["jpeg_quality"])]
     def after(job):
         if req.label_after and job.status in ("done", "stopped"):      # stopped = the user pressed stop: data is fine
             job.lines.append(_("收集結束,自動開始產生標籤…"))
@@ -513,8 +516,10 @@ def next_steps():
     if live and live.get("running") and not live.get("stale"):
         mins = (time.time() - (live.get("started") or time.time())) / 60
         add("watch", "info", _("正在錄製({p1} 個畫面來源)", p1=len(live.get('devices') or [])), _("已錄 {mins} 分鐘", mins=format(mins, '.0f')), "/collect", _("查看"))
-    if disk["free"] < 50e9:
-        add("watch", "warn", _("磁碟只剩 {p1} GB", p1=format(disk['free'] / 1e9, '.0f')), _("錄製會用掉大量空間,請清理或換一顆磁碟。"), "/collect", _("查看"))
+    keep_free = _storage_settings()["min_free_gb"] * 2 ** 30 or 50e9      # the free space to keep (the storage page)
+    if disk["free"] < keep_free:
+        add("watch", "warn", _("磁碟只剩 {p1} GB", p1=format(disk['free'] / 2 ** 30, '.0f')),
+            _("到「儲存空間」看看哪些可以清、空間不夠時錄製要停止還是循環,或換一個資料位置。"), "/storage", _("查看"))
 
     # ---- ② teach it
     st = review.stats()
@@ -602,6 +607,217 @@ def next_steps():
     if project.edition() == "runtime":            # a runtime has no design pages: only what can be done here
         steps = [x for x in steps if (x["link"] or "").split("?")[0] in ("", "/", "/script", "/sources", "/panel", "/packs")]
     return {"steps": steps, "todo": sum(1 for x in steps if x["level"] in ("todo", "warn"))}
+
+
+# ---------------- storage (儲存空間) ----------------
+def _storage_settings():
+    """This computer's storage settings (project/space.py)."""
+    from project import space
+    return space.load(RUNTIME_DIR)
+
+
+def _growth_days(keep):
+    """The days after which the run's records stop growing (0: some kind is kept for ever)."""
+    return 0 if any(v <= 0 for v in keep.values()) else max(keep.values())
+
+
+class StorageSettings(BaseModel):
+    record_format: str | None = None
+    jpeg_quality: int | None = None
+    keep: dict | None = None
+    keep_models: int | None = None
+    min_free_gb: float | None = None
+    when_full: str | None = None
+
+
+@app.get("/api/storage/settings")
+def storage_settings_get():
+    return _storage_settings()
+
+
+@app.post("/api/storage/settings")
+def storage_settings_save(req: StorageSettings):
+    """How new recordings keep their frames, how long the run's records are kept, the free space to keep."""
+    from project import space
+    from runtime import retention
+    s = _storage_settings()
+    if req.record_format is not None:
+        if req.record_format not in ("png", "jpg"):
+            _bad(_("錄影格式只能是 PNG 或 JPEG"))
+        s["record_format"] = req.record_format
+    if req.jpeg_quality is not None:
+        if not 50 <= req.jpeg_quality <= 100:
+            _bad(_("JPEG 畫質要在 50~100 之間"))
+        s["jpeg_quality"] = req.jpeg_quality
+    if req.keep is not None:
+        for k, v in req.keep.items():
+            if k not in retention.KEEP or not isinstance(v, (int, float)) or not 0 <= v <= 3650:
+                _bad(_("保留天數要在 0~3650 之間"))
+            s["keep"][k] = int(v)
+    if req.keep_models is not None:
+        if not 0 <= req.keep_models <= 1000:
+            _bad(_("保留的訓練次數要在 0~1000 之間"))
+        s["keep_models"] = req.keep_models
+    if req.min_free_gb is not None:
+        if not 0 <= req.min_free_gb <= 100000:
+            _bad(_("至少保留的空間不正確"))
+        s["min_free_gb"] = req.min_free_gb
+    if req.when_full is not None:
+        if req.when_full not in ("stop", "cycle"):
+            _bad(_("空間不夠時只能停止錄製或循環錄製"))
+        s["when_full"] = req.when_full
+    return space.save(RUNTIME_DIR, s)
+
+
+@app.get("/api/storage")
+def storage_get(fresh: bool = False):
+    """What each kind of data takes, a day's growth, how long the free space lasts (server/storage.py)."""
+    from . import storage
+    s = _storage_settings()
+    return {**storage.get(WORK_ROOT, RUNTIME_DIR, _growth_days(s["keep"]), fresh), "min_free_gb": s["min_free_gb"],
+            "when_full": s["when_full"], "keep": s["keep"]}
+
+
+@app.get("/api/storage/clean")
+def storage_clean_preview():
+    """What cleaning now would delete (nothing is deleted)."""
+    from runtime import retention
+    return retention.clean(os.path.join(WORK_ROOT, "shadow"), RUNTIME_DIR, WORK_ROOT, _storage_settings()["keep"], dry=True)
+
+
+@app.post("/api/storage/clean")
+def storage_clean():
+    """Delete the run's records older than their days now (what the runner does every 6 hours)."""
+    from runtime import retention
+    from . import storage
+    keep = _storage_settings()["keep"]
+    if not any(keep.values()):
+        _bad(_("執行紀錄都設成全部保留,沒有要清的"))
+    gone = retention.clean(os.path.join(WORK_ROOT, "shadow"), RUNTIME_DIR, WORK_ROOT, keep, by="user")
+    return {**gone, "storage": storage_get(True)}
+
+
+def _models_kept():
+    """The training runs that always stay: the one the runner was started with, the newest finished one (the
+    runner's default), one still training."""
+    from runtime import judge
+    keep = set()
+    last = (_read_json(os.path.join(RUNTIME_DIR, RUNNER_LAST), {}) or {}).get("run")
+    if last:
+        keep.add(last)
+    newest = judge.latest_run(DATA_ROOT)
+    if newest:
+        keep.add(os.path.basename(newest))
+    if jobs.running("train") and os.path.isdir(MODELS_DIR):
+        keep |= set(sorted(os.listdir(MODELS_DIR))[-1:])
+    return keep
+
+
+def _models_clean(dry=False, by="user"):
+    """Delete the training runs beyond the newest keep_models (this computer's storage settings)."""
+    import shutil
+    from project import space
+    from runtime import retention
+    old = space.old_models(MODELS_DIR, _storage_settings()["keep_models"], _models_kept())
+    out = {"runs": [r for r, _b in old], "bytes": sum(b for _r, b in old)}
+    if not dry and old:
+        for r, _b in old:
+            shutil.rmtree(os.path.join(MODELS_DIR, r), ignore_errors=True)
+        retention.note(RUNTIME_DIR, by, "models", len(old), out["bytes"], {"runs": out["runs"]})
+    return out
+
+
+@app.get("/api/storage/models")
+def storage_models_preview():
+    """The training runs cleaning would delete now (nothing is deleted)."""
+    return _models_clean(dry=True)
+
+
+@app.post("/api/storage/models")
+def storage_models_clean():
+    if not _storage_settings()["keep_models"]:
+        _bad(_("訓練設成全部保留,沒有要清的"))
+    return _models_clean(by="user")
+
+
+@app.get("/api/storage/history")
+def storage_history(limit: int = Query(50, le=500)):
+    """The cleanings so far, newest first (by the runner, a person, or making room on a full disk)."""
+    from runtime import retention
+    return {"items": retention.history(RUNTIME_DIR, limit)}
+
+
+# ---------------- the work folder's place (更換資料位置: project/relocate.py) ----------------
+def _runner_running():
+    st = _read_json(os.path.join(RUNTIME_DIR, "status.json"), {}) or {}
+    return bool(st.get("running") and time.time() - st.get("updated", 0) < 10)
+
+
+@app.get("/api/storage/location")
+def storage_location():
+    """Where the work folder is, where this server works now, and the move in progress or done (its state)."""
+    from project import relocate
+    st = relocate.state()
+    j = jobs.latest("relocate")
+    now = relocate.current()
+    return {"current": now, "pack_work": WORK_ROOT, "movable": bool(now),
+            "running_from": os.path.dirname(WORK_ROOT),            # the place this server started with
+            "restart_needed": bool(now) and os.path.normcase(os.path.dirname(WORK_ROOT)) != os.path.normcase(now),
+            "move": st, "old_exists": bool(st.get("from") and os.path.isdir(st["from"])),
+            "job": j.info() if j else None}
+
+
+class LocationReq(BaseModel):
+    to: str = ""
+
+
+@app.post("/api/storage/location/check")
+def storage_location_check(req: LocationReq):
+    from project import relocate
+    return relocate.check(req.to)
+
+
+@app.post("/api/storage/location/move")
+def storage_location_move(req: LocationReq):
+    """Stop what writes to the work folder (recording, the script runner; training must not be running), then copy,
+    check and switch in the background."""
+    from project import relocate
+    if jobs.running("relocate"):
+        _bad(_("已經在搬了"))
+    if jobs.running("train") or jobs.running("labeler"):
+        _bad(_("正在學習或產生標籤;等它做完再搬"))
+    c = relocate.check(req.to)
+    if not c["ok"]:
+        _bad(_("、").join(c["problems"]))
+    was_running = _runner_running()
+    collector_stop()
+    if was_running:
+        shadow_stop()
+    for _i in range(60):                                       # until they have let go of their files
+        if not _runner_running() and not (_collector_live() or {}).get("running"):
+            break
+        time.sleep(0.5)
+    args = ["project.relocate", "--to", c["to"]]
+    try:
+        j = jobs.start("relocate", args, _("搬移資料"))
+    except RuntimeError as e:
+        _bad(e)
+    return {"job": j.info(), "stopped_runner": was_running}
+
+
+@app.post("/api/storage/location/delete_old")
+def storage_location_delete_old():
+    from project import relocate
+    st = relocate.state()
+    if storage_location()["restart_needed"]:
+        _bad(_("Inspector 還在用舊位置;請先重新啟動"))
+    if st.get("phase") != "done" or not st.get("from"):
+        _bad(_("沒有可以刪的舊位置"))
+    try:
+        j = jobs.start("relocate", ["project.relocate", "--delete-old"], _("刪除舊位置的資料"))
+    except RuntimeError as e:
+        _bad(e)
+    return {"job": j.info()}
 
 
 # ---------------- sessions / samples ----------------
@@ -1529,7 +1745,7 @@ def train_preview(holdout: str = "", neighbor: float = 1.0):
     labeled = {i["session"] for i in ds["items"]}
     sess_dir = os.path.join(WORK_ROOT, "sessions")
     out["unlabeled_sessions"] = sorted(d for d in os.listdir(sess_dir)
-                                       if d not in labeled and glob.glob(os.path.join(sess_dir, d, "devices", "*", "frames", "*.png")))
+                                       if d not in labeled and glob.glob(os.path.join(sess_dir, d, "devices", "*", "frames", "*.*")))
     return out
 
 
@@ -1567,6 +1783,10 @@ def train_start(c: TrainConfig):
             if job.status == "done":            # the new model may know some of the questions now
                 job.lines.append(_("訓練完成,用新模型重新整理題目…"))
                 _start_tidy(_("(訓練後自動)"))
+                gone = _models_clean(by="runner")                 # the runs beyond the newest keep_models
+                if gone["runs"]:
+                    job.lines.append(_("刪掉較舊的 {n} 次訓練({mb} MB),保留最近 {keep} 次", n=len(gone["runs"]),
+                                       mb=round(gone["bytes"] / 2 ** 20), keep=_storage_settings()["keep_models"]))
         j = jobs.start("train", ["trainer", "--data", DATA_ROOT, "--config-json", json.dumps(c.model_dump(), ensure_ascii=False)],
                        _("訓練模型"), on_exit=after)
     except RuntimeError as e:
@@ -2704,7 +2924,6 @@ class ShadowControl(BaseModel):
     live_view: bool | None = None      # show the devices' screens on the page
     freeze_seconds: int | None = None  # a source whose picture does not change this long is "frozen" (0 = never)
     blank_seconds: int | None = None   # ... whose picture is one colour (black, no signal) this long is "blank" (0 = never)
-    keep_days: int | None = None       # the run's records kept this long (0 = all; runtime/retention.py)
     start_wait_s: float | None = None  # after a start / a source coming back: seconds with a healthy picture before acting
     unblock: bool = False              # clear paused rules
     resume: dict | None = None         # clear one: {"device", "script", "rule"} (rule None / "(整個腳本)" = a stopped script)
@@ -2717,7 +2936,7 @@ def shadow_control(req: ShadowControl):
     p = os.path.join(RUNTIME_DIR, "control.json")
     c = _read_json(p, {}) or {}
     for k in ("max_per_min", "max_strikes", "manual_pause_s", "auto_save", "auto_save_per_hour", "live_view",
-              "freeze_seconds", "blank_seconds", "keep_days", "start_wait_s"):
+              "freeze_seconds", "blank_seconds", "start_wait_s"):
         v = getattr(req, k)
         if v is not None:
             c[k] = v
@@ -4055,6 +4274,43 @@ def incident_frame(iid: str, name: str):
     if not name.endswith(".jpg") or not os.path.exists(p):
         _bad(_("沒有這張畫面"), 404)
     return FileResponse(p)
+
+
+@app.get("/api/incidents/{iid}/clip/{name}")
+def incident_clip_frame(iid: str, name: str):
+    """One frame of an incident's clip (runtime/incidents.py)."""
+    p = os.path.join(_incident_dir(iid), "clip", os.path.basename(name))
+    if not name.endswith(".jpg") or not os.path.exists(p):
+        _bad(_("沒有這張畫面"), 404)
+    return FileResponse(p)
+
+
+@app.post("/api/incidents/{iid}/recording")
+def incident_to_recording(iid: str):
+    """An incident's clip as a recording (sessions/<incident id>/devices/<device>), so it can be replayed and kept as a
+    script test after the incident itself is deleted (runtime/retention.py). Made once; again -> the same one."""
+    import math
+    import shutil
+    d = _incident_dir(iid)
+    inc = _read_json(os.path.join(d, "incident.json"), {}) or {}
+    clip = [(t, n) for t, n in inc.get("clip") or [] if os.path.exists(os.path.join(d, "clip", n))]
+    if len(clip) < 2:
+        _bad(_("這個緊急事件沒有影片(在有影片功能之前發生的)"))
+    sid, dev = os.path.basename(iid), inc["device"]
+    out = os.path.join(WORK_ROOT, "sessions", sid, "devices", dev)
+    if not os.path.exists(os.path.join(out, "samples.jsonl")):
+        os.makedirs(os.path.join(out, "frames"), exist_ok=True)
+        rows = []
+        for t, n in clip:
+            shutil.copyfile(os.path.join(d, "clip", n), os.path.join(out, "frames", n))
+            rows.append(json.dumps({"id": n[:-4], "session": sid, "device": dev, "trigger": "incident", "t_req": t, "t_done": t,
+                                    "frame": f"frames/{n}", "capture": "incident clip"}))
+        with open(os.path.join(out, "samples.jsonl"), "w", encoding="utf-8") as f:
+            f.write("".join(r + "\n" for r in rows))
+        with open(os.path.join(WORK_ROOT, "sessions", sid, "session.json"), "w", encoding="utf-8") as f:
+            json.dump({"session": sid, "started": clip[0][0], "ended": clip[-1][0], "from_incident": iid,
+                       "devices": {dev: {"samples": len(clip)}}}, f, ensure_ascii=False)
+    return {"session": sid, "device": dev, "start": 0, "minutes": math.ceil((clip[-1][0] - clip[0][0] + 1) / 6) / 10}
 
 
 @app.get("/api/shadow/log")

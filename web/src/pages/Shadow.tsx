@@ -4,9 +4,9 @@ import { MachineLanguage } from '../components/LangPicker'
 import { AskBar } from '../components/AskBar'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { api, type Hold, imageUrl, shadowLiveUrl, type TimelineRow, type AnswerValue, type ShadowDevice, type ShadowFlag, type JudgeInfo, type ShadowState, type ShadowStatus, type StateDef, type Script, type JobInfo, type ShadowControl } from '../api'
-import { projectInfo, screen, words } from '../lib/project'
+import { Link, useNavigate } from 'react-router-dom'
+import { api, type Hold, imageUrl, shadowLiveUrl, type TimelineRow, type AnswerValue, type ShadowDevice, type ShadowFlag, type JudgeInfo, type ShadowState, type ShadowStatus, type StateDef, type Script, type JobInfo, type ShadowControl, type Incident } from '../api'
+import { edition, projectInfo, screen, words } from '../lib/project'
 import { NotifySettings } from './Notify'
 import { Button, Card, Drawer, Modal, MoreButton, Empty, ErrorText, LogView, Page, Pill } from '../components/ui'
 import DeviceActions from './DeviceActions'
@@ -410,8 +410,7 @@ function Settings({ st, states, running, run, setRun, interval, setInterval, onS
             <NumField min={0} max={86400} className={`${field} w-20`} value={c.freeze_seconds ?? 300} onSave={v => set.mutate({ freeze_seconds: v })} />{t('秒就算卡住')}</label>
           <label className="flex items-center gap-1" title={t('畫面一片黑或單色這麼久就通知(鏡頭被擋住、沒有訊號);填 0 = 不偵測。晚上暗暗的畫面不算,還看得到東西就不算')}>{t('畫面全黑或單色')}
             <NumField min={0} max={86400} className={`${field} w-20`} value={c.blank_seconds ?? 60} onSave={v => set.mutate({ blank_seconds: v })} />{t('秒就通知')}</label>
-          <label className="flex items-center gap-1" title={t('動作的畫面、緊急事件、排程紀錄、每天的紀錄,超過這麼多天就刪掉(每 6 小時清一次);填 0 = 全部保留。錄製的畫面、答案、模型不會刪')}>{t('執行紀錄保留')}
-            <NumField min={0} max={3650} className={`${field} w-16`} value={c.keep_days ?? 30} onSave={v => set.mutate({ keep_days: v })} />{t('天')}</label>
+          <Link to="/storage#keep" className="text-xs underline text-stone-600 self-center">{t('執行紀錄保留幾天:儲存空間 ›')}</Link>
         </div>
       </Card>
       <Card title={t('收集與顯示')} extra={savedNote}>
@@ -862,6 +861,68 @@ function Incidents({ states }: { states: StateDef[] }) {
   )
 }
 
+/** An incident's clip: a frame a second from before the trigger to after it, played back (no video file: the frames). */
+function ClipPlayer({ id, clip, start }: { id: string; clip: [number, string][]; start: number }) {
+  const [k, setK] = useState(() => Math.max(0, clip.findIndex(([tt]) => tt >= start)))
+  const [playing, setPlaying] = useState(false)
+  const [speed, setSpeed] = useState(2)
+  useEffect(() => {                                       // the frames are a second apart: shown 1 / speed seconds each
+    if (!playing) return
+    const h = window.setInterval(() => setK(i => { if (i >= clip.length - 1) { setPlaying(false); return i } return i + 1 }), 1000 / speed)
+    return () => window.clearInterval(h)
+  }, [playing, speed, clip.length])
+  useEffect(() => { clip.slice(0, 20).forEach(([, n]) => { new Image().src = api.incidentClipUrl(id, n) }) }, [id, clip])   // smooth start
+  const at = clip[Math.min(k, clip.length - 1)][0] - start
+  return (
+    <div className="flex flex-col gap-1.5" data-testid="clip">
+      <div className="relative">
+        <img src={api.incidentClipUrl(id, clip[Math.min(k, clip.length - 1)][1])} alt="" className="w-full rounded-md border border-stone-200 bg-stone-900" />
+        <span className={`absolute left-2 top-2 text-xs px-1.5 py-0.5 rounded num ${at < 0 ? 'bg-stone-800/80 text-white' : 'bg-rose-600 text-white'}`}>
+          {at < 0 ? t('事件前 {s} 秒', { s: Math.round(-at) }) : t('事件後 {s} 秒', { s: Math.round(at) })}</span>
+      </div>
+      <div className="flex items-center gap-3 text-sm">
+        <Button onClick={() => { if (k >= clip.length - 1) setK(0); setPlaying(p => !p) }}>{playing ? t('⏸ 暫停') : t('▶ 播放')}</Button>
+        <input type="range" min={0} max={clip.length - 1} value={k} onChange={e => { setPlaying(false); setK(Number(e.target.value)) }} className="flex-1" />
+        <select className="border border-stone-300 rounded px-1 py-0.5 text-xs" value={speed} onChange={e => setSpeed(Number(e.target.value))}>
+          {[1, 2, 4].map(v => <option key={v} value={v}>{v}×</option>)}</select>
+        <span className="text-xs text-stone-500 num">{t('前後 {n} 秒', { n: Math.round(clip[clip.length - 1][0] - clip[0][0]) })}</span>
+      </div>
+    </div>
+  )
+}
+
+/** The incident as a script test: its clip becomes a recording, the saved scripts replay it, and what they did is
+ * what the test expects (kept after the incident itself is deleted; edit the expectations on the tests page). */
+function ToTest({ d }: { d: Incident }) {
+  const nav = useNavigate()
+  const [step, setStep] = useState('')
+  const go = useMutation({
+    mutationFn: async () => {
+      setStep(t('把影片存成錄影…'))
+      const rec = await api.incidentToRecording(d.id)
+      setStep(t('用目前的腳本重播…'))
+      const { id } = await api.replayStart({ ...rec, sub_result: 'success' })
+      for (let i = 0; i < 300; i++) {
+        await new Promise(r => setTimeout(r, 1000))
+        const r = await api.replayResult(id)
+        if (r.status === 'done') break
+        if (r.status === 'failed' || r.status === 'stopped') throw new Error((r.log ?? []).join(' ') || t('重播失敗'))
+      }
+      setStep(t('存成測試…'))
+      return api.testFromReplay(id, t('緊急事件:{rules}({when})', { rules: d.triggers.map(x => x.rule_name).join(t('、')), when: dateTime(d.start) }))
+    },
+    onSuccess: () => nav('/tests'),
+    onSettled: () => setStep(''),
+  })
+  return (
+    <div className="flex flex-wrap items-center gap-3 text-sm">
+      <Button disabled={go.isPending} onClick={() => go.mutate()}>{go.isPending ? step : t('做成腳本測試')}</Button>
+      <span className="text-xs text-stone-500">{t('這段影片會存成一段錄影,用目前的腳本重播,它做的事就是測試的預期結果;以後改腳本時,同樣的狀況處理壞了就會知道。')}</span>
+      <ErrorText error={go.error} />
+    </div>
+  )
+}
+
 function IncidentView({ id, states }: { id: string; states: StateDef[] }) {
   const q = useQuery({ queryKey: ['incident', id], queryFn: () => api.incident(id), refetchInterval: d => (d.state.data?.status === 'open' ? 3000 : false) })
   const [frame, setFrame] = useState<string | null>(null)
@@ -883,6 +944,8 @@ function IncidentView({ id, states }: { id: string; states: StateDef[] }) {
           <div className="text-xs text-stone-600 flex flex-col gap-0.5">
             {d.triggers.map(tx => <div key={tx.key}>🚨 {tx.script_name} ·「{tx.rule_name}」:{tx.reason} → {tx.text}{tx.mode !== 'live' && <span className="text-amber-700">{t('(試跑,只記錄)')}</span>}</div>)}
           </div>
+          {(d.clip?.length ?? 0) > 1 && <ClipPlayer id={d.id} clip={d.clip!} start={d.start} />}
+          {(d.clip?.length ?? 0) > 1 && d.status !== 'open' && edition.name !== 'runtime' && <ToTest d={d} />}
           {shown && (
             <div>
               <img src={api.incidentFrameUrl(d.id, shown)} alt="" className="w-full rounded-md border border-stone-200" />
@@ -923,7 +986,7 @@ function IncidentView({ id, states }: { id: string; states: StateDef[] }) {
 /** A number that is saved when you are done typing (Enter or leaving the box), not on every key: a half-typed or
  * empty box must never be saved (clearing "20" to type "120" used to save 0). */
 const CONTROL_DEFAULT: ShadowControl = { max_per_min: 12, max_strikes: 3, manual_pause_s: 60, auto_save: true, auto_save_per_hour: 20,
-  live_view: true, start_wait_s: 5, freeze_seconds: 300, blank_seconds: 60, keep_days: 30 }   // as runtime/shadow.py CONTROL_DEFAULT
+  live_view: true, start_wait_s: 5, freeze_seconds: 300, blank_seconds: 60 }   // as runtime/shadow.py CONTROL_DEFAULT
 
 function NumField({ value, min, max, className, onSave }: { value: number; min: number; max: number; className: string; onSave: (v: number) => void }) {
   const [text, setText] = useState(String(value))

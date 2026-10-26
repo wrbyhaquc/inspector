@@ -1,8 +1,8 @@
 import { t } from '../i18n'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api, type NextStep } from '../api'
+import { api, type NextStep, type Storage } from '../api'
 import { Button, Card, Empty, ErrorText, JobStatus, Page, Share, Stat } from '../components/ui'
 import { bytes, dateTime, pct, sessionTime } from '../lib/format'
 import { useSchema } from '../lib/schema'
@@ -60,6 +60,50 @@ function NextStepsCard() {
 }
 
 /** a runtime (執行版): only what can be done here - the running scripts, the sources, the packs */
+const PARTS: { k: keyof Storage['sizes']; label: string; color: string }[] = [
+  { k: 'recordings', label: t('錄影'), color: 'bg-sky-500' }, { k: 'records', label: t('執行紀錄'), color: 'bg-amber-500' },
+  { k: 'models', label: t('模型'), color: 'bg-violet-500' }, { k: 'answers', label: t('標籤與答案'), color: 'bg-emerald-500' },
+  { k: 'other', label: t('其他'), color: 'bg-stone-400' }]
+
+/** Where the disk goes: each kind of data, a day's growth, how long the free space lasts, cleaning the run's records. */
+export function StorageCard() {
+  const qc = useQueryClient()
+  const q = useQuery({ queryKey: ['storage'], queryFn: () => api.storage(), staleTime: 60_000 })
+  const re = useMutation({ mutationFn: () => api.storage(true), onSuccess: d => qc.setQueryData(['storage'], d) })
+  const s = q.data
+  if (!s) return null
+  const short = s.days_left !== null && s.days_left < 30
+  const days = Object.values(s.keep)
+  const kept = days.some(d => d === 0) ? t('(有些全部保留)') : Math.min(...days) === Math.max(...days)
+    ? t('(保留 {days} 天)', { days: days[0] }) : t('(保留 {a}~{b} 天)', { a: Math.min(...days), b: Math.max(...days) })
+  return (
+    <Card title={t('儲存空間')} extra={<span className="flex items-center gap-3 text-xs text-stone-500">
+      <span className="num">{t('磁碟剩 {free} / {total}', { free: bytes(s.free), total: bytes(s.disk_total) })}</span>
+      <button className="underline" disabled={re.isPending} onClick={() => re.mutate()}>{re.isPending ? t('計算中…') : t('重新計算')}</button>
+      {location.pathname !== '/storage' && <Link to="/storage" className="underline">{t('管理 →')}</Link>}</span>}>
+      <div className="flex flex-col gap-3 text-sm">
+        <div className="flex h-3 rounded-full overflow-hidden bg-stone-100" title={bytes(s.total)}>
+          {PARTS.map(p => s.sizes[p.k] > 0 && <div key={p.k} className={p.color} style={{ width: `${(s.sizes[p.k] / Math.max(1, s.total)) * 100}%` }} />)}
+        </div>
+        <div className="flex flex-wrap gap-x-5 gap-y-1">
+          {PARTS.map(p => <span key={p.k} className="flex items-center gap-1.5"><span className={`w-2.5 h-2.5 rounded-sm ${p.color}`} />{p.label}
+            <b className="num">{bytes(s.sizes[p.k])}</b>
+            {p.k === 'recordings' && s.per_day.recordings > 0 && <span className="text-xs text-stone-500 num">{t('(每天 +{size})', { size: bytes(s.per_day.recordings) })}</span>}
+            {p.k === 'records' && <span className="text-xs text-stone-500 num">{kept}</span>}</span>)}
+        </div>
+        <div className={short ? 'text-amber-800' : 'text-stone-600'}>
+          {s.days_left === null ? t('最近一週沒有變多。') : s.days_left > 3650 ? t('照最近一週的速度(每天約 +{size}),磁碟還能用超過 10 年。', { size: bytes(s.growing) }) : t('照最近一週的速度(每天約 +{size}),磁碟大約還能用 {days} 天。', { size: bytes(s.growing), days: s.days_left.toLocaleString() })}
+          {s.keep_days > 0 && s.record_days >= s.keep_days && ' ' + t('執行紀錄已經滿 {days} 天,之後會邊記邊刪,不再變多。', { days: s.keep_days })}
+        </div>
+        <div className="text-xs text-stone-500">{s.min_free_gb > 0
+          ? t('至少留 {gb} GB 可用空間;不夠時{then}。', { gb: s.min_free_gb, then: s.when_full === 'cycle' ? t('刪掉最舊、沒有答案和測試在用的錄影,繼續錄製') : t('停止錄製') })
+          : t('沒有設定至少要留的空間。')}{' '}{t('保留天數和空間保護在「儲存空間」設定。')}</div>
+        <ErrorText error={q.error} />
+      </div>
+    </Card>
+  )
+}
+
 function RuntimeOverview() {
   const q = useQuery({ queryKey: ['nextSteps'], queryFn: api.nextSteps, refetchInterval: 15000 })
   const steps = q.data?.steps ?? []
@@ -83,6 +127,7 @@ function RuntimeOverview() {
           </div>
         )}
       </Card>
+      <StorageCard />
       <div className="flex gap-3 flex-wrap text-sm">
         <Link to="/script" className="px-3 py-1.5 rounded-md bg-stone-900 text-white hover:bg-stone-700">{t('執行')} →</Link>
         <Link to="/panel" className="px-3 py-1.5 rounded-md border border-stone-300 bg-white hover:bg-stone-50">{t('操作面板(給使用者) ↗')}</Link>
@@ -209,6 +254,7 @@ function StudioOverview() {
       <GettingStarted />
       <NextStepsCard />
       <ProjectCard />
+      <StorageCard />
       <h2 className="text-sm font-semibold text-stone-700 mt-2">{t('數字一覽')} {o && <span className="font-normal text-xs text-stone-500">{t('資料目錄')} <code>{o.data_root}</code></span>}</h2>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Stat label={t('錄製次數')} value={o?.sessions ?? '—'} sub={o ? t('觸控 {touches} 次', { touches: o.touches }) : undefined} />

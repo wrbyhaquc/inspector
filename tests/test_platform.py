@@ -295,10 +295,210 @@ def test_old_run_records_are_deleted_and_recordings_open_incidents_and_recent_da
     put(work / "sessions" / "20260901_090000" / "session.json")                 # a recording: never
     put(shadow / "actions" / "notes.txt")                                          # no date: never
     today = datetime.date(2026, 10, 26)
-    assert retention.clean(str(shadow), str(rt), str(work), 0, today) == {"files": 0, "bytes": 0}   # 0 = keep all
+    assert retention.clean(str(shadow), str(rt), str(work), 0, today)["files"] == 0                # 0 = keep all
     gone = retention.clean(str(shadow), str(rt), str(work), 30, today)
     assert gone["files"] == 6
     left = sorted(str(p.relative_to(tmp_path)).replace("\\", "/") for p in tmp_path.rglob("*") if p.is_file())
-    assert left == ["work/sessions/20260901_090000/session.json", "work/shadow/actions/20261020/2_CAM.jpg",
+    assert left == ["rt/cleanup_log.jsonl", "work/sessions/20260901_090000/session.json", "work/shadow/actions/20261020/2_CAM.jpg",
                     "work/shadow/actions/notes.txt", "work/shadow/incidents/20260902_120000_CAM/incident.json",
                     "work/shadow/log/20261025.jsonl"]
+
+
+def test_storage_says_what_each_kind_takes_and_how_long_the_disk_lasts(tmp_path):
+    import datetime
+    from server import storage
+    work, rt = tmp_path / "work", tmp_path / "rt"
+    today = datetime.date(2026, 10, 26)
+
+    def put(path, n):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"x" * n)
+    for k in range(1, 8):                                                   # a week: 1000 bytes of recording a day
+        day = (today - datetime.timedelta(days=k)).strftime("%Y%m%d")
+        put(work / "sessions" / f"{day}_090000" / "devices" / "CAM" / "frames" / "1.png", 1000)
+        put(work / "shadow" / "actions" / day / "1_CAM.jpg", 100)
+    put(work / "models" / "run1" / "model.onnx", 5000)
+    put(work / "testset" / "testset.jsonl", 70)
+    put(rt / "status.json", 30)
+    s = storage.measure(str(work), str(rt), keep_days=30, today=today)
+    assert s["sizes"] == {"recordings": 7000, "records": 700, "models": 5000, "answers": 70, "other": 30}
+    assert s["per_day"] == {"recordings": 1000, "records": 100}
+    assert s["growing"] == 1100                                               # the records are not 30 days old yet
+    assert storage.measure(str(work), str(rt), keep_days=7, today=today)["growing"] == 1000   # kept 7 days: full
+
+
+# ---------------------------------------------------------------- an incident's clip
+
+def test_an_incident_keeps_a_clip_from_before_the_trigger_to_after_it(tmp_path):
+    import time as _t
+    import numpy as np
+    from runtime import incidents as inc_mod
+    inc = inc_mod.Incidents()
+    frame = lambda k: np.full((720, 1280, 3), k % 255, np.uint8)
+    urgent = [{"urgent": True, "rule": "fox", "rule_name": "Fox", "script": "farm", "script_name": "Farm", "action": "run",
+               "text": "alarm", "reason": "fox = yes", "mode": "live"}]
+    for k in range(40):                                                    # 20 s before, a frame every half second
+        inc.keep("CAM", frame(k), 1000.0 + k * 0.5)
+    assert len(inc.pre["CAM"]) == inc_mod.PRE_S + 1                         # the last 15 s, a frame a second
+    assert inc.pre["CAM"][0][1].shape == (360, 640, 3)
+    inc.begin(str(tmp_path), "CAM", 1020.0, {}, urgent, frame(40))
+    for k in range(1, 60):                                                 # a minute after, still matching
+        now = 1020.0 + k
+        inc.keep("CAM", frame(40 + k), now)
+        inc.tick("CAM", now, {}, urgent, frame(40 + k))
+    _t.sleep(0.5)                                                          # the seconds before are written in the background
+    i = inc.open["CAM"]
+    times = [t for t, _n in i["clip"]]
+    assert times[0] <= 1020.0 - inc_mod.PRE_S + 1 and 1020.0 + inc_mod.CLIP_AFTER - 1 <= times[-1] <= 1020.0 + inc_mod.CLIP_AFTER
+    assert times == sorted(times)
+    files = sorted(p.name for p in (tmp_path / i["id"] / "clip").iterdir())
+    assert files == sorted(n for _t2, n in i["clip"])
+
+
+def test_an_incident_becomes_a_recording_and_its_test_names_the_rule(tmp_path, monkeypatch):
+    from automation import tests as tm
+    names = types.SimpleNamespace(scripts={"pond": {"name": "Pond keeper", "situations": [{"id": "w", "rules": [{"id": "fish", "name": "Fish up"}]}]}},
+                                  subs={})
+    assert tm.Names.sub(types.SimpleNamespace(**names.__dict__, script=lambda s: tm.Names.script(names, s),
+                                              rule=lambda s, r: tm.Names.rule(names, s, r)), "~pond.fish") == "Pond keeper:Fish up"
+    ticks = [{"situation_ids": {}, "data": [{"kind": "call", "sub": "~pond.fish"}, {"kind": "output", "output": "pond"}], "events": []}]
+    exp = tm.suggest({"ticks": ticks}, names)
+    assert {"kind": "call", "sub": "~pond.fish", "when": "ever"} in exp and {"kind": "output", "output": "pond", "when": "ever"} in exp
+
+
+def test_an_incident_clip_is_kept_as_a_recording(monkeypatch):
+    import numpy as np
+    from PIL import Image
+    from fastapi.testclient import TestClient
+    import server.app as app
+    iid = "20261026_120000_CAM"
+    d = os.path.join(app.SHADOW_DIR, "incidents", iid)
+    os.makedirs(os.path.join(d, "clip"), exist_ok=True)
+    clip = []
+    for k in range(5):
+        name = f"{1000 + k}000.jpg"
+        Image.fromarray(np.full((36, 64, 3), k * 40, np.uint8)).save(os.path.join(d, "clip", name))
+        clip.append([1000.0 + k, name])
+    with open(os.path.join(d, "incident.json"), "w", encoding="utf-8") as f:
+        json.dump({"id": iid, "device": "CAM", "start": 1002.0, "status": "resolved", "clip": clip}, f)
+    c = TestClient(app.app, client=("127.0.0.1", 50000))
+    assert c.post(f"/api/incidents/{iid}/recording").status_code == 403         # a runtime does not make tests
+    monkeypatch.setenv("INSPECTOR_EDITION", "studio")
+    r = c.post(f"/api/incidents/{iid}/recording").json()
+    assert (r["session"], r["device"], r["start"]) == (iid, "CAM", 0) and 0 < r["minutes"] <= 0.1
+    frames = app._all_frames()[(iid, "CAM")]
+    assert len(frames) == 5
+    assert c.post(f"/api/incidents/{iid}/recording").json() == r                     # again: the same recording
+
+
+# ---------------------------------------------------------------- moving the work folder
+
+def test_the_work_folder_moves_checked_and_resumes_and_the_old_copy_goes_on_purpose(tmp_path, monkeypatch):
+    from project import relocate
+    old, new = tmp_path / "old", tmp_path / "new"
+    monkeypatch.setattr(relocate, "STATE", str(tmp_path / "relocate.json"))
+    monkeypatch.setattr(relocate, "current", lambda: str(old))
+    machine = {}
+    monkeypatch.setattr(project, "set_machine", lambda **v: machine.update(v))
+    for k in range(20):
+        f = old / "pond" / "sessions" / f"s{k % 2}" / f"{k}.png"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(os.urandom(100 + k))
+    assert "完整" in relocate.check("relative")["problems"][0]
+    assert relocate.check(str(old / "pond"))["problems"]                              # inside the old one
+    (new / "x").mkdir(parents=True)
+    assert relocate.check(str(new))["problems"]                                        # not empty
+    (new / "x").rmdir()
+    relocate.move(str(new))                                                            # (a half-done copy goes on: skipped)
+    assert machine == {"work": str(new)} and relocate.state()["phase"] == "done"
+    assert sorted(p.name for p in new.rglob("*.png")) == sorted(p.name for p in old.rglob("*.png"))
+    monkeypatch.setattr(relocate, "current", lambda: str(new))
+    relocate.delete_old()
+    assert not old.exists() and relocate.state()["phase"] == "deleted"
+
+
+def test_recordings_keep_their_frames_as_this_computer_says(tmp_path, monkeypatch):
+    import numpy as np
+    from PIL import Image
+    from fastapi.testclient import TestClient
+    import server.app as app
+    from collector import collector as col
+    from collector.config import Settings
+    c = TestClient(app.app, client=("127.0.0.1", 50000))
+    first = c.get("/api/storage/settings").json()
+    assert (first["record_format"], first["jpeg_quality"]) == ("png", 90)
+    assert c.post("/api/storage/settings", json={"record_format": "gif"}).status_code == 400
+    assert c.post("/api/storage/settings", json={"record_format": "jpg", "jpeg_quality": 85}).json()["record_format"] == "jpg"
+    assert (app._storage_settings()["record_format"], app._storage_settings()["jpeg_quality"]) == ("jpg", 85)
+    c.post("/api/storage/settings", json={"record_format": "png"})
+    img = np.random.default_rng(1).integers(0, 255, (72, 128, 3), dtype=np.uint8)
+    for ext in ("png", "jpg"):
+        p = str(tmp_path / f"f.{ext}")
+        col._write_frame(p, img, Settings(frame_format=ext, jpeg_quality=80))
+        assert Image.open(p).format == {"png": "PNG", "jpg": "JPEG"}[ext]
+
+
+def test_each_kind_of_record_has_its_own_days_and_every_cleaning_is_written_down(tmp_path):
+    import datetime
+    from project import space
+    from runtime import retention
+    shadow, rt, work = tmp_path / "work" / "shadow", tmp_path / "rt", tmp_path / "work"
+    for p in (shadow / "actions" / "20260901" / "a.jpg", shadow / "incidents" / "20260901_1_CAM" / "incident.json",
+              shadow / "log" / "20260901.jsonl"):
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("{}", encoding="utf-8")
+    rt.mkdir()
+    (rt / "control.json").write_text(json.dumps({"keep_days": 40}), encoding="utf-8")   # the older single number
+    assert space.load(str(rt))["keep"] == {"actions": 40, "incidents": 90, "schedules": 40, "logs": 40}
+    keep = {"actions": 30, "incidents": 90, "schedules": 30, "logs": 0}
+    today = datetime.date(2026, 10, 26)
+    dry = retention.clean(str(shadow), str(rt), str(work), keep, today, dry=True)
+    assert set(dry["kinds"]) == {"actions"} and (shadow / "actions" / "20260901").exists()   # only said
+    gone = retention.clean(str(shadow), str(rt), str(work), keep, today, by="user")
+    assert gone["files"] == 1 and not (shadow / "actions" / "20260901").exists()
+    assert (shadow / "incidents" / "20260901_1_CAM").exists() and (shadow / "log" / "20260901.jsonl").exists()
+    h = retention.history(str(rt))
+    assert h[0]["by"] == "user" and h[0]["files"] == 1
+
+
+def test_making_room_deletes_the_oldest_recordings_nothing_needs(tmp_path, monkeypatch):
+    from project import space
+    work, design, rt = tmp_path / "work", tmp_path / "design", tmp_path / "rt"
+    for sid in ("20260901_1", "20260902_1", "20260903_1", "20260904_1", "shadow_20260905"):
+        (work / "sessions" / sid / "devices" / "CAM").mkdir(parents=True)
+        (work / "sessions" / sid / "devices" / "CAM" / "f.png").write_bytes(b"x" * 100)
+    (work / "testset").mkdir()
+    (work / "testset" / "testset.jsonl").write_text(json.dumps({"session": "20260901_1", "frame": "x"}) + "\n", encoding="utf-8")
+    (design / "meta").mkdir(parents=True)
+    (design / "meta" / "tests.json").write_text(json.dumps({"tests": [{"session": "20260902_1"}]}), encoding="utf-8")
+    deleted = []
+    monkeypatch.setattr(space, "free", lambda folder: 2 ** 30 * (5 + 10 * len(deleted)))   # each one deleted frees 10 GB
+    real = space.shutil.rmtree
+    monkeypatch.setattr(space.shutil, "rmtree", lambda p, **k: (deleted.append(os.path.basename(p)), real(p, **k)))
+    out = space.make_room(str(work), str(design), str(rt), {"min_free_gb": 12}, current="20260904_1")
+    assert out["sessions"] == ["20260903_1"] and out["ok"]                 # answered, tested and the current one stay
+    assert sorted(os.listdir(work / "sessions")) == ["20260901_1", "20260902_1", "20260904_1", "shadow_20260905"]
+
+
+def test_training_skips_the_labels_of_a_recording_deleted_since(tmp_path, monkeypatch):
+    from trainer import data as tdata
+    work = tmp_path / "w"
+    (work / "sessions" / "kept").mkdir(parents=True)
+    labels = [{"frame": str(work / "sessions" / s / "devices" / "CAM" / "frames" / "1.png"), "session": s, "device": "CAM", "id": "1", "t": 1.0}
+              for s in ("kept", "deleted")]
+    monkeypatch.setattr(tdata, "latest_labels", lambda root: ("v1", labels))
+    monkeypatch.setattr(tdata, "test_answers", lambda root: {})
+    monkeypatch.setattr(tdata.project, "work_of", lambda root: str(work))
+    monkeypatch.setattr(tdata.schema_mod, "load", lambda root: {"version": 1, "states": []})
+    ds = tdata.build(str(tmp_path / "design"))
+    assert {i["session"] for i in ds["items"]} == {"kept"}
+
+
+def test_only_the_newest_training_runs_stay_and_the_one_in_use_always(tmp_path):
+    from project import space
+    for r in ("20261001_a", "20261002_b", "20261003_c", "20261004_d", "20261005_e"):
+        (tmp_path / r).mkdir()
+        (tmp_path / r / "model.onnx").write_bytes(b"x" * 10)
+    assert space.old_models(str(tmp_path), 0) == []                                   # 0 = keep every run
+    assert [r for r, _b in space.old_models(str(tmp_path), 2)] == ["20261003_c", "20261002_b", "20261001_a"]
+    assert [r for r, _b in space.old_models(str(tmp_path), 2, {"20261002_b"})] == ["20261003_c", "20261001_a"]   # in use
