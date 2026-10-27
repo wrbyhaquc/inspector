@@ -39,10 +39,13 @@ data_root() is the design folder, work_root() the work folder; in the single-fol
 import atomic
 import json
 import os
+import re
 import time
 from i18n import N_, _, tr
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# the work folder's own parts: a path written where it was before it moved is found again by them (rel_of)
+WORK_PART = re.compile(r"[\\/](sessions|shadow|labels|testset|models)[\\/]")
 
 
 def _home():
@@ -230,7 +233,14 @@ def rel_of(path, root=None):
         bk = os.path.normcase(base).rstrip("\\/") + os.sep
         if key.startswith(bk):
             return path[len(bk):].replace("\\", "/")
-    return os.path.relpath(path, root).replace("\\", "/")
+    if os.path.isabs(path):                            # written where the work folder was before it moved (another
+        m = WORK_PART.search(path)                     # folder or disk): from its own part of the work folder on
+        if m:
+            return path[m.start() + 1:].replace("\\", "/")
+    try:
+        return os.path.relpath(path, root).replace("\\", "/")
+    except ValueError:                                 # another drive
+        return path.replace("\\", "/")
 
 
 def inside(path, folder):

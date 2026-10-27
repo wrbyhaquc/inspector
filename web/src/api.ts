@@ -544,6 +544,14 @@ export interface CleanRecord { t: number; by: 'runner' | 'user' | 'room'; what: 
   kinds?: CleanResult['kinds']; sessions?: string[]; runs?: string[]; why?: string }
 /** this computer's storage settings: how new recordings keep their frames */
 export interface StorageSettings { record_format: 'png' | 'jpg'; jpeg_quality: number; keep: Record<KeepKind, number>; keep_models: number; min_free_gb: number; when_full: 'stop' | 'cycle' }
+export type AiLevel = 'read' | 'design' | 'run'
+/** a token for one AI client over the network (only its hash is kept) */
+export interface AiToken { id: string; name: string; level: AiLevel; created: number; last_used: number | null; revoked: number | null }
+/** one change an AI made (server/ai_api.py) */
+export interface AiLogEntry { id: string; t: number; tool: string; target: string; reason: string; client: string; before?: unknown; after?: unknown }
+/** what an AI (over MCP) asked a person to decide (server/ai_api.py) */
+export interface AiRequest { id: string; t: number; kind: 'live'; script: string; script_name: string; device: string; device_name: string
+  reason: string; status: 'open' | 'approved' | 'declined'; answered?: number }
 /** moving the work folder (project/relocate.py) */
 export interface LocationCheck { ok: boolean; problems: string[]; from: string | null; to: string | null; bytes: number; files: number; free: number | null }
 export interface StorageLocation {
@@ -586,6 +594,14 @@ export const api = {
   storageModelsPreview: () => req<{ runs: string[]; bytes: number }>('GET', '/api/storage/models'),
   storageModelsClean: () => req<{ runs: string[]; bytes: number }>('POST', '/api/storage/models'),
   storageLocation: () => req<StorageLocation>('GET', '/api/storage/location'),
+  aiRequests: () => req<{ items: AiRequest[] }>('GET', '/api/ai/requests'),
+  aiConnect: () => req<{ folder: string; python: string; port: number; lan_mcp: string | null; local_mcp: string; tokens: number }>('GET', '/api/ai/connect'),
+  aiTokens: () => req<{ items: AiToken[] }>('GET', '/api/ai/tokens'),
+  aiTokenNew: (name: string, level: AiLevel) => req<AiToken & { token: string }>('POST', '/api/ai/tokens', { name, level }),
+  aiTokenRevoke: (id: string) => req<AiToken>('POST', `/api/ai/tokens/${encodeURIComponent(id)}/revoke`),
+  aiLog: () => req<{ items: AiLogEntry[] }>('GET', '/api/ai/log?limit=100'),
+  aiUndo: (id: string) => req<{ done: string }>('POST', `/api/ai/undo/${encodeURIComponent(id)}`),
+  aiRequestAnswer: (id: string, approve: boolean) => req<AiRequest>('POST', `/api/ai/requests/${encodeURIComponent(id)}/answer`, { approve }),
   storageSettings: () => req<StorageSettings>('GET', '/api/storage/settings'),
   storageSettingsSave: (b: Partial<StorageSettings>) => req<StorageSettings>('POST', '/api/storage/settings', b),
   storageLocationCheck: (to: string) => req<LocationCheck>('POST', '/api/storage/location/check', { to }),

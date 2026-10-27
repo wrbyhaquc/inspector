@@ -385,6 +385,52 @@ python -m runtime [--run <training run id>] [--interval 1]     # normally "Start
 - **Safety**: stop / pause / resume per device or for all (from the Run page, the operation panel or chat); a device pauses while someone operates it; start-up checks; tap limits, cooldowns, rules with no effect are paused and reported; every real input is logged with its frame.
 - **Keeps improving**: frames where the model is unsure, or disagrees with the screen rule, are saved to "Answer questions › Saved while running".
 
+## Inspector for an AI (MCP, `mcp_server/`)
+
+The whole story - levels, connecting, ready-made ways of working, what it never does: [docs/ai.md](docs/ai.md).
+
+An AI client that speaks the Model Context Protocol (Claude Desktop, Claude Code and others) can connect to the
+Inspector running on this computer and read its design and its run: what the platform is (a guide written for it),
+the sources, states, scripts, schedules, panel and settings, what each device sees and decides now, the timeline,
+incidents with pictures from their clips, the live screen, recorded frames, tests, training runs and storage.
+It can also change the design - main scripts, sub-scripts, states, schedules, user settings, variables, outputs, the
+operation panel - and prove the change first: check without saving, try a state's rule (with suggested thresholds)
+on recorded frames, replay the scripts on a recording, run the script tests. Every change says why, is a new
+version, and is in the AI log with what was there before (undo puts it back). It never makes anything live: a
+script it saves runs as a dry run where it was not live, and a person decides on the Run page. Secrets
+(passwords, tokens, PINs, webhook addresses) are masked, and kept as they are when it saves an output.
+It explains why a rule acts or not (each condition on what the runner sees now) and reports what happened.
+At the `run` level it also starts and stops the runner, stops / pauses / resumes devices, deploys a script off or as
+a dry run, and changes run settings and user setting values. Going live it only asks for: the person sees the
+request on the Run page and Home (and in notifications) and says yes or no - an AI cannot answer it. Never: running
+a schedule or a sub-script now, deleting recordings or models, moving the data, restarting Inspector. At most 30
+changes a minute. It asks Inspector's own API, so Inspector must be running.
+
+| `--level` | what the AI may do |
+|---|---|
+| `read` | look at everything, explain, report, check and replay without saving |
+| `design` (default) | also change the design (never live) |
+| `run` | also start / stop / hold / deploy (off or dry run), run settings, setting values, ask to go live |
+
+```bash
+python -m mcp_server [--url http://127.0.0.1:8765] [--lang en] [--level design]   # stdio; what an AI client starts
+claude mcp add inspector -- python -m mcp_server                     # Claude Code, run in the Inspector folder
+```
+
+Claude Desktop (`claude_desktop_config.json`):
+`{"mcpServers": {"inspector": {"command": "python", "args": ["-m", "mcp_server"], "cwd": "<the Inspector folder>"}}}`
+
+The **AI access** page (This computer › AI access) writes these for you, makes **tokens** for AI clients on other
+computers, and lists what AIs did (with Undo) and what they ask. Over the network an AI client connects to
+Inspector's own `/mcp` address (streamable HTTP) with a token; each token has a name and a level, is shown once
+(only its hash is kept) and can be revoked; without a token nothing gets in. Inspector listens on this computer
+only unless started with `--lan`; on a LAN the token is not encrypted, so from outside use an encrypted tunnel
+(Tailscale, a VPN).
+
+```bash
+claude mcp add --transport http inspector http://<this computer>:8765/mcp --header "Authorization: Bearer <token>"
+```
+
 ## Notifications and chat commands (`notify/`)
 
 Notification channels include Discord webhooks, a Telegram bot and a Discord bot. Bots can also take commands in chat; Inspector connects out, so no ports or servers are needed.

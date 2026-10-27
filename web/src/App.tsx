@@ -24,6 +24,7 @@ import Panel from './pages/Panel'
 import PanelDesign from './pages/PanelDesign'
 import Login from './pages/Login'
 import Storage from './pages/Storage'
+import AiAccess from './pages/AiAccess'
 import Packs from './pages/Packs'
 import { edition } from './lib/project'
 
@@ -55,8 +56,9 @@ const NAV: NavGroup[] = [
   { title: t('④ 交付'), hint: t('做成方案包,在別台電腦安裝執行'), items: [
     { to: '/packs', label: t('方案包') },
   ] },
-  { title: t('這台電腦'), hint: t('儲存空間、資料放在哪裡'), items: [
+  { title: t('這台電腦'), hint: t('儲存空間、資料放在哪裡、讓 AI 接入'), items: [
     { to: '/storage', label: t('儲存空間') },
+    { to: '/ai', label: t('AI 接入') },
   ] },
   { title: t('進階工具'), hint: t('檢查內部細節用,平常不需要'), advanced: true, items: [
     { to: '/browse', label: t('畫面瀏覽') },
@@ -74,8 +76,9 @@ const RUNTIME_NAV: NavGroup[] = [
   { title: t('方案包'), hint: t('安裝、升級、切換'), items: [
     { to: '/packs', label: t('方案包') },
   ] },
-  { title: t('這台電腦'), hint: t('儲存空間、資料放在哪裡'), items: [
+  { title: t('這台電腦'), hint: t('儲存空間、資料放在哪裡、讓 AI 接入'), items: [
     { to: '/storage', label: t('儲存空間') },
+    { to: '/ai', label: t('AI 接入') },
   ] },
 ]
 
@@ -158,6 +161,7 @@ function AdminApp() {
             <Route path="/script" element={<Shadow />} />
             <Route path="/packs" element={<Packs />} />
             <Route path="/storage" element={<Storage />} />
+            <Route path="/ai" element={<AiAccess />} />
             <Route path="*" element={<Overview />} />
           </Routes>
         ) : (
@@ -165,6 +169,7 @@ function AdminApp() {
           <Route path="/" element={<Overview />} />
           <Route path="/packs" element={<Packs />} />
           <Route path="/storage" element={<Storage />} />
+          <Route path="/ai" element={<AiAccess />} />
           <Route path="/sources" element={<Sources />} />
           <Route path="/collect" element={<Collection />} />
           <Route path="/browse" element={<Browser />} />

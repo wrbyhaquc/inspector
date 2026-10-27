@@ -1,4 +1,5 @@
 import { locale, t } from '../i18n'
+import { AiRequests } from '../components/AiRequests'
 import { PageIntro } from '../components/PageIntro'
 import { MachineLanguage } from '../components/LangPicker'
 import { AskBar } from '../components/AskBar'
@@ -78,6 +79,7 @@ export default function Shadow() {
       <ControlBar st={st} running={running} job={q.data?.job ?? null} error={q.error || start.error || stop.error}
         onStart={() => start.mutate()} starting={start.isPending} />
       {running && <AskBar items={asks.data?.items ?? []} refresh={['asks']} />}
+      <AiRequests />
       {open.length > 0 && tab !== 'incidents' && (
         <button onClick={() => setTab('incidents')} className="text-left rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-900">
           {t('🚨 緊急事件進行中:')}{open.map(x => x.resolved ? t('{device}「{rules}」(已不成立,觀察後續中)', { device: dn(x.device), rules: x.triggers.join(t('、')) })

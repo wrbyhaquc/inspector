@@ -34,7 +34,7 @@ COOKIE = "inspector_session"
 RUNTIME_WRITE = ("/api/auth/", "/api/language", "/api/panel/", "/api/shadow/", "/api/sources/", "/api/drivers",
                  "/api/notify", "/api/settings/value", "/api/schedules/override", "/api/schedules/request",
                  "/api/outputs/test", "/api/image/warm", "/api/jobs", "/api/spec/check", "/api/packs", "/api/system/",
-                 "/api/storage/")
+                 "/api/storage/", "/api/ai/")
 RUNTIME_WRITE_EXACT = ("/api/scripts",)        # saving a script: only its settings (where it runs ...), automation.save
 RUNTIME_DESIGN_ONLY = ("/api/panel/definition",)
 _sessions = {}                     # token -> (role, expires)

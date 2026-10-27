@@ -385,6 +385,46 @@ python -m runtime [--run <訓練編號>] [--interval 1]     # 平常從介面「
 - **安全機制**:每台或全部 停下來 / 暫停 / 繼續(「執行」頁、操作面板或聊天);偵測到有人操作時那台暫停;啟動確認;點擊上限、冷卻、規則沒效果就暫停並通知;每次真的輸入都留紀錄與畫面。
 - **持續改進**:模型拿不準、或模型和畫面規則判斷不同時,自動存下畫面到「回答問題 › 執行時存下的」。
 
+## 讓 AI 接入(MCP,`mcp_server/`)
+
+完整說明(權限、怎麼連、工作範本、AI 不會做的事):[docs/ai.zh-TW.md](docs/ai.zh-TW.md)。
+
+支援 Model Context Protocol 的 AI 工具(Claude Desktop、Claude Code 等)可以連到這台電腦上正在執行的 Inspector,
+讀取設計和執行的情況:平台是什麼(給 AI 看的說明書)、來源、狀態、腳本、排程、操作面板、使用者設定、每台現在看到和決定的事、
+時間軸、緊急事件(含影片畫面)、即時畫面、錄好的畫面、腳本測試、訓練結果、儲存空間。
+也能修改設計(主腳本、子腳本、狀態、排程、使用者設定、變數、輸出、操作面板),並先證明改得對:只檢查不存、在錄好的畫面上試狀態規則(含門檻建議)、
+用錄影重播腳本、跑腳本測試。每次修改都要寫理由、是一個新版本,也記在 AI 活動紀錄(含改之前的樣子,可以退回)。
+AI **不會讓任何東西正式執行**:它存的腳本在原本不是正式執行的地方只會試跑,要不要正式執行由人在「執行」頁決定。
+密碼、權杖、PIN、Webhook 網址一律遮住,AI 存輸出時也會保留原本的值。
+它能說明規則為什麼觸發或沒觸發(每個條件對照現在的畫面),也能整理這段時間發生了什麼。
+在 `run` 等級還能:開始 / 停止執行、讓裝置停下來 / 暫停 / 繼續、把腳本部署成關閉或試跑、改執行設定和使用者設定的值。
+**正式執行只能提出要求**:人會在「執行」頁和首頁看到(也會收到通知),由人按同意或拒絕,AI 不能自己同意。
+不會做:立刻執行排程或子腳本、刪錄影或模型、搬資料、重新啟動 Inspector。每分鐘最多 30 次修改。
+它透過 Inspector 自己的 API 取得資料,所以 Inspector 要開著。
+
+| `--level` | AI 可以做的事 |
+|---|---|
+| `read` | 看所有東西、說明、整理報告、只檢查不存、重播 |
+| `design`(預設) | 再加上修改設計(不會正式執行) |
+| `run` | 再加上開始 / 停止 / 停下來 / 暫停 / 繼續、部署(關閉或試跑)、執行設定、使用者設定的值、要求正式執行 |
+
+```bash
+python -m mcp_server [--url http://127.0.0.1:8765] [--lang zh-TW] [--level design]   # stdio;由 AI 工具啟動
+claude mcp add inspector -- python -m mcp_server                     # Claude Code:在 Inspector 資料夾執行
+```
+
+Claude Desktop(`claude_desktop_config.json`):
+`{"mcpServers": {"inspector": {"command": "python", "args": ["-m", "mcp_server"], "cwd": "<Inspector 資料夾>"}}}`
+
+「**AI 接入**」頁(這台電腦 › AI 接入)會幫你產生上面的設定、替別台電腦的 AI 工具建立**權杖**,也列出 AI 做過的事(可以退回)和它提出的要求。
+從網路連線時,AI 工具連到 Inspector 自己的 `/mcp` 位址(streamable HTTP)並帶上權杖:每把權杖有名稱和權限,只顯示一次(只存雜湊),
+可以隨時撤銷;沒有權杖一律連不上。Inspector 預設只接受這台電腦的連線,要用 `--lan` 啟動別台才連得到;
+同一個網路裡權杖不會加密,要從外面連請透過 Tailscale、VPN 等加密的通道。
+
+```bash
+claude mcp add --transport http inspector http://<這台電腦>:8765/mcp --header "Authorization: Bearer <權杖>"
+```
+
 ## 通知與聊天指令(`notify/`)
 
 通知管道有 Discord Webhook、Telegram Bot、Discord Bot。Bot 除了送通知,也能在聊天裡下指令;Inspector 主動連出去,不用開連線埠或架伺服器。

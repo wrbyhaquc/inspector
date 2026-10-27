@@ -561,6 +561,10 @@ def next_steps():
             _("現在就能用在腳本裡;下次學習時會一起學。"), "/states", _("查看"))
 
     # ---- ③ automation
+    from .ai_api import open_requests
+    for r in open_requests():                    # an AI asked for something only a person decides
+        add("auto", "warn", _("AI 要求讓「{script}」在「{device}」正式執行", script=r["script_name"], device=r["device_name"]),
+            r["reason"], "/script", _("同意或拒絕"))
     scripts = [s for s in automation.load_all(DATA_ROOT) if s.get("enabled", True)]
     rs = _read_json(os.path.join(RUNTIME_DIR, "status.json"), {}) or {}
     running = rs.get("running") and time.time() - rs.get("updated", 0) < 10
@@ -2094,10 +2098,10 @@ def _act_send(req: Act, by: str):
 
 
 @app.post("/api/shadow/act")
-def shadow_act(req: Act):
-    """Do something on one emulator now, from the monitor: run a schedule / a sub-script, switch a main script to a
-    situation, stop or pause what it is doing, carry on a paused schedule."""
-    return _act_send(req, _("監看"))
+def shadow_act(req: Act, request: Request):
+    """Do something on one emulator now, from the monitor (or an AI over MCP): run a schedule / a sub-script, switch a
+    main script to a situation, stop or pause what it is doing, carry on a paused schedule."""
+    return _act_send(req, _("AI") if request.headers.get("X-Actor") == "ai" else _("監看"))
 
 
 @app.get("/api/shadow/actions/{device}")
@@ -2418,7 +2422,8 @@ def shadow_timeline(device: str, minutes: float = 60):
     import datetime
     since = time.time() - minutes * 60
     out = []
-    for day in sorted({datetime.date.fromtimestamp(since), datetime.date.today()}):
+    first = datetime.date.fromtimestamp(since)
+    for day in (first + datetime.timedelta(days=k) for k in range((datetime.date.today() - first).days + 1)):   # every day
         p = os.path.join(SHADOW_DIR, "log", f"{day:%Y%m%d}.jsonl")
         if os.path.exists(p):
             for r in data.read_jsonl(p):
@@ -3031,6 +3036,10 @@ def _mount_plugin_apis():
 
 
 _mount_plugin_apis()
+from .ai_api import router as _ai_router   # noqa: E402  (an AI over MCP: checks without saving, the log of its changes)
+from .mcp_http import router as _mcp_router   # noqa: E402  (AI clients over the network: /mcp with a token)
+app.include_router(_ai_router)
+app.include_router(_mcp_router)
 
 
 class LanguageSet(BaseModel):
