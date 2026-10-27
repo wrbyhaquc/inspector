@@ -233,8 +233,8 @@ def rel_of(path, root=None):
         bk = os.path.normcase(base).rstrip("\\/") + os.sep
         if key.startswith(bk):
             return path[len(bk):].replace("\\", "/")
-    if os.path.isabs(path):                            # written where the work folder was before it moved (another
-        m = WORK_PART.search(path)                     # folder or disk): from its own part of the work folder on
+    if os.path.isabs(path) or re.match(r"[A-Za-z]:[\\/]", path):   # written where the work folder was before it moved
+        m = WORK_PART.search(path)                     # (another folder, disk or computer): from its own part on
         if m:
             return path[m.start() + 1:].replace("\\", "/")
     try:
