@@ -228,15 +228,16 @@ def resolve(rel, root=None):
 def rel_of(path, root=None):
     """The other way round: an absolute path in the design or the work folder as the data writes it."""
     root = root or data_root()
-    key = os.path.normcase(path)                       # same length as path: slices line up
+    if not os.path.isabs(path) and not re.match(r"[A-Za-z]:[\\/]", path):   # already as the data writes it
+        return path.replace("\\", "/")
+    key = os.path.normcase(path)                     # same length as path: slices line up
     for base in (work_of(root), root):
         bk = os.path.normcase(base).rstrip("\\/") + os.sep
         if key.startswith(bk):
             return path[len(bk):].replace("\\", "/")
-    if os.path.isabs(path) or re.match(r"[A-Za-z]:[\\/]", path):   # written where the work folder was before it moved
-        m = WORK_PART.search(path)                     # (another folder, disk or computer): from its own part on
-        if m:
-            return path[m.start() + 1:].replace("\\", "/")
+    m = WORK_PART.search(path)                         # written where the work folder was before it moved (another
+    if m:                                              # folder, disk or computer): from its own part of it on
+        return path[m.start() + 1:].replace("\\", "/")
     try:
         return os.path.relpath(path, root).replace("\\", "/")
     except ValueError:                                 # another drive
