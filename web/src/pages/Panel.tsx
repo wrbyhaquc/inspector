@@ -75,7 +75,7 @@ export default function Panel({ canLogout = false }: { canLogout?: boolean }) {
           ? <button onClick={() => pause.mutate('resume')} className="px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-xl font-bold flex items-center gap-2"><Icon name="play" />{t('全部繼續')}</button>
           : <>
               <button onClick={() => pause.mutate('pause')} className="px-4 py-2.5 rounded-xl bg-amber-500 text-white text-xl font-bold flex items-center gap-2" title={t('腳本、情境和正在做的事都停在原地,按「繼續」從同一步接著做')}><Icon name="pause" />{t('全部暫停')}</button>
-              <button onClick={() => { if (confirm(t('全部停下來?正在做的事會取消,腳本和情境都停住、什麼都不會自動做。按「全部繼續」後從頭開始。'))) pause.mutate('stop') }}
+              <button onClick={() => pause.mutate('stop')}
                 className="px-4 py-2.5 rounded-xl bg-rose-600 text-white text-xl font-bold flex items-center gap-2"><Icon name="stop" />{t('全部停下來')}</button>
             </>}
       </header>
@@ -572,9 +572,7 @@ function ActionButton({ c, device, onMsg, small = false }: { c: PanelControl; de
   })
   const go = () => {
     const where = device ? dn(device) : (who.length ? who.map(dn).join(t('、')) : t('所有{device}', { device: words.device }))
-    if (!window.confirm(held ? t('讓 {where} 恢復自動嗎?', { where })
-      : isStop ? t('確定要讓 {where} 停下來嗎?\n會停掉它正在做的事,腳本和情境都停住、不會自動做任何事。按「繼續」後從頭開始。', { where })
-      : t('確定要讓 {where} 現在「{label}」嗎?', { where, label: c.label }))) return
+    if (!held && !isStop && !window.confirm(t('確定要讓 {where} 現在「{label}」嗎?', { where, label: c.label }))) return
     press.mutate('ask')
   }
   if (device && c.targets && !c.targets.includes(device)) return null      // this emulator does not take part

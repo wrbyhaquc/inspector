@@ -125,12 +125,6 @@ function ControlBar({ st, running, job, error, onStart, starting }: {
   const all = st.hold_all
   const held = (st.devices ?? []).filter(d => d.hold).length
   const waiting = (st.devices ?? []).filter(d => !d.hold && (d.start_wait ?? 0) > 0).length
-  // 繼續 while what stopped a device is still on its screen: it stops again right away
-  const resumeAll = () => {
-    const still = (st.devices ?? []).filter(d => d.hold && d.cause_now)
-    if (still.length && !confirm(t('{p1}\n\n上面這些的原因還在,繼續後會馬上再停下來。還是要全部繼續嗎?', { p1: still.map(d => `${dn(d.name)}:${d.hold!.why ?? d.hold!.by}`).join('\n') }))) return
-    set.mutate('resume')
-  }
   return (
     <div className="sticky top-0 z-20 -mx-6 px-6 py-3 bg-stone-50/95 backdrop-blur border-b border-stone-200 flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-3 text-sm">
@@ -139,15 +133,15 @@ function ControlBar({ st, running, job, error, onStart, starting }: {
           {running ? <Pill tone="green">{t('執行程式運作中')}</Pill> : <Pill>{t('執行程式沒有啟動:不看、不判斷、不通知')}</Pill>}
           {running && st.started && <span className="ml-2">{t('{p1} · 每 {p2} 毫秒看一次(處理 {p3} 毫秒)', { p1: duration((st.updated ?? 0) - st.started), p2: Math.round((st.interval ?? 1) * 1000), p3: st.tick_ms ?? '—' })}</span>}
         </span>
-        {running && held > 0 && !all && <Button variant="primary" disabled={set.isPending} onClick={() => resumeAll()} title={t('停下來或暫停的全部繼續')}>{t('▶ 全部繼續')}</Button>}
+        {running && held > 0 && !all && <Button variant="primary" disabled={set.isPending} onClick={() => set.mutate('resume')} title={t('停下來或暫停的全部繼續')}>{t('▶ 全部繼續')}</Button>}
         {running && (all
           ? <span className="flex items-center gap-2 px-3 py-1.5 rounded-md border-2 border-amber-400 bg-amber-50 text-amber-900">
               <b>{all.mode === 'pause' ? t('⏸ 全部暫停中') : t('🛑 全部停下來中')}</b><span className="text-xs">{t('({by}):只看不點,守門規則和排程也不動', { by: all.by })}</span>
-              <Button variant="primary" disabled={set.isPending} onClick={() => resumeAll()}>{t('▶ 全部繼續')}</Button></span>
+              <Button variant="primary" disabled={set.isPending} onClick={() => set.mutate('resume')}>{t('▶ 全部繼續')}</Button></span>
           : <span className="flex items-center gap-2">
               <Pill tone="green">{t('運作中')}{held ? t('({held} 台停下來或暫停)', { held }) : ''}{waiting ? t('({waiting} 台啟動確認中)', { waiting }) : ''}</Pill>
               <Button disabled={set.isPending} onClick={() => set.mutate('pause')} title={t('腳本、情境和正在做的事都停在原地,按「繼續」從同一步接著做')}>{t('⏸ 全部暫停')}</Button>
-              <Button variant="danger" disabled={set.isPending} onClick={() => { if (confirm(t('全部停下來?正在做的事會取消(先做收尾),腳本和情境都停住(守門規則和排程也不動),按「全部繼續」後從頭開始;直到按「全部繼續」。'))) set.mutate('stop') }}>{t('🛑 全部停下來')}</Button>
+              <Button variant="danger" disabled={set.isPending} onClick={() => set.mutate('stop')}>{t('🛑 全部停下來')}</Button>
             </span>)}
         <span className="flex-1" />
       </div>
@@ -573,10 +567,6 @@ function DeviceCard({ d, states, v, live, stops = [], hold }: {
   const flag = useMutation({ mutationFn: () => api.shadowFlag(d.name), onSuccess: () => setFlagged(Date.now()) })
   const act = useMutation({ mutationFn: (kind: 'stop' | 'pause' | 'resume') => api.shadowAct({ device: d.name, kind, mode: kind === 'stop' ? 'stop' : undefined }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['shadow'] }) })
-  const resumeOne = () => {
-    if (d.cause_now && !confirm(t('{name}:{p2}\n原因還在畫面上,繼續後會馬上再停下來。還是要繼續嗎?', { name: dn(d.name), p2: hold?.why ?? '' }))) return
-    act.mutate('resume')
-  }
   const st = d.state
   // on the card: what each script decides (the guard rules only when they do something); the rest under 詳細
   const mainDec = d.decisions.filter(x => !x.guard || (x.action !== 'none' && x.action !== 'uncertain'))
@@ -596,7 +586,7 @@ function DeviceCard({ d, states, v, live, stops = [], hold }: {
               {d.cause_now === false && <div className="text-xs mt-1 text-emerald-800">{t('原因已經不在畫面上,可以繼續。')}</div>}
               {hold.again != null && <div className="text-xs mt-1 font-semibold">{t('⚠ 上次按「繼續」後 {again} 秒又因同樣原因停下來。', { again: hold.again })}</div>}
             </div>
-            <Button variant="primary" disabled={act.isPending} onClick={() => resumeOne()}>{t('▶ 繼續')}</Button>
+            <Button variant="primary" disabled={act.isPending} onClick={() => act.mutate('resume')}>{t('▶ 繼續')}</Button>
           </div>
         )}
         {stops.map(b => {
@@ -632,7 +622,7 @@ function DeviceCard({ d, states, v, live, stops = [], hold }: {
         {live && <div className="flex flex-wrap items-center gap-2">
           {hold ? null : <>
             <Button disabled={act.isPending} onClick={() => act.mutate('pause')} title={t('腳本、情境和正在做的事都停在原地,按「繼續」從同一步接著做')}>{t('⏸ 暫停')}</Button>
-            <Button variant="danger" disabled={act.isPending} onClick={() => { if (confirm(t('{name} 停下來?正在做的事會取消(先做收尾),腳本和情境都停住,按「繼續」後從頭開始。', { name: dn(d.name) }))) act.mutate('stop') }}>{t('🛑 停下來')}</Button>
+            <Button variant="danger" disabled={act.isPending} onClick={() => act.mutate('stop')}>{t('🛑 停下來')}</Button>
           </>}
           <MoreButton onClick={() => setWin('acts')} title={t('立即執行排程、切換情境、執行子腳本')}>{t('⚡ 操作…')}</MoreButton>
           <span className="flex-1" />

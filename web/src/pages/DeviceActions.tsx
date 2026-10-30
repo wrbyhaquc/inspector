@@ -34,7 +34,6 @@ export default function DeviceActions({ device, proc, hold, bare = false }: { de
     setMsg(null)
     send.mutate({ act: { device, if_busy: 'ask', ...act }, label })
   }
-  const isSched = !!proc?.script?.startsWith('schedule:')
 
   return (
     <div className={bare ? '' : 'rounded-md border border-stone-200'}>
@@ -47,7 +46,7 @@ export default function DeviceActions({ device, proc, hold, bare = false }: { de
           <div className="flex flex-wrap gap-2">
             {hold ? <Button variant="primary" disabled={send.isPending} onClick={() => go({ kind: 'resume' }, t('繼續'))}>{t('▶ 繼續')}{hold.mode === 'pause' ? t('(從同一步接著做)') : ''}</Button> : <>
               <Button disabled={send.isPending} onClick={() => go({ kind: 'pause' }, t('暫停'))} title={t('腳本、情境和正在做的事都停在原地,按「繼續」從同一步接著做')}>{t('⏸ 暫停')}</Button>
-              <Button variant="danger" disabled={send.isPending} onClick={() => go({ kind: 'stop', mode: 'stop' }, t('停下來'), t('{device} 停下來?正在做的事會取消(先做收尾),腳本和情境都停住,按「繼續」後從頭開始。', { device }))}>{t('🛑 停下來')}</Button>
+              <Button variant="danger" disabled={send.isPending} onClick={() => go({ kind: 'stop', mode: 'stop' }, t('停下來'))}>{t('🛑 停下來')}</Button>
             </>}
           </div>
           {hold && <div className="text-xs text-amber-800">{hold.mode === 'pause' ? t('這台暫停中:下面的動作要先按「繼續」') : t('這台停下來中:下面的動作要先按「繼續」')}</div>}
@@ -73,8 +72,7 @@ export default function DeviceActions({ device, proc, hold, bare = false }: { de
             <div className="text-xs">{proc.script_name} › {proc.sub_name}{proc.loop ? `(${proc.loop})` : ''}{proc.paused ? t(' · ⏸ 暫停中') : ''}</div>
             <div className="flex flex-wrap gap-2">
               <Button disabled={send.isPending}
-                onClick={() => go({ kind: 'stop', mode: 'abort' }, t('停止「{sub_name}」', { sub_name: proc.sub_name }), isSched ? t('要停止 {device} 目前的「{sub}」嗎?(會做收尾步驟,排程今天記為中斷)', { device, sub: proc.sub_name })
-                  : t('要停止 {device} 目前的「{sub}」嗎?(會做收尾步驟)', { device, sub: proc.sub_name }))} title={t('只結束這一個動作,不會停下來')}>{t('結束這個動作')}</Button>
+                onClick={() => go({ kind: 'stop', mode: 'abort' }, t('停止「{sub_name}」', { sub_name: proc.sub_name }))} title={t('只結束這一個動作,不會停下來')}>{t('結束這個動作')}</Button>
 
             </div>
           </Section>
