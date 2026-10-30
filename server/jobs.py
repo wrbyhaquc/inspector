@@ -26,7 +26,7 @@ class Job:
         os.makedirs(log_dir, exist_ok=True)
         self.log_path = os.path.join(log_dir, f"{self.id}_{kind}.log")
         env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1")
-        flags = subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)    # (Windows)
         self.proc = subprocess.Popen([sys.executable, "-u", "-m", *args], cwd=PROJECT_ROOT, env=env,
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, creationflags=flags)
         self._stop_requested = False

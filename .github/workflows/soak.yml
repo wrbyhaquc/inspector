@@ -44,17 +44,22 @@ jobs:
         run: pip install -r requirements-runtime.txt
       - name: "The runner for a while"
         shell: bash
-        run: python -m tools.soak --minutes "${{ github.event.inputs.minutes || '45' }}" --out soak.json | tee soak.log
+        run: python -m tools.soak --minutes "${{ github.event.inputs.minutes || '45' }}" --out soak.json 2>&1 | tee soak.log
       - name: "The report on the run's page"
         if: always()
         shell: bash
         run: |
-          [ -f soak.json ] || exit 0
           python - <<'PY'
           import json, os
+          def error(text):                  # an annotation: anyone can read it, without signing in
+              print("::error title=soak::" + text.replace("%", "%25").replace("\r", "").replace("\n", "%0A"))
+          if not os.path.exists("soak.json"):
+              log = open("soak.log", errors="replace").read()[-3000:] if os.path.exists("soak.log") else "(no output)"
+              error("no report; the end of its output:\n" + log)
+              raise SystemExit
           r = json.load(open("soak.json"))["report"]
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
               f.write("### Soak\n\n" + chr(96) * 3 + "\n" + json.dumps(r, indent=1) + "\n" + chr(96) * 3 + "\n")
           for p in r["problems"]:
-              print("::error title=soak::" + p)
+              error(p)
           PY

@@ -24,6 +24,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -175,6 +176,7 @@ def main():
         return json.loads(urllib.request.urlopen(r, timeout=60).read() or b"{}")
 
     samples, problems = [], []
+    failed = None
     try:
         for _ in range(240):
             try:
@@ -182,7 +184,7 @@ def main():
                 break
             except Exception:
                 if server.poll() is not None:
-                    raise SystemExit("the server stopped:\n" + open(os.path.join(home, "server.log"), encoding="utf-8").read()[-3000:])
+                    raise RuntimeError("the server stopped")
                 time.sleep(0.25)
         design(api)
         api("POST", "/api/shadow/start", {"interval": a.interval})
@@ -210,6 +212,9 @@ def main():
             api("POST", "/api/shadow/stop")
         except Exception:
             pass
+    except Exception as e:                              # it could not even run: the report says why
+        body = e.read().decode("utf-8", "replace")[:500] if isinstance(e, urllib.error.HTTPError) else ""
+        failed = f"{e} {body}".strip()
     finally:
         server.terminate()
         try:
@@ -217,6 +222,9 @@ def main():
         except subprocess.TimeoutExpired:
             server.kill()
         log.close()
+    if failed:
+        with open(os.path.join(home, "server.log"), encoding="utf-8", errors="replace") as f:
+            problems.append(f"stopped early: {failed}\nthe server's log:\n{f.read()[-3000:]}")
 
     # ---- after the warm-up: what keeps growing
     late = [x for x in samples if x["t"] >= a.minutes * 60 / 3 and x["runner"]]
@@ -241,7 +249,7 @@ def main():
                          "ticks": last["ticks"], "decisions": last["decisions"], "health": last["health"]}
         if not (last["decisions"] or {}).get("call"):
             problems.append("the script never ran (no call decisions): the soak exercised nothing")
-    else:
+    elif not failed:
         problems.append("too few samples to judge (run longer)")
     report["problems"] = problems
     print(json.dumps(report, indent=1), flush=True)
