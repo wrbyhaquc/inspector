@@ -65,6 +65,15 @@ def test_template_picks_the_closest_reference(tmp_path):
     assert generic.evaluate(s, off, tpls)[0] == "off"
 
 
+def test_references_made_within_one_millisecond_are_all_kept(tmp_path, monkeypatch):
+    monkeypatch.setattr(generic.time, "time", lambda: 1000.0)
+    box = (0, 0, 10, 10)
+    a = generic.tpl_add(str(tmp_path), "s", "on", picture(), box, "a")
+    b = generic.tpl_add(str(tmp_path), "s", "off", picture(), box, "b")
+    c = generic.glyph_add(str(tmp_path), "s", "1", picture(), (0, 10, 0, 10), "c")
+    assert len({a, b, c}) == 3 and len(generic.tpl_index(str(tmp_path), "s")) == 3
+
+
 def test_template_falls_back_when_nothing_looks_alike(tmp_path):
     box = (40, 30, 120, 60)
     btn = picture(lambda d: (d.rounded_rectangle((40, 30, 159, 89), 12, fill=(40, 160, 80)), d.text((60, 50), "OK", fill=(255, 255, 255))))

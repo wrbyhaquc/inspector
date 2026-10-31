@@ -184,17 +184,25 @@ def _write_index(data_root, state_id, idx):
     atomic.write_json(os.path.join(d, "index.json"), idx, ensure_ascii=False, indent=1)
 
 
+def _tpl_name(idx):
+    """A file name not in use: two references within one millisecond must not overwrite each other."""
+    stamp = int(time.time() * 1000)
+    while f"{stamp}.png" in idx:
+        stamp += 1
+    return f"{stamp}.png"
+
+
 def tpl_add(data_root, state_id, value, img, box, frame):
     """-> file name of the new reference, or of the existing one when this frame/region/class is already there."""
-    for name, meta in tpl_index(data_root, state_id).items():
+    idx = tpl_index(data_root, state_id)
+    for name, meta in idx.items():
         if meta["frame"] == frame and meta["box"] == list(box) and meta["value"] == value:
             return name
     x, y, w, h = box
-    name = f"{int(time.time() * 1000)}.png"
+    name = _tpl_name(idx)
     d = tpl_dir(data_root, state_id)
     os.makedirs(d, exist_ok=True)
     Image.fromarray(img[y:y + h, x:x + w]).save(os.path.join(d, name))
-    idx = tpl_index(data_root, state_id)
     idx[name] = {"value": value, "frame": frame, "box": list(box), "created": time.time()}
     _write_index(data_root, state_id, idx)
     return name
@@ -295,11 +303,11 @@ def _glyph_rgb(img, box):
 def glyph_add(data_root, state_id, char, img, box, frame):
     """Teach one character: its picture (the frame cut at box = (x0, x1, y0, y1)) is saved as a reference whose
     value is the character."""
-    name = f"{int(time.time() * 1000)}.png"
+    idx = tpl_index(data_root, state_id)
+    name = _tpl_name(idx)
     d = tpl_dir(data_root, state_id)
     os.makedirs(d, exist_ok=True)
     Image.fromarray(_glyph_rgb(img, box)).save(os.path.join(d, name))
-    idx = tpl_index(data_root, state_id)
     idx[name] = {"value": char, "frame": frame, "box": [int(v) for v in box], "created": time.time()}
     _write_index(data_root, state_id, idx)
     return name
