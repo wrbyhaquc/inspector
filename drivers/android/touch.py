@@ -11,6 +11,36 @@ LINE = re.compile(r"\[\s*(\d+\.\d+)\]\s+(/dev/input/event\d+):\s+(\S+)\s+(\S+)\s
 TAP_MAX_MOVE = 15      # px
 TAP_MAX_TIME = 0.5     # s; longer without moving = long press
 PATH_MIN_STEP = 0.05   # s between recorded path points
+AXIS = re.compile(r"(ABS_MT_POSITION_[XY]|ABS_[XY])\s*:.*?\bmax (\d+)")
+VIEWPORT = re.compile(r"DisplayViewport\{[^}]*valid=true[^}]*orientation=(\d)")
+
+
+def parse_ranges(text):
+    """`getevent -lp` -> {device path: (largest x, largest y)} of what reports touches."""
+    out, path, axes = {}, None, {}
+    for line in text.splitlines():
+        if line.startswith("add device"):
+            path, axes = line.split(":", 1)[1].strip(), {}
+        m = AXIS.search(line)
+        if m and path:
+            if "MT" in m.group(1) or m.group(1)[-1] not in axes:      # (the multitouch axes when it has both)
+                axes[m.group(1)[-1]] = int(m.group(2))
+            if len(axes) == 2:
+                out[path] = (axes["X"], axes["Y"])
+    return out
+
+
+def parse_rotation(text):
+    """`dumpsys display` -> how far the screen is turned now (0..3), or None."""
+    m = VIEWPORT.search(text)
+    return int(m.group(1)) if m else None
+
+
+def to_fraction(x, y, rng, rotation):
+    """A touch in the device's own range -> where on the screen as shown, as fractions. The range turns with the hardware,
+    not with what is shown: an app shown sideways has the two swapped."""
+    nx, ny = x / max(1, rng[0]), y / max(1, rng[1])
+    return {0: (nx, ny), 1: (ny, 1 - nx), 2: (1 - nx, 1 - ny), 3: (1 - ny, nx)}[rotation]
 
 
 class _Touch:
@@ -32,6 +62,25 @@ class TouchRecorder:
         self.last_touch = 0.0
         self.last_event = 0.0         # host time of the latest raw input event (finger down, move, up)
         self.count = 0
+        self.ranges = None
+        self.rotation = 0
+
+    def _shell(self, *args):
+        return subprocess.run([self.adb, "-s", self.serial, "shell", *args], capture_output=True, timeout=10).stdout.decode("utf-8", "replace")
+
+    def to_screen(self, g):
+        """A gesture's two ends as fractions of the screen: (x0, y0, x1, y1), None when this device does not say its range."""
+        try:
+            if self.ranges is None:
+                self.ranges = parse_ranges(self._shell("getevent", "-lp"))
+            turned = parse_rotation(self._shell("dumpsys", "display"))
+            self.rotation = self.rotation if turned is None else turned
+        except Exception:                                 # noqa: BLE001 - the last known way round
+            pass
+        rng = (self.ranges or {}).get(g["input"])
+        if not rng:
+            return None
+        return (*to_fraction(g["x0"], g["y0"], rng, self.rotation), *to_fraction(g["x1"], g["y1"], rng, self.rotation))
 
     def start(self):
         self.thread.start()

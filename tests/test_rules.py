@@ -74,6 +74,26 @@ def test_references_made_within_one_millisecond_are_all_kept(tmp_path, monkeypat
     assert len({a, b, c}) == 3 and len(generic.tpl_index(str(tmp_path), "s")) == 3
 
 
+def test_a_comma_touching_the_digit_before_it_is_its_own_character():
+    colors = [{"h": [0, 255], "s": [0, 40], "v": [150, 255]}]
+
+    def seven_comma(d):
+        d.rectangle((10, 10, 22, 12), fill=(230, 230, 230))
+        d.line((20, 12, 13, 30), fill=(230, 230, 230), width=2)
+        d.rectangle((23, 28, 25, 35), fill=(230, 230, 230))      # no empty column between them
+    got = generic.glyphs(picture(seven_comma), (0, 0, 60, 45), colors)
+    assert len(got) == 2 and got[1][0][1] - got[1][0][0] <= 4
+
+
+def test_a_digit_with_a_gap_in_it_stays_one_character():
+    colors = [{"h": [0, 255], "s": [0, 40], "v": [150, 255]}]
+
+    def broken(d):
+        d.rectangle((10, 10, 14, 19), fill=(230, 230, 230))      # the two halves are as tall as each other
+        d.rectangle((15, 22, 19, 31), fill=(230, 230, 230))
+    assert len(generic.glyphs(picture(broken), (0, 0, 60, 45), colors)) == 1
+
+
 def test_template_falls_back_when_nothing_looks_alike(tmp_path):
     box = (40, 30, 120, 60)
     btn = picture(lambda d: (d.rounded_rectangle((40, 30, 159, 89), 12, fill=(40, 160, 80)), d.text((60, 50), "OK", fill=(255, 255, 255))))

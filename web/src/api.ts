@@ -827,13 +827,13 @@ export interface WbSpot {
 export interface WbRuleDraft { script: string; situation: string; first?: boolean; rule: ScriptRule }
 export interface WbDraft {
   buttons: { button: LibButton; frame?: string }[]; states: StateDef[]
-  refs: { state: string; value: AnswerValue; frame: string; box: number[] }[]; answers: { state: string; value: AnswerValue | number; frame: string }[]
+  refs: { state: string; value: AnswerValue; frame: string; box: number[]; glyph?: boolean }[]; answers: { state: string; value: AnswerValue | number; frame: string }[]
   subs: SubScript[]; rules: WbRuleDraft[]
 }
 export interface WbDraftView { doc: WbDraft; problems: string[]; impact: { what: string; users: string[] }[]; live?: Record<string, string[]> }
 export interface WbStep {
   id: string; t: number; op: 'tap' | 'long_press' | 'swipe' | 'back' | 'text'; by: 'page' | 'hand'; x?: number; y?: number; x2?: number; y2?: number; ms?: number; text?: string
-  frame?: string; states?: Record<string, unknown>; buttons?: WbSpot['buttons']; changes: { state: string; name: string; value: AnswerValue; value_name: string }[]; gap: number | null
+  frame?: string; states?: Record<string, unknown>; buttons?: WbSpot['buttons']; changes: { state: string; name: string; value: AnswerValue; value_name: string; own?: boolean }[]; gap: number | null
 }
 export interface WbTeach {
   active: boolean; device: string; started?: number; steps: WbStep[]; known: { sub: string; name: string; from: number; to: number }[]
@@ -842,6 +842,7 @@ export interface WbTeach {
 export const wbDraftImageUrl = (name: string) => `/api/wb/draft/image/${encodeURIComponent(name)}`
 export const wbLiveUrl = (device: string, v: number) => `/api/wb/live/${encodeURIComponent(device)}?v=${v}`
 export const wbFrameUrl = (device: string, id: string) => `/api/wb/frames/${encodeURIComponent(device)}/${id}/image`
+export interface WbGlyphs { count: number; text: string; value: number | null; taught: string[] }
 export const wbApi = {
   sees: (device: string) => req<WbSees>('GET', `/api/wb/sees/${encodeURIComponent(device)}`),
   freeze: (device: string) => req<{ id: string; t: number }>('POST', '/api/wb/freeze', { device }),
@@ -853,6 +854,8 @@ export const wbApi = {
   keep: (device: string, frame: string) => req<{ frame: string }>('POST', '/api/wb/draft/keep', { device, frame }),
   newState: (b: { device: string; frame: string; box: number[]; name: string; kind: string }) => req<{ state: StateDef; doc: WbDraft }>('POST', '/api/wb/draft/state', b),
   draftLive: (device: string) => req<{ states: Record<string, WbStateRead> }>('GET', `/api/wb/draft/live/${encodeURIComponent(device)}`),
+  glyphs: (device: string, frame: string, state: string) => req<WbGlyphs>('POST', '/api/wb/draft/glyphs', { device, frame, state }),
+  glyphTeach: (device: string, frame: string, state: string, text: string) => req<WbGlyphs>('POST', '/api/wb/draft/glyphs/teach', { device, frame, state, text }),
   draftTry: () => req<{ items: { state: string; name: string; counts: Record<string, number>; unsure: number }[]; frames: number }>('POST', '/api/wb/draft/try'),
   why: (device: string, frame?: string | null) => req<{ items: WbWhy[]; running: boolean }>('POST', '/api/wb/draft/why', { device, frame: frame ?? undefined }),
   apply: (note: string, enable_rules: boolean) => req<{ id: string; counts: Record<string, number> }>('POST', '/api/wb/draft/apply', { note, enable_rules }),

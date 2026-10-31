@@ -208,6 +208,20 @@ def tpl_add(data_root, state_id, value, img, box, frame):
     return name
 
 
+def _mark_apart(m):
+    """Where a comma or point that shares no empty column with the character beside it starts: the first column whose
+    rows do not meet the column before and that leaves a much shorter part on one side; None if there is none."""
+    rows = np.nonzero(m.any(axis=1))[0]
+    tall = rows[-1] - rows[0] + 1 if len(rows) else 0
+    for k in range(1, m.shape[1]):
+        if not (m[:, k - 1] & m[:, k]).any() and not (m[:-1, k - 1] & m[1:, k]).any() and not (m[1:, k - 1] & m[:-1, k]).any():
+            short = min(m[:, :k].any(axis=0).sum(), m[:, k:].any(axis=0).sum())
+            part = np.nonzero(m[:, k:].any(axis=1) if m[:, k:].sum() < m[:, :k].sum() else m[:, :k].any(axis=1))[0]
+            if len(part) and part[-1] - part[0] + 1 < 0.4 * tall and short <= 0.4 * tall:
+                return k
+    return None
+
+
 def glyphs(img, box, colors, min_h=3):
     """The characters in a region: [(x0, x1, y0, y1) in frame coordinates, bool mask)] from left to right.
     Text pixels = colours in range; a character = a run of columns that have text, cut where a column has none."""
@@ -223,6 +237,8 @@ def glyphs(img, box, colors, min_h=3):
         j = i
         while j < w and cols[j]:
             j += 1
+        k = _mark_apart(m[:, i:j])
+        j = i + k if k else j
         rows = np.nonzero(m[:, i:j].any(axis=1))[0]
         if len(rows) and (rows[-1] - rows[0] + 1 >= min_h or j - i >= 3 * min_h):     # a thin minus counts too
             y0, y1 = rows[0], rows[-1] + 1

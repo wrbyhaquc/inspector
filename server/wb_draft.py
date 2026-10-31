@@ -3,7 +3,7 @@
 Nothing here changes the design until it is applied: <runtime>/wb/_draft/draft.json with the pictures it was made on
 
   {"buttons": [{"button": {...}, "frame": picture}], "states": [a whole state, new or changed],
-   "refs": [{"state", "value", "frame", "box"}],    a new reference picture for a state's rule
+   "refs": [{"state", "value", "frame", "box"}],    a new reference picture for a state's rule ("glyph": true = a taught character)
    "answers": [{"state", "value", "frame"}],        "this picture is really ...": a test question
    "subs": [a whole sub-script, new or changed], "rules": [{"script", "situation", "rule", "first"}]}
 
@@ -69,6 +69,24 @@ def dominant_color(crop):
         mid = int(hist.argmax())
         c = {"h": [(mid - 14) % 256, (mid + 14) % 256], "s": [60, 255], "v": [60, 255]}
     return c, float(generic.color_mask(hsv, [c]).mean())
+
+
+def text_color(crop):
+    """The colour of what is written in a picture, as a rule's HSV range: what differs from the background, the colour
+    there is most of (a box can reach past what the text is on, so not its edge). None when nothing stands out."""
+    rgb = crop.astype(np.int16)
+    away = np.abs(rgb - np.median(rgb.reshape(-1, 3), axis=0)).sum(axis=2)
+    written = away >= 90
+    if written.mean() < 0.02:
+        return None
+    hsv = np.asarray(Image.fromarray(crop).convert("HSV"), dtype=np.int16)
+    core = hsv[away >= np.percentile(away[written], 75)]  # (the edges of small letters are half background)
+    brighter = np.median(core[:, 2]) >= np.median(hsv[..., 2])
+    v = [max(0, int(np.percentile(hsv[written][:, 2], 10)) - 25), 255] if brighter else [0, min(255, int(np.percentile(hsv[written][:, 2], 90)) + 25)]
+    if np.median(core[:, 1]) < 110:                      # white, grey or black: any hue
+        return {"h": [0, 255], "s": [0, min(255, int(np.percentile(core[:, 1], 90)) + 25)], "v": v}
+    mid = int(np.median(core[:, 0]))
+    return {"h": [(mid - 14) % 256, (mid + 14) % 256], "s": [max(0, int(np.percentile(core[:, 1], 10)) - 25), 255], "v": v}
 
 
 def spot(img, box, states, buttons):
@@ -146,13 +164,21 @@ def merged_states(doc=None):
     return out + list(mine.values())
 
 
+def _glyph_box(box):
+    """[x, y, w, h] -> the (x0, x1, y0, y1) the digits rule counts in"""
+    return box[0], box[0] + box[2], box[1], box[1] + box[3]
+
+
 def _templates(state, doc):
     """A rule's reference pictures: the design's and the draft's new ones."""
     tpls = generic.load_templates(DATA_ROOT, state)
     params = state["source"].get("params") or {}
     box = next((r["box"] for r in state.get("rois") or [] if r["id"] == params.get("roi")), None)
     for r in doc["refs"]:
-        if r["state"] == state["id"] and state["source"].get("rule") == "template" and box:
+        if r["state"] == state["id"] and r.get("glyph"):
+            rgb = generic._glyph_rgb(draft_image(r["frame"]), _glyph_box(r["box"]))
+            tpls.append((r["value"], generic._glyph_feat(rgb), rgb.shape[1] / max(1, rgb.shape[0])))
+        elif r["state"] == state["id"] and state["source"].get("rule") == "template" and box:
             x, y, w, h = r["box"]
             im = Image.fromarray(draft_image(r["frame"])[y:y + h, x:x + w]).resize((box[2], box[3]), Image.BILINEAR)
             tpls.append((r["value"], generic.feature(np.asarray(im), params.get("feature", "gray"))))
@@ -225,10 +251,11 @@ def make_state(req, img, taken):
         state["type"] = "ratio"
         state["source"].update(rule="bar", params={"roi": "main", "dir": "right", "fill": "auto", "slant": 0})
     elif req.kind == "digits":
-        if not color:
+        written = text_color(img[y:y + h, x:x + w])
+        if not written:
             raise HTTPException(400, _("這塊看不出數字的顏色,換一塊框"))
         state["type"] = "number"
-        state["source"].update(rule="digits", params={"roi": "main", "colors": [color], "part": "all", "match_min": 0.6})
+        state["source"].update(rule="digits", params={"roi": "main", "colors": [written], "part": "all", "match_min": 0.6})
     else:
         raise HTTPException(400, _("不支援的狀態種類"))
     return state
@@ -406,6 +433,71 @@ def draft_try():
     return {"items": out, "frames": len(frames)}
 
 
+class Glyphs(KeepFrame):
+    state: str
+
+
+class GlyphText(Glyphs):
+    text: str                   # what is written there, as a person reads it
+
+
+def glyph_view(state, img, doc):
+    """How a digits state reads a picture: the characters it cuts, and which it has been taught."""
+    refs = _templates(state, doc)
+    p = state["source"].get("params") or {}
+    gs = generic.glyphs(img, generic._box(state, p.get("roi")), p.get("colors"))
+    value, info = generic.eval_digits(state, img, refs)
+    return {"count": len(gs), "text": info["text"], "value": value, "taught": sorted({r[0] for r in refs})}
+
+
+def teach_glyphs(doc, state, img, text, kept):
+    """What is written on this picture -> a reference for each character not read right yet."""
+    p = state["source"].get("params") or {}
+    gs = generic.glyphs(img, generic._box(state, p.get("roi")), p.get("colors"))
+    text = "".join(text.split())
+    if len(text) != len(gs):
+        raise HTTPException(400, _("找不到這個字元,請重新整理"))
+    if any(c not in generic.CHARS for c in text):
+        raise HTTPException(400, _("只能教這些字元:{CHARS}", CHARS=generic.CHARS))
+    if "/" in text and p.get("part", "all") == "all":   # 1250/2000 is no number: the first of the two, until a person says
+        state = {**state, "source": {**state["source"], "params": {**p, "part": "left"}}}
+        doc["states"] = [x for x in doc["states"] if x["id"] != state["id"]] + [state]
+    read = generic.read_chars(img, gs, _templates(state, doc))
+    for (b, _x), (got, score), c in zip(gs, read, text):
+        if got == c and score >= 0.9:
+            continue
+        box = [int(b[0]), int(b[2]), int(b[1] - b[0]), int(b[3] - b[2])]
+        doc["refs"] = [r for r in doc["refs"] if not (r.get("glyph") and r["state"] == state["id"] and r["frame"] == kept and r["box"] == box)]
+        doc["refs"].append({"state": state["id"], "value": c, "frame": kept, "box": box, "glyph": True})
+    return doc
+
+
+def _digits_state(doc, sid):
+    s = next((x for x in merged_states(doc) if x["id"] == sid), None)
+    if not s or s.get("source", {}).get("rule") != "digits":
+        raise HTTPException(400, _("這個狀態不是「讀數字」規則"))
+    return s
+
+
+@router.post("/api/wb/draft/glyphs")
+def draft_glyphs(req: Glyphs):
+    doc = draft_load()
+    return glyph_view(_digits_state(doc, req.state), load_frame(os.path.basename(req.device), req.frame), doc)
+
+
+@router.post("/api/wb/draft/glyphs/teach")
+def draft_glyphs_teach(req: GlyphText):
+    """A digits state learns its characters on the picture being looked at: into the draft like everything else."""
+    device = os.path.basename(req.device)
+    img = load_frame(device, req.frame)
+    with _lock:
+        doc = draft_load()
+        state = _digits_state(doc, req.state)
+        doc = teach_glyphs(doc, state, img, req.text, keep_frame(device, req.frame))
+        draft_save(doc)
+    return glyph_view(_digits_state(doc, req.state), img, doc)
+
+
 class DraftWhy(BaseModel):
     device: str
     frame: str | None = None    # a kept picture; none = the screen now
@@ -550,7 +642,10 @@ def apply_draft(doc, note, enable_rules=False):
             schema_mod.save(DATA_ROOT, {"states": merged_states(doc)}, label)
             did.append({"kind": "states", "version": version})
         for r in doc["refs"]:
-            name = generic.tpl_add(DATA_ROOT, r["state"], r["value"], draft_image(r["frame"]), r["box"], keep_as_sample(r["frame"]))
+            if r.get("glyph"):
+                name = generic.glyph_add(DATA_ROOT, r["state"], r["value"], draft_image(r["frame"]), _glyph_box(r["box"]), keep_as_sample(r["frame"]))
+            else:
+                name = generic.tpl_add(DATA_ROOT, r["state"], r["value"], draft_image(r["frame"]), r["box"], keep_as_sample(r["frame"]))
             did.append({"kind": "ref", "state": r["state"], "name": name})
         for a in doc["answers"]:
             rel = keep_as_sample(a["frame"])

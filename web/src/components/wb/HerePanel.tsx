@@ -10,7 +10,7 @@ const KINDS: [string, string, string][] = [
   ['template', t('圖片比對'), t('這個東西出現了沒(圖示、文字、畫面的一部分)')],
   ['color', t('顏色'), t('這塊的顏色有沒有變(亮燈、紅字)')],
   ['bar', t('長條比例'), t('血條、進度條,看填滿了多少')],
-  ['digits', t('讀數字'), t('畫面上的數字;套用後到「要看的狀態」教它認字')],
+  ['digits', t('讀數字'), t('畫面上的數字;新增後告訴它這張寫的是多少,就會認字')],
 ]
 
 export const newButtonId = (name: string, taken: Set<string>) => {
@@ -30,9 +30,9 @@ export const boxAround = (x: number, y: number, w = 64, h = 48): number[] => {
 }
 
 /** What is at the marked spot already (use it, or move it here) and what can be made from it. */
-export function HerePanel({ device, frame, sel, doc, info, states, onSave, onToDraft }: {
+export function HerePanel({ device, frame, sel, doc, info, states, onSave, onToDraft, onDigits }: {
   device: string; frame: string | null; sel: number[] | null; doc?: WbDraft; info?: ScriptsInfo; states: StateDef[]
-  onSave: (d: WbDraft) => Promise<void>; onToDraft: () => void
+  onSave: (d: WbDraft) => Promise<void>; onToDraft: () => void; onDigits: (id: string) => void
 }) {
   const qc = useQueryClient()
   const key = sel && frame ? sel.join(',') : ''
@@ -61,7 +61,11 @@ export function HerePanel({ device, frame, sel, doc, info, states, onSave, onToD
   })
   const addState = useMutation({
     mutationFn: (kind: string) => wbApi.newState({ device, frame: frame!, box: sel!, name: stateName, kind }),
-    onSuccess: () => { setStateName(''); setMsg(t('已放進草稿,畫面上虛線的就是它')); qc.invalidateQueries({ queryKey: ['wbDraft'] }) },
+    onSuccess: async r => {
+      setStateName(''); setMsg(t('已放進草稿,畫面上虛線的就是它'))
+      await qc.invalidateQueries({ queryKey: ['wbDraft'] })
+      if (r.state.source.rule === 'digits') onDigits(r.state.id)
+    },
   })
   const moveButton = useMutation({
     mutationFn: async (id: string) => {

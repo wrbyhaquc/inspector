@@ -304,7 +304,7 @@ export default function Workbench() {
             <Card title={t('規則為什麼會動或不動')}><RulesNow items={why.data?.items ?? []} /><ErrorText error={why.error} /></Card>
           </>}
           {tab === 'here' && <HerePanel device={cur} frame={frozen} sel={sel} doc={doc} info={info.data} states={states} onSave={saveDraft}
-            onToDraft={() => setTab('draft')} />}
+            onToDraft={() => setTab('draft')} onDigits={id => { setFix(id); setTab('now') }} />}
           {tab === 'draft' && <DraftPanel view={draftView.data} info={info.data} onSave={saveDraft} />}
           {tab === 'teach' && <TeachPanel device={cur} teach={teach.data} doc={doc} info={info.data} onSave={saveDraft} onToDraft={() => setTab('draft')} pressing={press.isPending} onPress={p => press.mutate(p)} />}
         </div>

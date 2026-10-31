@@ -20,7 +20,7 @@ interface Choice {
 const OP_TEXT: Record<string, string> = { tap: t('點擊'), long_press: t('長按'), swipe: t('滑動'), back: t('返回鍵'), text: t('輸入文字') }
 
 function defaultChoice(s: WbStep): Choice {
-  const c = s.changes[0]
+  const c = s.changes.find(x => !x.own)          // something that changes by itself would not wait for this step
   return {
     target: s.buttons?.[0]?.id ?? 'xy', newName: '',
     after: c ? `state:${c.state}:${JSON.stringify(c.value)}` : s.gap != null && s.gap >= 1 ? 'wait' : 'none',
@@ -96,7 +96,7 @@ function StepCard({ s, n, c, onChange, onForget, known, busy }: {
       <div className="flex items-center gap-1.5 flex-wrap">
         <span className="text-stone-500">{t('做完:')}</span>
         <select className={`${input} max-w-full`} value={c.after} onChange={e => onChange({ ...c, after: e.target.value })}>
-          {s.changes.map(x => <option key={x.state} value={`state:${x.state}:${JSON.stringify(x.value)}`}>{t('等到「{name}」變成「{value}」', { name: x.name, value: x.value_name })}</option>)}
+          {s.changes.map(x => <option key={x.state} value={`state:${x.state}:${JSON.stringify(x.value)}`}>{t('等到「{name}」變成「{value}」', { name: x.name, value: x.value_name })}{x.own ? t('(沒人碰也會自己變)') : ''}</option>)}
           <option value="wait">{t('等幾秒')}</option>
           <option value="none">{t('不用等')}</option>
         </select>

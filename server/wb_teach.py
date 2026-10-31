@@ -26,29 +26,18 @@ from .workbench import _grab, _runner_sees, find_buttons, freeze
 router = APIRouter()
 RING = 6                        # recent pictures kept while teaching (a person's touch is known only once it ended)
 RING_S = 0.7
+SETTLE = 2.0                    # seconds after a step in which the screen is still answering it
 INPUTS = {"tap", "long_press", "swipe", "back", "text"}
 _sessions, _guard = {}, threading.Lock()
 _out = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="wb-teach")
-
-
-def _to_project(device, x, y):
-    """A touch is reported in the device's own pixels."""
-    W, H = project.screen(DATA_ROOT)
-    try:
-        d = next((i for i in drivers.current(DATA_ROOT).list() if i.name == device), None)
-        size = d.size if d else None
-    except Exception:                                     # noqa: BLE001 - as they are
-        size = None
-    if size and all(size) and sorted(size) != sorted((W, H)):      # (a turned screen says its size the other way round)
-        w, h = sorted(size, reverse=W >= H)
-        return round(x * W / w), round(y * H / h)
-    return int(x), int(y)
 
 
 class Session:
     def __init__(self, device):
         self.device, self.started, self.steps = device, time.time(), []
         self.ring = collections.deque(maxlen=RING)
+        self.samples = collections.deque(maxlen=600)      # (time, states) of every picture: what moves with nobody touching
+        self.touched = collections.deque(maxlen=600)      # also a touch that became no step (too short, two fingers)
         self.stop_flag = threading.Event()
         self.lock = threading.Lock()
         self.watcher = None
@@ -65,7 +54,12 @@ class Session:
     def _watch_screen(self):
         while not self.stop_flag.is_set():
             try:
-                self.ring.append((time.time(), _grab(self.device)))
+                t, img = time.time(), _grab(self.device)
+                self.ring.append((t, img))
+                self.samples.append((t, self._read(img)))
+                ev = getattr(self.watcher, "last_event", 0)
+                if ev and (not self.touched or self.touched[-1] != ev):
+                    self.touched.append(ev)
             except Exception:                             # noqa: BLE001 - the window can come back
                 pass
             self.stop_flag.wait(RING_S)
@@ -79,10 +73,13 @@ class Session:
         """A person's touch on the device itself."""
         if g.get("fingers", 1) != 1:
             return
-        x, y = _to_project(self.device, g["x0"], g["y0"])
+        W, H = project.screen(DATA_ROOT)
+        got = self.watcher.to_screen(g)
+        x, y, x2, y2 = (g["x0"], g["y0"], g["x1"], g["y1"]) if got is None else \
+            (round(got[0] * (W - 1)), round(got[1] * (H - 1)), round(got[2] * (W - 1)), round(got[3] * (H - 1)))
         step = {"op": g["kind"], "x": x, "y": y, "by": "hand"}
         if g["kind"] == "swipe":
-            step["x2"], step["y2"] = _to_project(self.device, g["x1"], g["y1"])
+            step["x2"], step["y2"] = x2, y2
         if g["kind"] in ("swipe", "long_press"):
             step["ms"] = max(100, round(g["duration"] * 1000))
         self.note(step, g["t_down"])
@@ -95,7 +92,7 @@ class Session:
             sees = _runner_sees(self.device)
             kept = freeze(self.device, img)
             step["frame"] = kept["id"]
-            step["states"] = {k: v.get("value") for k, v in read_with_draft(img, sees).items() if v.get("source") != "none"}
+            step["states"] = self._read(img, sees)
             if step.get("x") is not None:
                 at = spot(img, [step["x"], step["y"], 0, 0], [], find_buttons(img, self.device))
                 step["buttons"] = at["buttons"][:3]
@@ -103,11 +100,12 @@ class Session:
             self.steps.append(step)
         return step
 
+    def _read(self, img, sees=None):
+        sees = _runner_sees(self.device) if sees is None else sees
+        return {k: v.get("value") for k, v in read_with_draft(img, sees).items() if v.get("source") != "none"}
+
     def now_states(self):
-        got = self.ring[-1][1] if self.ring else None
-        if got is None:
-            return {}
-        return {k: v.get("value") for k, v in read_with_draft(got, _runner_sees(self.device)).items() if v.get("source") != "none"}
+        return self.samples[-1][1] if self.samples else {}
 
     def close(self):
         self.stop_flag.set()
@@ -118,19 +116,49 @@ class Session:
                 pass
 
 
-def changes(before, after):
-    """Which states changed between two moments: what a step can wait for. Numbers that run on their own (a ratio, a
-    number) would change anyway, so only what has named values."""
+def on_its_own(samples, times):
+    """States that go back and forth with nobody touching anything: they say nothing about what a step did. One change is
+    not enough for that - a slow screen can come to what a step asked for long after it."""
+    flips, last, out = collections.Counter(), None, set()
+    for t, states in samples:
+        if any(m <= t < m + SETTLE for m in times):
+            flips.clear()
+            last = None
+            continue
+        for k, v in states.items() if last else ():
+            if v is not None and last.get(k) not in (v, None):
+                flips[k] += 1
+                if flips[k] >= 2:
+                    out.add(k)
+        last = states
+    return out
+
+
+def _away(state, at):
+    """How far a touch is from where this state looks (0 = on it)."""
+    if not at:
+        return 0
+    far = [max(r["box"][0] - at[0], at[0] - r["box"][0] - r["box"][2], r["box"][1] - at[1], at[1] - r["box"][1] - r["box"][3], 0)
+           for r in state.get("rois") or [] if r.get("box")]
+    return min(far, default=0)
+
+
+def changes(before, after, at=None, own=()):
+    """Which states changed between two moments: what a step can wait for, the likeliest first. Numbers that run on their
+    own (a ratio, a number) would change anyway, so only what has named values."""
     import schema as schema_mod
     from .wb_draft import merged_states
     defs = {s["id"]: s for s in merged_states() or schema_mod.load(DATA_ROOT)["states"]}
     out = []
     for k, v in (after or {}).items():
         s = defs.get(k)
-        if s and s.get("type") == "class" and v is not None and (before or {}).get(k) not in (v, None):
+        was = (before or {}).get(k)
+        if s and s.get("type") == "class" and v is not None and was not in (v, None):
             name = next((c["name"] for c in s.get("classes") or [] if c["value"] == v), str(v))
-            out.append({"state": k, "name": s.get("name"), "value": v, "value_name": name})
-    return sorted(out, key=lambda c: c["value"] == "hidden")      # "can be seen no more" says less than something that came
+            # "can be seen no more" says least, "can be seen again" often only follows what really happened
+            sure = 2 if v == "hidden" else 1 if was == "hidden" else 0
+            out.append(((k in own, sure, _away(s, at)), {"state": k, "name": s.get("name"), "value": v, "value_name": name, "own": k in own}))
+    return [c for _key, c in sorted(out, key=lambda x: x[0])]
 
 
 def known_subs(steps):
@@ -152,9 +180,10 @@ def known_subs(steps):
 def view(sess):
     with sess.lock:
         steps = [dict(s) for s in sess.steps]
+    own = on_its_own(list(sess.samples), [s["t"] for s in steps] + list(sess.touched))
     for i, s in enumerate(steps):
         after = steps[i + 1]["states"] if i + 1 < len(steps) and "states" in steps[i + 1] else (sess.now_states() if i == len(steps) - 1 else {})
-        s["changes"] = changes(s.get("states"), after)
+        s["changes"] = changes(s.get("states"), after, (s["x"], s["y"]) if s.get("x") is not None else None, own)
         s["gap"] = round(steps[i + 1]["t"] - s["t"], 1) if i + 1 < len(steps) else None
     caps = drivers.current(DATA_ROOT).caps_of(sess.device)
     return {"active": True, "device": sess.device, "started": sess.started, "steps": steps, "known": known_subs(steps),

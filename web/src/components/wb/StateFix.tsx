@@ -1,9 +1,42 @@
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { t } from '../../i18n'
 import { wbApi, type AnswerValue, type StateDef, type WbDraft, type WbStateRead } from '../../api'
 import { Button, ErrorText } from '../ui'
 
 const input = 'border border-stone-300 rounded-md px-2 py-1 text-sm bg-white'
+
+/** A digits state learns its characters here: what is written on this picture, as a person reads it. */
+function DigitsTeach({ state, device, frame, doc, part, onPart }: { state: StateDef; device: string; frame: string; doc?: WbDraft; part: string; onPart: (p: string) => void }) {
+  const qc = useQueryClient()
+  const [typed, setTyped] = useState('')
+  const key = ['wbGlyphs', device, frame, state.id, JSON.stringify(state.source.params), doc?.refs.length]
+  const view = useQuery({ queryKey: key, queryFn: () => wbApi.glyphs(device, frame, state.id) })
+  const teach = useMutation({
+    mutationFn: () => wbApi.glyphTeach(device, frame, state.id, typed),
+    onSuccess: async () => { setTyped(''); await qc.invalidateQueries({ queryKey: ['wbDraft'] }) },
+  })
+  const d = view.data
+  const size = [...typed.replace(/\s/g, '')].length
+  const missing = d ? [...'0123456789'].filter(c => !d.taught.includes(c)) : []
+  return (
+    <div className="flex flex-col gap-1.5 text-xs">
+      {d && !d.count && <p className="text-rose-700">{t('這塊找不到字元:框緊一點,只框住數字。')}</p>}
+      {d && !!d.count && <span>{t('切出 {n} 個字元,現在讀成:', { n: d.count })}<b className="num">{d.text}</b>{d.value != null && <> → <b className="num">{d.value}</b></>}</span>}
+      {d?.text.includes('/') && <label className="flex items-center gap-1.5">{t('數值用')}
+        <select className={input} value={part} onChange={e => onPart(e.target.value)}>
+          <option value="left">{t('「/」左邊')}</option><option value="right">{t('「/」右邊')}</option></select></label>}
+      <div className="flex items-center gap-1.5">
+        <input className={`${input} flex-1 min-w-0 num`} placeholder={t('這張上面寫的是…')} value={typed} onChange={e => setTyped(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && size === d?.count) teach.mutate() }} />
+        <Button disabled={teach.isPending || !d || size !== d.count} onClick={() => teach.mutate()}>{t('教它')}</Button>
+      </div>
+      {!!size && d && size !== d.count && <p className="text-amber-800">{t('切出 {n} 個字元,你打了 {m} 個。', { n: d.count, m: size })}{t('切得不對的話:框緊一點,或到「要看的狀態」點選數字的顏色。')}</p>}
+      {d && !!missing.length && <p className="text-stone-500">{t('還沒教過:{chars}。畫面上出現時再凍結一張教它。', { chars: missing.join(' ') })}</p>}
+      <ErrorText error={view.error || teach.error} />
+    </div>
+  )
+}
 
 /** This picture was judged wrong: say what it really is (a test question), and tune a screen rule on the spot. */
 export function StateFix({ state, read, device, frame, sel, doc, onSave, onFreeze, onClose }: {
@@ -34,7 +67,7 @@ export function StateFix({ state, read, device, frame, sel, doc, onSave, onFreez
   return (
     <div className="mt-2 rounded-md border border-stone-300 bg-stone-50 p-2 flex flex-col gap-2 text-sm">
       <div className="flex items-center gap-2"><b className="flex-1">{state.name}</b><button className="text-xs text-stone-500 underline" onClick={onClose}>{t('收起')}</button></div>
-      {!frame ? <div className="flex items-center gap-2 text-xs text-stone-600">{t('要修正,先凍結這一張。')}<Button onClick={onFreeze}>{t('⏸ 凍結這一張')}</Button></div> : <>
+      {!frame ? <div className="flex items-center gap-2 text-xs text-stone-600">{t('要修正,先凍結這一張。')}<Button onClick={onFreeze}>{t('⏸ 凍結這一張')}</Button></div> : state.source.rule === 'digits' ? <DigitsTeach state={state} device={device} frame={frame} doc={doc} part={String(p.part ?? 'all')} onPart={part => setParams.mutate({ part })} /> : <>
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
           <span className="text-stone-600">{t('這張其實是:')}</span>
           {state.type === 'class'

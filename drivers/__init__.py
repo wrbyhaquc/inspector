@@ -13,7 +13,7 @@ script runner and the web pages talk to - every enabled source, by its id - thro
                                   native (w, h)) or None; .slow = the last grab was costly (take them less often)
   input(name, kind, **p)         do one action now (kind in CAPS: tap, long_press, swipe, back, launch, text); raises on
                                   failure
-  watch_touch(name, on_gesture)  -> an object with start(), close(), last_touch, last_event: a person's touches on the
+  watch_touch(name, on_gesture)  -> an object with start(), close(), last_touch, last_event, to_screen(gesture): a person's touches on the
                                   device (for 操作中 / pausing scripts while someone operates it), or None
 
 Built in: android (anything adb reaches; presets LDPlayer - its console names instances, its window is copied, it
