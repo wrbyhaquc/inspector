@@ -804,3 +804,63 @@ export const buttonImageUrl = (id: string, v?: number) => `/api/buttons/${id}/im
 export const buttonSnapUrl = (device: string, v: number) => `/api/buttons/snap/${encodeURIComponent(device)}?v=${v}`
 export const viewUrl = (path: string) => `/api/image?${qs({ path, view: 1 })}`
 export const ruleTemplateUrl = (stateId: string, file: string) => `/api/rules/templates/${stateId}/${encodeURIComponent(file)}`
+
+// ---------- the live workbench ----------
+export interface WbSees {
+  running: boolean; here?: boolean; updated?: number; hold_all?: Hold | null; state?: Record<string, ShadowState> | null
+  hold?: Hold | null; proc?: { script_name?: string; sub_name?: string; now?: string } | null; manual?: { watched?: boolean; paused?: boolean } | null
+}
+export interface WbStateRead { value: AnswerValue | number | null; source: 'rule' | 'runner' | 'none' | string; conf?: number; ratio?: number | null; scores?: Record<string, number>; text?: string; gated?: string; error?: string; draft?: boolean }
+export interface WbButton { id: string; label: string; x: number; y: number; find: boolean; box?: number[]; group?: string; found?: boolean; at?: [number, number] | null; score?: number | null }
+export interface WbFrame { id: string; device: string; t: number; runner: WbSees; states: Record<string, WbStateRead>; buttons: WbButton[] }
+export interface WbCondition { condition: string; now: 'holds' | 'does not hold' | 'unsure'; for_seconds?: number }
+export interface WbRule { rule: string; name?: string; enabled: boolean; draft?: boolean; any_of: { all_of: WbCondition[]; group: string }[]; cooldown?: number; urgent: boolean }
+export interface WbWhy {
+  script: string; name?: string; mode: string; situation?: string; held?: Hold | null
+  decision_now: { action?: string; text?: string; reason?: string; rule_name?: string }; rules_in_order: WbRule[]
+}
+export interface WbSpot {
+  buttons: { id: string; label: string; dist: number; find: boolean; x: number; y: number }[]
+  states: { state: string; name: string; roi: string; box: [number, number, number, number]; overlap: number }[]
+  color?: HsvRange | null; ratio?: number; looks?: 'bar' | 'picture'
+}
+export interface WbRuleDraft { script: string; situation: string; first?: boolean; rule: ScriptRule }
+export interface WbDraft {
+  buttons: { button: LibButton; frame?: string }[]; states: StateDef[]
+  refs: { state: string; value: AnswerValue; frame: string; box: number[] }[]; answers: { state: string; value: AnswerValue | number; frame: string }[]
+  subs: SubScript[]; rules: WbRuleDraft[]
+}
+export interface WbDraftView { doc: WbDraft; problems: string[]; impact: { what: string; users: string[] }[]; live?: Record<string, string[]> }
+export interface WbStep {
+  id: string; t: number; op: 'tap' | 'long_press' | 'swipe' | 'back' | 'text'; by: 'page' | 'hand'; x?: number; y?: number; x2?: number; y2?: number; ms?: number; text?: string
+  frame?: string; states?: Record<string, unknown>; buttons?: WbSpot['buttons']; changes: { state: string; name: string; value: AnswerValue; value_name: string }[]; gap: number | null
+}
+export interface WbTeach {
+  active: boolean; device: string; started?: number; steps: WbStep[]; known: { sub: string; name: string; from: number; to: number }[]
+  paused_here?: boolean; watching?: boolean; caps?: string[]; sees?: WbSees
+}
+export const wbDraftImageUrl = (name: string) => `/api/wb/draft/image/${encodeURIComponent(name)}`
+export const wbLiveUrl = (device: string, v: number) => `/api/wb/live/${encodeURIComponent(device)}?v=${v}`
+export const wbFrameUrl = (device: string, id: string) => `/api/wb/frames/${encodeURIComponent(device)}/${id}/image`
+export const wbApi = {
+  sees: (device: string) => req<WbSees>('GET', `/api/wb/sees/${encodeURIComponent(device)}`),
+  freeze: (device: string) => req<{ id: string; t: number }>('POST', '/api/wb/freeze', { device }),
+  frames: (device: string) => req<{ items: { id: string; t: number }[] }>('GET', `/api/wb/frames/${encodeURIComponent(device)}`),
+  frame: (device: string, id: string) => req<WbFrame>('GET', `/api/wb/frames/${encodeURIComponent(device)}/${id}`),
+  at: (device: string, frame: string, box: number[]) => req<WbSpot>('POST', '/api/wb/at', { device, frame, box }),
+  draft: () => req<WbDraftView>('GET', '/api/wb/draft'),
+  draftSave: (doc: WbDraft) => req<{ problems: string[]; impact: WbDraftView['impact'] }>('POST', '/api/wb/draft', { doc }),
+  keep: (device: string, frame: string) => req<{ frame: string }>('POST', '/api/wb/draft/keep', { device, frame }),
+  newState: (b: { device: string; frame: string; box: number[]; name: string; kind: string }) => req<{ state: StateDef; doc: WbDraft }>('POST', '/api/wb/draft/state', b),
+  draftLive: (device: string) => req<{ states: Record<string, WbStateRead> }>('GET', `/api/wb/draft/live/${encodeURIComponent(device)}`),
+  draftTry: () => req<{ items: { state: string; name: string; counts: Record<string, number>; unsure: number }[]; frames: number }>('POST', '/api/wb/draft/try'),
+  why: (device: string, frame?: string | null) => req<{ items: WbWhy[]; running: boolean }>('POST', '/api/wb/draft/why', { device, frame: frame ?? undefined }),
+  apply: (note: string, enable_rules: boolean) => req<{ id: string; counts: Record<string, number> }>('POST', '/api/wb/draft/apply', { note, enable_rules }),
+  applied: () => req<{ items: { id: string; t: number; note: string; counts: Record<string, number>; undone?: number }[] }>('GET', '/api/wb/applied'),
+  undo: (id: string) => req<{ failed: string[] }>('POST', `/api/wb/applied/${id}/undo`),
+  teach: (device: string) => req<WbTeach>('GET', `/api/wb/teach/${encodeURIComponent(device)}`),
+  teachStart: (device: string) => req<WbTeach>('POST', '/api/wb/teach/start', { device }),
+  teachStop: (device: string) => req<WbTeach>('POST', '/api/wb/teach/stop', { device }),
+  teachPress: (b: { device: string; op: string; x?: number; y?: number; x2?: number; y2?: number; ms?: number; text?: string }) => req<WbTeach>('POST', '/api/wb/teach/press', b),
+  teachForget: (device: string, id: string) => req<WbTeach>('POST', '/api/wb/teach/forget', { device, id }),
+}

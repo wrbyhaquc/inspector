@@ -3038,7 +3038,13 @@ def _mount_plugin_apis():
 _mount_plugin_apis()
 from .ai_api import router as _ai_router   # noqa: E402  (an AI over MCP: checks without saving, the log of its changes)
 from .mcp_http import router as _mcp_router   # noqa: E402  (AI clients over the network: /mcp with a token)
+from .wb_draft import router as _wb_draft_router   # noqa: E402  (the live workbench: its draft)
+from .wb_teach import router as _wb_teach_router   # noqa: E402  (the live workbench: teach it once)
+from .workbench import router as _wb_router   # noqa: E402  (the live workbench)
 app.include_router(_ai_router)
+app.include_router(_wb_router)
+app.include_router(_wb_draft_router)
+app.include_router(_wb_teach_router)
 app.include_router(_mcp_router)
 
 

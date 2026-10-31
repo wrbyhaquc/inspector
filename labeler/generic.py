@@ -481,6 +481,9 @@ def _feature(a, kind):
     return a @ np.array([0.299, 0.587, 0.114], np.float32)
 
 
+feature = _feature          # (the live workbench makes a reference picture before it is saved)
+
+
 def _ncc(a, b):
     a = a - a.mean(); b = b - b.mean()
     d = np.sqrt((a * a).sum() * (b * b).sum())

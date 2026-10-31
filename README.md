@@ -385,6 +385,18 @@ python -m runtime [--run <training run id>] [--interval 1]     # normally "Start
 - **Safety**: stop / pause / resume per device or for all (from the Run page, the operation panel or chat); a device pauses while someone operates it; start-up checks; tap limits, cooldowns, rules with no effect are paused and reported; every real input is logged with its frame.
 - **Keeps improving**: frames where the model is unsure, or disagrees with the screen rule, are saved to "Answer questions › Saved while running".
 
+## The live workbench (`/workbench`)
+
+Work on a device's screen as it is now, without learning every page first:
+
+- **See**: the existing states' regions and values, the buttons and where they are found, over the picture; beside it, why each rule holds or not. The picture works with the runner off too, and screen rules still run.
+- **Make things**: box a spot or click one (it freezes by itself) and it lists what is there already. Use that, move it here (written back to the same item, so everything using it follows), or add a new button or state.
+- **Correct**: judged wrong? Say what this picture really is (a test question and training data), add a reference picture, tune a threshold: the result shows at once, with the scripts the change affects.
+- **Build rules**: tick the states as they read now, choose what to do and which situation of which script it goes in.
+- **Teach once**: do the job once, pressing on the page's picture or on the device itself, and each step is written down as a sub-script: existing buttons are recognised and used, "wait until..." is suggested from what changed on the screen, and a run of steps an existing sub-script already does can call it instead. The device's scripts pause while you teach; a person presses Continue afterwards.
+
+Every change waits in a **draft**: judged together with what exists, doing nothing for real, and it can be tried on recordings first. **Apply all** goes through the same checks as the other pages and makes new versions; if one item is refused, all of it goes back, and an apply can be undone as a whole. New rules are saved off by default; turning them on at once lists the devices where that script runs live.
+
 ## Inspector for an AI (MCP, `mcp_server/`)
 
 The whole story - levels, connecting, ready-made ways of working, what it never does: [docs/ai.md](docs/ai.md).

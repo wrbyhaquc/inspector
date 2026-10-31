@@ -25,6 +25,7 @@ import PanelDesign from './pages/PanelDesign'
 import Login from './pages/Login'
 import Storage from './pages/Storage'
 import AiAccess from './pages/AiAccess'
+import Workbench from './pages/Workbench'
 import Packs from './pages/Packs'
 import { edition } from './lib/project'
 
@@ -34,6 +35,9 @@ interface NavGroup { title: string; hint: string; items: NavItem[]; advanced?: b
 // grouped by what the user wants to get done, not by technical step:
 // tell it what to watch -> teach it to see -> let it act
 const NAV: NavGroup[] = [
+  { title: t('邊看邊做'), hint: t('在裝置現在的畫面上直接看懂、修改、教它做事'), items: [
+    { to: '/workbench', label: t('即時工作台') },
+  ] },
   { title: t('① 要看什麼'), hint: t('決定要看畫面上的哪些狀態,接上影像並錄製'), items: [
     { to: '/states', label: t('要看的狀態') },
     { to: '/sources', label: t('來源') },
@@ -169,6 +173,7 @@ function AdminApp() {
           <Route path="/" element={<Overview />} />
           <Route path="/packs" element={<Packs />} />
           <Route path="/storage" element={<Storage />} />
+          <Route path="/workbench" element={<Workbench />} />
           <Route path="/ai" element={<AiAccess />} />
           <Route path="/sources" element={<Sources />} />
           <Route path="/collect" element={<Collection />} />

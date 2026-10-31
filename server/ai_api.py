@@ -204,6 +204,7 @@ def request_answer(rid: str, a: Answer, request: Request):
 class Explain(BaseModel):
     script: object = None        # an id (the saved one) or a whole draft
     device: str = ""
+    state: dict | None = None    # judge on these state values instead of what the runner sees now (a frozen picture)
 
 
 @router.post("/api/ai/explain")
@@ -226,6 +227,8 @@ def explain(req: Explain):
     sc = automation.normalize(copy.deepcopy(sc))
     st = _read_json(os.path.join(RUNTIME_DIR, "status.json"), {}) or {}
     devs = [d for d in st.get("devices") or [] if not req.device or d["name"] == req.device]
+    if req.state is not None and req.device:
+        devs = [{**(devs[0] if devs else {"name": req.device}), "state": req.state}]
     if not devs:
         raise HTTPException(400, _("腳本執行沒有在跑,或沒有這台;要有現在的畫面狀態才能說明"))
     names = engine.names_from_schema(schema_mod.load(DATA_ROOT))
