@@ -142,6 +142,12 @@ function PickSources({ open, onClose, onMsg }: { open: boolean; onClose: () => v
   const items = info.data?.items ?? []
   const on = (r: PanelSourceRow) => items.find(i => i.kind === r.kind && i.match === r.match)?.enabled ?? false
   const found = scan.data?.found ?? []
+  // what each one shows now: pick by looking; one with no picture to take cannot be used (folded away unless in use)
+  const peek = useQuery({ queryKey: ['panelSourcePeek', scan.data], queryFn: () => api.panelSourcesPeek(found.slice(0, 60)), enabled: open && found.length > 0,
+    refetchInterval: open ? 2500 : false, placeholderData: p => p })
+  const seen = (r: PanelSourceRow) => { const i = found.indexOf(r); return i >= 0 && i < 60 ? peek.data?.items[i] : undefined }
+  const [showNone, setShowNone] = useState(false)
+  const none = found.filter(r => !on(r) && !!peek.data && seen(r)?.state !== 'ok')
   const away = scan.data && !scan.isPending ? items.filter(i => i.enabled && !found.some(r => r.kind === i.kind && r.match === i.match)) : []
   return (
     <Modal open={open} wide title={t('選擇要操作的{device}', { device: words.device })} onClose={onClose}>
@@ -156,12 +162,18 @@ function PickSources({ open, onClose, onMsg }: { open: boolean; onClose: () => v
         {scan.error && <div className="text-rose-700 text-base">{(scan.error as Error).message}</div>}
         {Object.entries(scan.data?.errors ?? {}).map(([k, v]) => <div key={k} className="text-amber-800 text-base">{k}:{v}</div>)}
         {scan.data && found.length === 0 && <div className="text-stone-500">{t('沒有找到。確認{device}已經開好,再按「重新掃描」。', { device: words.device })}</div>}
-        {found.map(r => {
+        {found.filter(r => showNone || !none.includes(r)).map(r => {
           const u = on(r)
+          const s = seen(r)
           return (
             <label key={`${r.kind}|${r.match}`} className={`rounded-xl border-2 px-4 py-3 flex items-center gap-3 cursor-pointer ${u ? 'border-emerald-400 bg-emerald-50' : 'border-stone-200 bg-white'}`}>
               <input type="checkbox" className="w-6 h-6" checked={u} disabled={use.isPending}
                 onChange={e => use.mutate({ kind: r.kind, match: r.match, use: e.target.checked, name: r.name })} />
+              <div className="relative w-32 sm:w-48 shrink-0 aspect-video rounded-lg bg-stone-900 overflow-hidden">
+                {s?.image && <img src={s.image} alt="" className="absolute inset-0 w-full h-full object-contain" />}
+                {s?.state !== 'ok' && <span className="absolute inset-0 flex items-center justify-center text-xs text-stone-300 text-center px-1">
+                  {!s ? t('取得畫面中…') : s.state === 'blank' ? t('全黑或單色') : t('沒有畫面')}</span>}
+              </div>
               <div className="flex-1 min-w-0">
                 <b>{dn(items.find(i => i.kind === r.kind && i.match === r.match)?.id ?? r.name)}</b>
                 <span className="ml-2 text-base text-stone-500">{r.kind_label}{r.detail ? ` · ${r.detail}` : ''}</span>
@@ -171,6 +183,8 @@ function PickSources({ open, onClose, onMsg }: { open: boolean; onClose: () => v
             </label>
           )
         })}
+        {none.length > 0 && <button className="self-start text-base underline text-stone-500" onClick={() => setShowNone(v => !v)}>
+          {showNone ? t('收起沒有畫面的') : t('另外 {length} 個沒有畫面可抓(縮到最小、隱藏或全黑),用不了;要用的話先把它打開', { length: none.length })}</button>}
         {away.length > 0 && <div className="flex flex-col gap-2">
           <div className="text-base text-stone-600">{t('使用中、但這次沒找到(可能沒開):')}</div>
           {away.map(i => (

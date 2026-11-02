@@ -3903,9 +3903,19 @@ def panel_sources_scan():
     pol, kinds = _panel_sources_policy()
     r = sources_view.scan(DATA_ROOT, kinds, pol.get("q") or "")
     return {"found": [{"kind": x["kind"], "kind_label": x.get("kind_label"), "match": x["match"], "name": x["match"],
-                       "detail": x.get("detail") or "", "warn": x.get("size_warn") or "", "bound": x.get("bound")}
+                       "detail": x.get("detail") or "", "warn": x.get("size_warn") or "", "bound": x.get("bound"), "opts": x.get("opts")}
                       for x in r["found"] if x["kind"] in kinds and not x.get("same_as")],
             "errors": r.get("errors") or {}}
+
+
+@app.post("/api/panel/sources/peek")
+def panel_sources_peek(req: SourcePeek):
+    """What each found source shows now, for the ones this panel lets its users pick from."""
+    from . import sources_view
+    _pol, kinds = _panel_sources_policy()
+    if any(r.get("kind") not in kinds for r in req.rows):
+        _bad(_("這種來源不在這個面板開放的範圍內"), 403)
+    return sources_view.peek(DATA_ROOT, req.rows[:60])
 
 
 class PanelSourceUse(BaseModel):

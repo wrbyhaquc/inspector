@@ -210,7 +210,7 @@ export interface ChatBot {
 export interface PanelPage { id: string; title: string }
 /** which sources the panel's users may scan for and pick (spec v6) */
 export interface PanelSourcePolicy { kinds?: string[]; q?: string; help?: string; new_mode?: 'shadow' | 'live' }
-export interface PanelSourceRow { kind: string; kind_label?: string; match: string; name: string; detail: string; warn?: string; bound?: string | null }
+export interface PanelSourceRow { kind: string; kind_label?: string; match: string; name: string; detail: string; warn?: string; bound?: string | null; opts?: Record<string, string> | null }
 export interface PanelSources { can: boolean; help: string; kinds: { kind: string; label: string }[]
   items: { id: string; name: string; kind: string; kind_label: string; match: string; enabled: boolean }[] }
 export interface PanelBlock { id: string; title: string; help?: string; toggle?: string; items: string[]; widget?: PanelWidget; data?: WidgetData; error?: string
@@ -686,6 +686,7 @@ export const api = {
     req<{ busy: Record<string, { name?: string; loop?: string | null; now?: string }>; done: Record<string, string>; errors?: Record<string, string> }>('POST', '/api/panel/act', b),
   panelDeploy: (b: { block: string; script: string; device: string; mode: string }) => req<{ old: string; new: string }>('POST', '/api/panel/deploy', b),
   panelSources: () => req<PanelSources>('GET', '/api/panel/sources'),
+  panelSourcesPeek: (rows: PanelSourceRow[]) => req<{ items: SourcePeek[] }>('POST', '/api/panel/sources/peek', { rows: rows.map(r => ({ kind: r.kind, match: r.match, opts: r.opts ?? {} })) }),
   panelSourcesScan: () => req<{ found: PanelSourceRow[]; errors: Record<string, string> }>('POST', '/api/panel/sources/scan'),
   panelSourcesUse: (b: { kind: string; match: string; use: boolean; name?: string }) => req<{ ok: boolean; id?: string }>('POST', '/api/panel/sources/use', b),
   panelTodoAck: (keys: string[]) => req<{ ok: boolean }>('POST', '/api/panel/todo/ack', { keys }),
