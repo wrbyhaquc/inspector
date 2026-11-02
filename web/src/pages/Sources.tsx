@@ -2,7 +2,7 @@ import { t } from '../i18n'
 import { PageIntro } from '../components/PageIntro'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type ReactNode } from 'react'
-import { api, type SourceHand, type SourceItem, type SourceKindInfo, type SourceNative, type SourceParam, type SourceView } from '../api'
+import { api, type SourceHand, type SourceItem, type SourceKindInfo, type SourceNative, type SourceParam, type SourcePeek, type SourceView } from '../api'
 import { Button, Card, Drawer, Empty, ErrorText, Modal, MoreButton, Page, Pill } from '../components/ui'
 import { words } from '../lib/project'
 import { tagList } from '../lib/sources'
@@ -213,7 +213,13 @@ function Scan({ d, onChange }: { d: SourceView; onChange: () => void }) {
   const scan = useMutation({ mutationFn: (only?: string[]) => api.sourceScan(only ?? pick, text) })
   const [showUsed, setShowUsed] = useState(true)
   const [showMin, setShowMin] = useState(false)
+  const [live, setLive] = useState(true)
   const rows = scan.data?.found ?? []
+  // what each one shows now: choose by looking, and what has no picture to take cannot be used anyway
+  const peek = useQuery({ queryKey: ['sourcePeek', scan.data], queryFn: () => api.sourcePeek(rows.slice(0, 60)), enabled: rows.length > 0,
+    refetchInterval: live ? 2500 : false, placeholderData: p => p })
+  const seen = (r: SourceNative) => { const i = rows.indexOf(r); return i >= 0 && i < 60 ? peek.data?.items[i] : undefined }
+  const noPicture = (r: SourceNative) => (r.per_source && r.ok === false) || (!!peek.data && !!seen(r) && seen(r)!.state !== 'ok')
   const fresh = rows.filter(r => !r.bound)
   const used = rows.filter(r => r.bound)
   const byCat: Record<string, SourceNative[]> = {}
@@ -244,17 +250,18 @@ function Scan({ d, onChange }: { d: SourceView; onChange: () => void }) {
         {scan.data && <div className="flex flex-wrap items-center gap-3 text-xs text-stone-600">
           <span>{t('找到 {length} 個:還沒使用 {length2} 個', { length: rows.length, length2: fresh.length })}{used.length ? t('、已在使用 {length} 個', { length: used.length }) : ''}</span>
           {used.length > 0 && <label className="flex items-center gap-1"><input type="checkbox" checked={showUsed} onChange={e => setShowUsed(e.target.checked)} />{t('列出已在使用的')}</label>}
+          <label className="flex items-center gap-1"><input type="checkbox" checked={live} onChange={e => setLive(e.target.checked)} />{t('畫面即時更新')}</label>
         </div>}
         {scan.data && (Object.keys(byCat).length === 0 ? <Empty>{rows.length ? t('找到的都已經在使用了') : t('沒有找到符合的來源')}</Empty> :
           Object.entries(byCat).map(([cat, rs]) => {
-            const hidden = rs.filter(r => r.per_source && r.ok === false)
+            const hidden = rs.filter(noPicture)
             const shown = showMin ? rs : rs.filter(r => !hidden.includes(r))
             return (
               <div key={cat} className="flex flex-col gap-1.5">
                 <div className="text-xs font-semibold text-stone-600">{t('{name}({n})', { name: cat, n: rs.length })}</div>
-                {shown.map(r => <NativeRow key={`${r.kind}|${r.match}`} r={r} d={d} onRescan={rescanAs} onDone={() => { onChange(); scan.mutate(undefined) }} />)}
+                {shown.map(r => <NativeRow key={`${r.kind}|${r.match}`} r={r} d={d} seen={seen(r)} onRescan={rescanAs} onDone={() => { onChange(); scan.mutate(undefined) }} />)}
                 {hidden.length > 0 && <button className="self-start text-xs underline text-stone-500" onClick={() => setShowMin(v => !v)}>
-                  {showMin ? t('收起縮到最小的視窗') : t('另外 {length} 個縮到最小的視窗(要用的話先把它打開)', { length: hidden.length })}</button>}
+                  {showMin ? t('收起沒有畫面的') : t('另外 {length} 個沒有畫面可抓(縮到最小、隱藏或全黑),用不了;要用的話先把它打開', { length: hidden.length })}</button>}
               </div>
             )
           }))}
@@ -304,7 +311,7 @@ function ManualAdd({ d, onDone }: { d: SourceView; onDone: () => void }) {
   )
 }
 
-function NativeRow({ r, d, onDone, onRescan }: { r: SourceNative; d: SourceView; onDone: () => void; onRescan: (kind: string) => void }) {
+function NativeRow({ r, d, seen, onDone, onRescan }: { r: SourceNative; d: SourceView; seen?: SourcePeek; onDone: () => void; onRescan: (kind: string) => void }) {
   const [id, setId] = useState('')
   const [name, setName] = useState('')
   const [open, setOpen] = useState(false)
@@ -313,29 +320,46 @@ function NativeRow({ r, d, onDone, onRescan }: { r: SourceNative; d: SourceView;
   const ign = useMutation({ mutationFn: () => api.sourceIgnore(r.kind, r.match, !r.ignored), onSuccess: onDone })
   const bound = d.items.find(it => it.id === r.bound)
   return (
-    <div className={`rounded-md border px-2.5 py-2 flex flex-col gap-1.5 ${bound ? 'border-emerald-200 bg-emerald-50/40 text-stone-500' : 'border-stone-200 bg-white'}`}>
-      <div className="flex flex-wrap items-center gap-2">
-        <b>{r.match}</b>
-        <span className="text-xs text-stone-500">{r.category_label ? `${r.category_label} › ` : ''}{r.kind_label.split('(')[0]}{r.detail ? ` · ${r.detail}` : ''}{r.size ? ` · ${sizeText(r.size)}` : ''}</span>
-        <span className="flex-1" />
+    <div className={`rounded-md border px-2.5 py-2 flex flex-col sm:flex-row gap-2.5 ${bound ? 'border-emerald-200 bg-emerald-50/40 text-stone-500' : 'border-stone-200 bg-white'}`}>
+      <div className="relative w-full sm:w-44 shrink-0 aspect-video rounded bg-stone-900 overflow-hidden">
+        {seen?.image && <img src={seen.image} alt="" className="absolute inset-0 w-full h-full object-contain" />}
+        {seen?.state !== 'ok' && <span className="absolute inset-0 flex items-center justify-center text-[11px] text-stone-300 text-center px-1">
+          {!seen ? t('取得畫面中…') : seen.state === 'blank' ? t('全黑或單色') : t('沒有畫面')}</span>}
+      </div>
+      <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+      <div className="flex items-start gap-3">
+        <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+          <b className="truncate" title={r.match}>{r.match}</b>
+          <span className="text-xs text-stone-500 truncate">{r.category_label ? `${r.category_label} › ` : ''}{r.kind_label.split('(')[0]}</span>
+          {(r.detail || r.size) && <span className="text-xs text-stone-400 truncate" title={r.detail}>{[r.detail, r.size ? sizeText(r.size) : ''].filter(Boolean).join(' · ')}</span>}
+        </div>
+        <div className="shrink-0 flex items-center gap-1.5">
         {bound ? <Pill tone="green">{r.same_as ? t('就是已使用的「{label}」({p2})', { label: bound.label, p2: r.same_as.split('(')[0] }) : t('已使用:{label}', { label: bound.label })}{bound.enabled ? '' : t('(目前不使用)')}</Pill> : <>
           {r.ignored && <Pill>{t('已忽略')}</Pill>}
           <Button variant="primary" onClick={() => setOpen(v => !v)}>{t('使用…')}</Button>
           <Button variant="ghost" disabled={ign.isPending} onClick={() => ign.mutate()}>{r.ignored ? t('取消忽略') : t('忽略')}</Button>
         </>}
+        </div>
       </div>
       {!bound && r.suggest && <div className="flex flex-wrap items-center gap-2 text-xs text-sky-900 bg-sky-50 rounded px-2 py-1">
         {t('看起來是{label}:建議改用「{category_label} › {label2}」加入(點擊、輸入文字比較穩,也認得它的名字)', { label: r.suggest.label, category_label: r.suggest.category_label, label2: r.suggest.label })}
         <Button onClick={() => onRescan(r.suggest!.kind)}>{t('改用這一類掃描')}</Button></div>}
       {!bound && !r.suggest && r.size_warn && <div className="text-xs text-amber-800 bg-amber-50 rounded px-2 py-1">⚠ {r.size_warn}</div>}
-      {open && !bound && <div className="flex flex-wrap items-center gap-2 text-xs bg-stone-50 rounded px-2 py-1.5">
-        <label className="flex items-center gap-1">{t('名稱')}<input className={`${input} w-40`} placeholder={t('例如:主帳號、水車池 A')} value={name} onChange={e => setName(e.target.value)} maxLength={40} /></label>
-        <label className="flex items-center gap-1" title={t('腳本、排程、設定都用它,之後不能改;不填 = 用它現在的名字')}>{t('代號')}<input className={`${input} w-40 font-mono`} placeholder={r.per_source ? t('例如 nvr_1') : r.match} value={id} onChange={e => setId(e.target.value)} maxLength={40} /></label>
-        {r.per_source && <span className="text-stone-500">{t('之後用標題「{title}」和程式「{process}」找它;標題會變的話,加入後在「這個來源的設定」改成「包含」其中一段', { title: r.opts?.title, process: r.opts?.process })}</span>}
-        <Button variant="primary" disabled={add.isPending} onClick={() => add.mutate()}>{t('開始使用')}</Button>
-        <span className="text-stone-500">{t('之後到「執行 › 部署」決定它跑哪個腳本(新來源預設試跑,不會點擊)')}</span>
+      {open && !bound && <div className="flex flex-col gap-2 text-xs bg-stone-50 rounded p-2">
+        <div className="grid sm:grid-cols-2 gap-2">
+          <label className="flex flex-col gap-0.5"><span className="text-stone-600">{t('名稱')}</span>
+            <input className={`${input} w-full`} placeholder={t('例如:主帳號、水車池 A')} value={name} onChange={e => setName(e.target.value)} maxLength={40} /></label>
+          <label className="flex flex-col gap-0.5" title={t('腳本、排程、設定都用它,之後不能改;不填 = 用它現在的名字')}><span className="text-stone-600">{t('代號')}</span>
+            <input className={`${input} w-full font-mono`} placeholder={r.per_source ? t('例如 nvr_1') : r.match} value={id} onChange={e => setId(e.target.value)} maxLength={40} /></label>
+        </div>
+        {r.per_source && <p className="text-stone-500">{t('之後用標題「{title}」和程式「{process}」找它;標題會變的話,加入後在「這個來源的設定」改成「包含」其中一段', { title: r.opts?.title, process: r.opts?.process })}</p>}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="primary" disabled={add.isPending} onClick={() => add.mutate()}>{t('開始使用')}</Button>
+          <span className="text-stone-500">{t('之後到「執行 › 部署」決定它跑哪個腳本(新來源預設試跑,不會點擊)')}</span>
+        </div>
         <ErrorText error={add.error} />
       </div>}
+      </div>
     </div>
   )
 }

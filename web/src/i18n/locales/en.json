@@ -688,7 +688,6 @@
  "取消「使用」= 不錄製、不監看、不執行;設定都保留": "Untick \"Use\" = not recorded, watched or run; the settings are kept",
  "取消忽略": "Stop ignoring",
  "另一組條件:任何一組成立就算": "Another group of conditions: any group holding is enough",
- "另外 {length} 個縮到最小的視窗(要用的話先把它打開)": "{length} more minimized windows (open one first to use it)",
  "另外 {p1} 條守門規則沒有動作(看「詳細」)": "{p1} more guard rule(s) have no action (see \"Details\")",
  "只問「": "Only asking \"",
  "只問一題": "Ask only one question",
@@ -1092,7 +1091,6 @@
  "收起 ▴": "Collapse ▴",
  "收起情境設定 ▴": "Hide situation settings ▴",
  "收起畫面": "Hide the screen",
- "收起縮到最小的視窗": "Hide minimized windows",
  "收起進階設定": "Hide advanced settings",
  "收起重播": "Hide replay",
  "收集器的狀態超過 10 秒沒有更新,程序可能已經異常結束。": "The collector's status has not updated for over 10 seconds; the process may have ended abnormally.",
@@ -2532,5 +2530,10 @@
  "還沒教過:{chars}。畫面上出現時再凍結一張教它。": "Not taught yet: {chars}. When they appear on the screen, freeze a picture and teach them.",
  "切得不對的話:框緊一點,或到「要看的狀態」點選數字的顏色。": " If the cut is wrong: draw the box tighter, or pick the number's colour on the States page.",
  "數值用": "Value from",
- "「/」左邊": "Left of \"/\""
+ "「/」左邊": "Left of \"/\"",
+ "畫面即時更新": "Live pictures",
+ "收起沒有畫面的": "Hide those without a picture",
+ "另外 {length} 個沒有畫面可抓(縮到最小、隱藏或全黑),用不了;要用的話先把它打開": "{length} more have no picture to take (minimised, hidden or all black) and cannot be used; open one first to use it",
+ "取得畫面中…": "Getting the picture…",
+ "全黑或單色": "All black or one colour"
 }

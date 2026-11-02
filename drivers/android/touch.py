@@ -1,5 +1,7 @@
 """Record human touches from the emulator's kernel input devices (`getevent -lt`) and turn them into gestures.
 Taps injected with `adb shell input` go through the Android framework and do NOT show up here."""
+import ctypes
+import ctypes.wintypes as W
 import re
 import subprocess
 import threading
@@ -7,12 +9,51 @@ import time
 from i18n import _
 
 
+_k = ctypes.WinDLL("kernel32", use_last_error=True) if hasattr(ctypes, "WinDLL") else None   # Windows only
+if _k:
+    _k.CreateJobObjectW.restype = W.HANDLE
+    _k.CreateJobObjectW.argtypes = (W.LPVOID, W.LPCWSTR)
+    _k.SetInformationJobObject.argtypes = (W.HANDLE, ctypes.c_int, W.LPVOID, W.DWORD)
+    _k.AssignProcessToJobObject.argtypes = (W.HANDLE, W.HANDLE)
+JOB_EXTENDED_LIMITS = 9               # JobObjectExtendedLimitInformation
+JOB_SILENT_BREAKAWAY = 0x1000         # what a child starts stays out of the job: adb may start the shared adb server
+JOB_KILL_ON_CLOSE = 0x2000
+_job = None                           # closed by Windows when this process ends, however it ends
+_job_lock = threading.Lock()
 LINE = re.compile(r"\[\s*(\d+\.\d+)\]\s+(/dev/input/event\d+):\s+(\S+)\s+(\S+)\s+(\S+)")
 TAP_MAX_MOVE = 15      # px
 TAP_MAX_TIME = 0.5     # s; longer without moving = long press
 PATH_MIN_STEP = 0.05   # s between recorded path points
 AXIS = re.compile(r"(ABS_MT_POSITION_[XY]|ABS_[XY])\s*:.*?\bmax (\d+)")
 VIEWPORT = re.compile(r"DisplayViewport\{[^}]*valid=true[^}]*orientation=(\d)")
+
+
+class _JobLimits(ctypes.Structure):
+    """JOBOBJECT_EXTENDED_LIMIT_INFORMATION"""
+    _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                ("LimitFlags", W.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", W.DWORD),
+                ("Affinity", ctypes.c_size_t), ("PriorityClass", W.DWORD), ("SchedulingClass", W.DWORD),
+                ("IoCounters", ctypes.c_uint64 * 6), ("ProcessMemoryLimit", ctypes.c_size_t),
+                ("JobMemoryLimit", ctypes.c_size_t), ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+
+def _end_with_parent(proc):
+    """A child ends when this process ends, also when it is force-ended: nothing gets to kill the child then, and a
+    getevent waiting for the next touch never notices it is alone. Windows only; elsewhere this does nothing."""
+    global _job
+    if _k is None:
+        return
+    with _job_lock:
+        if _job is None:
+            job = _k.CreateJobObjectW(None, None)
+            limits = _JobLimits(LimitFlags=JOB_KILL_ON_CLOSE | JOB_SILENT_BREAKAWAY)
+            if not job or not _k.SetInformationJobObject(job, JOB_EXTENDED_LIMITS, ctypes.byref(limits), ctypes.sizeof(limits)):
+                raise ctypes.WinError(ctypes.get_last_error())
+            _job = job
+    if not _k.AssignProcessToJobObject(_job, int(proc._handle)) and proc.poll() is None:      # (already gone: nothing to end)
+        raise ctypes.WinError(ctypes.get_last_error())
 
 
 def parse_ranges(text):
@@ -98,6 +139,10 @@ class TouchRecorder:
                 # emulator side: touches arrive seconds late in batches, and a few taps may never arrive at all.
                 self.proc = subprocess.Popen([self.adb, "-s", self.serial, "shell", "-tt", "getevent", "-lt"],
                                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+                try:
+                    _end_with_parent(self.proc)
+                except OSError as e:    # touches still arrive; only the clean-up after a force-end is lost
+                    print(_("[{name}] 觸控監聽錯誤: {e}", name=self.name, e=e))
                 for raw in self.proc.stdout:
                     if self.stop.is_set():
                         break

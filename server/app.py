@@ -104,6 +104,20 @@ def sources_scan(req: SourceScan):
     return sources_view.scan(DATA_ROOT, req.kinds, req.q)
 
 
+class SourcePeek(BaseModel):
+    rows: list[dict] = []                   # found sources as the scan gave them: kind, match, opts
+
+
+@app.post("/api/sources/peek")
+def sources_peek(req: SourcePeek):
+    """A small picture of each found source now, before it is used (to choose by looking; no picture = not usable)."""
+    from . import sources_view
+    import drivers
+    if any(r.get("kind") not in drivers.kinds() for r in req.rows):
+        _bad(_("沒有這種來源:{p1}", p1=_("、").join(sorted({str(r.get("kind")) for r in req.rows if r.get("kind") not in drivers.kinds()}))))
+    return sources_view.peek(DATA_ROOT, req.rows[:60])
+
+
 class SourceAdd(BaseModel):
     kind: str
     match: str

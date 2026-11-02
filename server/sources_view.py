@@ -182,3 +182,59 @@ def scan(root, kinds=None, q=""):
                 continue
             out.append(row)
     return {"found": out, "errors": errors}
+
+
+# ---------------------------------------------------------------- a look at what was found, before it is used
+_peeks, _peek_lock = {}, __import__("threading").Lock()
+PEEK_W = 320                                 # the thumbnail's width
+PEEK_KEEP = 60                               # seconds a capture is kept for the next look
+
+
+def _peek_one(drv, cfg, row):
+    """One found source -> {"state": ok | blank | none, "image": a small JPEG as a data URL}. Nothing is added or kept."""
+    import base64
+    import io
+    import time
+    import numpy as np
+    from PIL import Image
+    from runtime.health import BLANK_SPREAD
+    k, match, opts = row.get("kind"), row.get("match"), row.get("opts") or {}
+    key = json.dumps([k, match, opts], sort_keys=True, ensure_ascii=False)
+    try:
+        with _peek_lock:
+            cap = _peeks.get(key, (None, 0))[0]
+        if cap is None:
+            d = drv._driver(k, (cfg["kinds"].get(k) or {}).get("params"))
+            modes = getattr(d, "capture_modes", {}) or {}
+            mode = "window" if "window" in modes else next(iter(modes), None)
+            cap = d.capture(match, mode, True, opts=opts) if getattr(d, "per_source", None) else d.capture(match, mode, True)
+        with _peek_lock:
+            _peeks[key] = (cap, time.time())
+        got = cap.grab()
+    except Exception:                            # noqa: BLE001 - whatever the reason, there is no picture to see
+        got = None
+    if not got:
+        return {"state": "none", "image": None}
+    img = np.asarray(got[0])
+    small = img[::max(1, img.shape[0] // 30), ::max(1, img.shape[1] // 30)].astype(np.float32).mean(axis=2)
+    im = Image.fromarray(img)
+    im.thumbnail((PEEK_W, PEEK_W))
+    buf = io.BytesIO()
+    im.convert("RGB").save(buf, "JPEG", quality=70)
+    return {"state": "blank" if float(small.std()) < BLANK_SPREAD else "ok",
+            "image": "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()}
+
+
+def peek(root, rows):
+    """What each found source shows now: a picture to choose by, and whether there is one at all (many windows have none
+    to take: hidden, minimised, drawn where it cannot be copied)."""
+    import concurrent.futures
+    import time
+    drv = drivers.current(root)
+    cfg = sources.load(root)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        out = list(pool.map(lambda r: _peek_one(drv, cfg, r), rows))
+    with _peek_lock:
+        for key in [k for k, (_c, t) in _peeks.items() if time.time() - t > PEEK_KEEP]:
+            _peeks.pop(key, None)
+    return {"items": out}

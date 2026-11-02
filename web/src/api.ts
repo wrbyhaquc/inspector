@@ -399,6 +399,7 @@ export interface SourceNative {
   seen?: number; ignored?: boolean; bound?: string | null; opts?: Record<string, string> | null; per_source?: boolean
   category?: string; same_as?: string | null; suggest?: { kind: string; label: string; category_label: string } | null
 }
+export interface SourcePeek { state: 'ok' | 'blank' | 'none'; image: string | null }
 export interface SourceItem {
   id: string; kind: string; match: string; name: string; enabled: boolean; added: number; label: string; kind_label: string
   present: boolean; detail: string; size: number[] | null; size_warn: string | null; watching: boolean; window: boolean; caps: string[]
@@ -673,6 +674,7 @@ export const api = {
   asks: () => req<{ items: AskItem[] }>('GET', '/api/asks'),
   sourceNames: () => req<{ names: Record<string, string>; enabled: string[]; hands: Record<string, string>; tags: Record<string, string[]> }>('GET', '/api/sources/names'),
   sources: () => req<SourceView>('GET', '/api/sources'),
+  sourcePeek: (rows: SourceNative[]) => req<{ items: SourcePeek[] }>('POST', '/api/sources/peek', { rows: rows.map(r => ({ kind: r.kind, match: r.match, opts: r.opts ?? {} })) }),
   sourceScan: (kinds: string[], q: string) => req<{ found: SourceNative[]; errors: Record<string, string> }>('POST', '/api/sources/scan', { kinds, q }),
   sourceAdd: (b: { kind: string; match: string; id?: string; name?: string; params?: Record<string, string> }) => req<{ id: string; trial?: string[] }>('POST', '/api/sources/add', b),
   sourceUpdate: (b: { id: string; name?: string; enabled?: boolean; match?: string; kind?: string; hand?: SourceHand; params?: Record<string, string>; tags?: string[] }) => req<SourceView & { now_live?: string[] }>('POST', '/api/sources/update', b),
