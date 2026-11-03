@@ -1,6 +1,6 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
- "$id": "https://inspector.local/spec/v10/outputs.schema.json",
+ "$id": "https://inspector.local/spec/v12/script.schema.json",
  "$defs": {
   "ref": {
    "description": "執行時從參數 / 使用者設定 / 變數 / 狀態(畫面上讀到的數字)取值",
@@ -706,37 +706,55 @@
    }
   }
  },
- "title": "輸出",
+ "title": "主腳本 / 守門規則(腳本規範 v12)",
  "type": "object",
+ "required": [
+  "id",
+  "name",
+  "situations"
+ ],
+ "additionalProperties": false,
  "properties": {
-  "outputs": {
-   "type": "array",
-   "items": {
-    "type": "object",
-    "required": [
-     "id",
-     "name",
-     "type"
-    ],
-    "properties": {
-     "id": {
-      "type": "string",
-      "pattern": "^[a-z][a-z0-9_]*$"
-     },
-     "name": {
-      "type": "string"
-     },
-     "type": {
-      "type": "string"
-     }
-    }
+  "id": {
+   "type": "string",
+   "pattern": "^[a-z][a-z0-9_]*$"
+  },
+  "name": {
+   "type": "string",
+   "minLength": 1
+  },
+  "description": {
+   "type": "string"
+  },
+  "enabled": {
+   "type": "boolean"
+  },
+  "devices": {
+   "type": "object",
+   "description": "部署:\"*\"(其他所有)、來源代號、或 \"#標籤\"(有這個標籤的來源)",
+   "additionalProperties": {
+    "enum": [
+     "off",
+     "shadow",
+     "live"
+    ]
    }
   },
-  "saved": {
-   "type": "number"
+  "initial": {
+   "type": "string"
+  },
+  "situations": {
+   "type": "array",
+   "minItems": 1,
+   "items": {
+    "$ref": "#/$defs/situation"
+   }
+  },
+  "otherwise": {
+   "$ref": "#/$defs/action"
   },
   "format": {
-   "const": 10,
+   "const": 12,
    "description": "腳本規範版本"
   },
   "version": {

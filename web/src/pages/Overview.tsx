@@ -161,7 +161,7 @@ const STOPS: { id: string; title: string; why: string; how: string; to: string; 
   { id: 'run', title: t('開始執行'), why: t('先試跑,看它會做什麼;沒問題再改成正式執行。'),
     how: t('「執行 › 部署」選正式執行,按「開始」,用「詳細」看它怎麼判斷。'), to: '/script', ch: 9 },
   { id: 'panel', title: t('設計操作面板'), why: t('現場的人看這一頁:現在怎樣、幾個按鈕、幾個設定。'),
-    how: t('「操作面板設計」:加區塊和監看元件。'), to: '/panel-design', ch: 11 },
+    how: t('「操作面板」右上角的設定 › 編輯面板:加區塊和監看元件,拖拉排好位置。'), to: '/panel/edit', ch: 11 },
   { id: 'export', title: t('匯出方案包'), why: t('做成一個發行版,裝到別台電腦執行(執行版就夠)。'),
     how: t('「方案包 › 匯出發行版」。'), to: '/packs', ch: 12 },
 ]

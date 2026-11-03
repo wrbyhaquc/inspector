@@ -6,7 +6,7 @@ from conftest import HAN
 # the pages with a "what this page is for" card: (path, the card's id)
 INTRO = [("/sources", "sources"), ("/collect", "collect"), ("/states", "states"), ("/review", "review"),
          ("/library", "library"), ("/scripts", "scripts"), ("/script", "script"), ("/schedules", "schedules"),
-         ("/panel-design", "panel-design"), ("/packs", "packs")]
+         ("/packs", "packs")]
 OTHERS = ["/", "/browse", "/labels", "/train", "/results", "/tests", "/storage", "/ai", "/workbench"]
 
 

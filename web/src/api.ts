@@ -1,5 +1,9 @@
-import { lang } from './i18n'
+import { lang, t } from './i18n'
 // Thin client for the Python backend (server/app.py).
+
+/** The panel's draft previewed (?draft in the address, server/panel_draft.py): it looks like the real thing, and
+ * nothing it is asked to do happens - only reading goes through. */
+export const PREVIEW = new URLSearchParams(window.location.search).has('draft')
 
 /** a frame's automatic labels: each state's value (by state id), the labeler's flags and raw scores */
 export interface LabelBrief {
@@ -169,19 +173,32 @@ export interface PanelControl {
   bind?: { kind: string; [k: string]: unknown }; options?: `list:${string}` | PanelOption[]; scale?: number
   chat?: string; chat_off?: boolean            // its name in a chat bot / only on the page
 }
+/** what is wrong with a panel (error: it cannot be published) or worth a look, and the block it is about */
+export interface PanelProblem { level: 'error' | 'warn'; text: string; block?: string }
+export interface PanelVersion { id: string; t: number; note: string; blocks: number }
 export interface PanelChatPreview {
   error: string | null; widgets: string[]
   commands: { name: string; control: string; block: string; type: string; scope: string }[]
 }
+/** what a panel can be made of (server/panel_start.py): each thing as it is now and the block it becomes */
+export interface PanelThing {
+  kind: 'setting' | 'schedule' | 'situation' | 'sub' | 'variable' | 'list'; id: string; name: string; help?: string; group?: string; now: string
+  add?: { block: Omit<PanelBlock, 'id'>; controls: PanelControl[] }; why?: string
+}
+export type PanelDraft = { pages?: PanelPage[]; blocks: PanelBlock[]; controls: PanelControl[] }
+export interface PanelStart {
+  groups: Record<PanelThing['kind'], string>; things: PanelThing[]
+  templates: { id: string; name: string; desc: string }[]; drafts: Record<string, PanelDraft>
+}
 export interface PanelDefinition {
-  panel: { title: string; devices: string[]; pages?: PanelPage[]; blocks: PanelBlock[]; controls: PanelControl[]; sources?: PanelSourcePolicy }
+  panel: { title: string; devices: string[]; pages?: PanelPage[]; blocks: PanelBlock[]; controls: PanelControl[]; sources?: PanelSourcePolicy; theme?: PanelTheme }
   source_kinds?: { kind: string; label: string; category?: string; category_label?: string }[]
   binds: Record<string, string>; types: Record<string, string>; devices: string[]
   schedules: { id: string; name: string; sub: string; params: { name: string; label: string; type: string; item?: string | null; from_list?: string | null }[] }[]
   entries: { script: string; script_name: string; situation: string; situation_name: string; sub: string; params: { name: string; label: string; type: string; item?: string | null; from_list?: string | null }[] }[]
   buttons: { id: string; label: string; group?: string; device?: string; list?: string }[]
   lists: ListInfo[]
-  settings: SettingDecl[]
+  settings: SettingDecl[]; variables: { name: string; label: string; scope?: string }[]
   widgets: Record<string, string>; widget_defaults: Record<string, Record<string, unknown>>; modes: Record<string, string>
   main_scripts: { id: string; name: string }[]; runnable_subs: { id: string; name: string }[]
   acts: Record<string, string>
@@ -202,7 +219,7 @@ export interface NotifyInfo {
   status: Record<string, { last_ok?: number; last_error?: number; error?: string; sent?: number; failed?: number }>
   types: Record<string, { label: string; help: string; listens?: boolean; fields: { name: string; label: string; secret?: boolean; placeholder?: string }[] }>
 }
-export interface PanelWidget { kind: 'devices' | 'incidents' | 'deploy' | 'schedules' | 'log' | 'chat' | 'list'; [k: string]: unknown }
+export interface PanelWidget { kind: 'devices' | 'incidents' | 'deploy' | 'schedules' | 'log' | 'chat' | 'list' | 'values'; [k: string]: unknown }
 export interface ChatBot {
   id: string; name: string; type: string; label: string; enabled: boolean; state: string | null; error: string | null; invite: string | null
   paired: boolean; chat_name: string | null; allowed: { id: string; name?: string }[]; token_end: string
@@ -214,8 +231,15 @@ export interface PanelSourceRow { kind: string; kind_label?: string; match: stri
 export interface PanelSources { can: boolean; help: string; kinds: { kind: string; label: string }[]
   items: { id: string; name: string; kind: string; kind_label: string; match: string; enabled: boolean }[] }
 export interface PanelBlock { id: string; title: string; help?: string; toggle?: string; items: string[]; widget?: PanelWidget; data?: WidgetData; error?: string
-  page?: string; width?: 'auto' | 'third' | 'narrow' | 'two_thirds' | 'wide' }   // which tab it is on (none = the first); its width on a wide screen (lib/panelLayout.ts)
+  page?: string; width?: 'auto' | 'third' | 'narrow' | 'two_thirds' | 'wide'     // which tab it is on (none = the first); its width on a wide screen, for a block without a place (server/panel.py pack)
+  place?: PanelPlace; phone?: { order?: number; hide?: boolean } }                  // spec v11: its place on the 12-column grid; on a phone
+/** where a block sits on a wide screen: column x (0-11), row y, w columns wide, h rows tall (none = as its contents need) */
+export interface PanelPlace { x: number; y: number; w: number; h?: number }
+/** the panel's look: the colour of what to press, large text unless a viewer turns it off */
+export interface PanelTheme { accent?: string; big_text?: boolean }
 export interface WidgetData {
+  // values: the variables shown, the shared ones' values and each emulator's own (running: the runner is up)
+  vars?: { name: string; label: string; shared: boolean }[]; running?: boolean; shared?: Record<string, unknown>; values?: Record<string, Record<string, unknown>>
   bots?: ChatBot[]; types?: { type: string; label: string; help: string }[]; setup?: boolean; pair?: boolean
   devices?: { device: string; now: string; tone: string; online: boolean; today: { name: string; text: string; code: string }[]; step: string | null; alerts: { t: number; text: string }[]; image: boolean }[]
   items?: { id: string; device: string; start: number; end: number | null; status: string; triggers: string[]; story: { t: number; text: string }[]; frame: string | null }[]
@@ -238,6 +262,7 @@ export interface PanelTodo {
 }
 export interface PanelInfo {
   pages?: PanelPage[]
+  theme?: PanelTheme
   todo?: PanelTodo[]          // what to look at now, the most pressing first
   title: string; devices: string[]; controls: PanelControl[]; cards: PanelCard[]; blocks: PanelBlock[]; paused: boolean; running: boolean; paused_mode?: 'stop' | 'pause'
   asks?: AskItem[]
@@ -565,6 +590,7 @@ export interface ProjectSettings { id: string; name: string; description: string
 export interface PackExported { file: string; size: number; messages: string[] }
 
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
+  if (PREVIEW && method !== 'GET') throw new Error(t('這是預覽:按了不會真的動作'))
   const r = await fetch(url, {
     method,
     headers: body ? { 'Content-Type': 'application/json', 'X-Lang': lang } : { 'X-Lang': lang },
@@ -665,10 +691,17 @@ export const api = {
   authLogin: (pin: string) => req<{ role: string }>('POST', '/api/auth/login', { pin }),
   authLogout: () => req<{ ok: boolean }>('POST', '/api/auth/logout'),
   authPins: (b: { user_pin?: string; admin_pin?: string }) => req<{ user: boolean; admin: boolean }>('POST', '/api/auth/pins', b),
-  panel: () => req<PanelInfo>('GET', '/api/panel'),
+  panel: (draft = false) => req<PanelInfo>('GET', draft ? '/api/panel?draft=1' : '/api/panel'),
+  panelDraft: () => req<{ draft: { panel: PanelDefinition['panel']; t: number; stale: boolean } | null; problems: PanelProblem[] }>('GET', '/api/panel/draft'),
+  panelDraftSave: (panel: PanelDefinition['panel']) => req<{ ok: boolean; problems: PanelProblem[] }>('POST', '/api/panel/draft', { panel }),
+  panelDraftDrop: () => req<{ ok: boolean }>('POST', '/api/panel/draft/drop'),
+  panelPublish: (panel: PanelDefinition['panel'], note: string) => req<{ ok: boolean }>('POST', '/api/panel/publish', { panel, note }),
+  panelVersions: () => req<{ items: PanelVersion[] }>('GET', '/api/panel/versions'),
+  panelVersion: (id: string) => req<PanelVersion & { panel: PanelDefinition['panel'] }>('GET', `/api/panel/versions/${encodeURIComponent(id)}`),
   panelSet: (b: { control: string; device?: string; value: unknown }) => req<{ old: unknown; new: unknown }>('POST', '/api/panel/set', b),
   panelDefinition: () => req<PanelDefinition>('GET', '/api/panel/definition'),
   panelDefinitionSave: (panel: PanelDefinition['panel']) => req<{ ok: boolean }>('POST', '/api/panel/definition', { panel }),
+  panelStart: () => req<PanelStart>('GET', '/api/panel/start'),
   panelChatPreview: (panel: PanelDefinition['panel']) => req<PanelChatPreview>('POST', '/api/panel/chat_preview', { panel }),
   notifyHelp: () => req<{ text: string }>('GET', '/api/notify/help'),
   asks: () => req<{ items: AskItem[] }>('GET', '/api/asks'),

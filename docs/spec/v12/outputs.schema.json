@@ -1,6 +1,6 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
- "$id": "https://inspector.local/spec/v10/sub.schema.json",
+ "$id": "https://inspector.local/spec/v12/outputs.schema.json",
  "$defs": {
   "ref": {
    "description": "執行時從參數 / 使用者設定 / 變數 / 狀態(畫面上讀到的數字)取值",
@@ -706,52 +706,37 @@
    }
   }
  },
- "title": "子腳本(腳本規範 v10)",
+ "title": "輸出",
  "type": "object",
- "required": [
-  "id",
-  "name",
-  "steps"
- ],
- "additionalProperties": false,
  "properties": {
-  "id": {
-   "type": "string",
-   "pattern": "^[a-z][a-z0-9_]*$"
-  },
-  "name": {
-   "type": "string",
-   "minLength": 1
-  },
-  "description": {
-   "type": "string"
-  },
-  "params": {
+  "outputs": {
    "type": "array",
    "items": {
-    "$ref": "#/$defs/param"
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "type"
+    ],
+    "properties": {
+     "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+     },
+     "name": {
+      "type": "string"
+     },
+     "type": {
+      "type": "string"
+     }
+    }
    }
   },
-  "say": {
-   "type": "string",
-   "description": "給使用者看:這個子腳本在做什麼(白話)"
-  },
-  "say_fail": {
-   "type": "string",
-   "description": "給使用者看:失敗時說什麼(步驟沒有自己的說明時)"
-  },
-  "steps": {
-   "$ref": "#/$defs/steps"
-  },
-  "cleanup": {
-   "$ref": "#/$defs/steps"
-  },
-  "timeout": {
-   "type": "number",
-   "minimum": 1
+  "saved": {
+   "type": "number"
   },
   "format": {
-   "const": 10,
+   "const": 12,
    "description": "腳本規範版本"
   },
   "version": {

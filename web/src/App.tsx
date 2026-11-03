@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import Sources from './pages/Sources'
 import { useSourceNames } from './lib/sources'
 import { useEffect, useState } from 'react'
-import { NavLink, Route, Routes, useLocation } from 'react-router-dom'
+import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { api } from './api'
 import { usePersistentState } from './lib/persist'
 import Browser from './pages/Browser'
@@ -21,7 +21,6 @@ import Library from './pages/Library'
 import Tests from './pages/Tests'
 import Schedules from './pages/Schedules'
 import Panel from './pages/Panel'
-import PanelDesign from './pages/PanelDesign'
 import Login from './pages/Login'
 import Storage from './pages/Storage'
 import AiAccess from './pages/AiAccess'
@@ -54,7 +53,7 @@ const NAV: NavGroup[] = [
     { to: '/schedules', label: t('排程') },
     { to: '/library', label: t('素材庫') },
     { to: '/script', label: t('執行') },
-    { to: '/panel-design', label: t('操作面板設計') },
+    { to: '/panel/edit', label: t('操作面板設計') },
     { to: '/panel', label: t('操作面板(給使用者) ↗') },
   ] },
   { title: t('④ 交付'), hint: t('做成方案包,在別台電腦安裝執行'), items: [
@@ -104,7 +103,7 @@ export default function App() {
   if (me.isLoading) return null
   if (!me.data?.role || need) return <Login configured={me.data?.configured} />
   const isPanel = loc.pathname === '/panel' || loc.pathname.startsWith('/panel/')
-  if (isPanel || me.data.role === 'user') return <div className="h-full overflow-auto"><Panel canLogout={!me.data.local} /></div>
+  if (isPanel || me.data.role === 'user') return <div className="h-full overflow-auto"><Panel canLogout={!me.data.local} canEdit={me.data.role === 'admin' && edition.name !== 'runtime'} /></div>
   return <AdminApp />
 }
 
@@ -188,7 +187,7 @@ function AdminApp() {
           <Route path="/library" element={<Library />} />
           <Route path="/tests" element={<Tests />} />
           <Route path="/schedules" element={<Schedules />} />
-          <Route path="/panel-design" element={<PanelDesign />} />
+          <Route path="/panel-design" element={<Navigate to="/panel/edit" replace />} />
         </Routes>
         )}
       </main>

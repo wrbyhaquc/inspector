@@ -48,10 +48,14 @@ What each version added (older files are upgraded by upgrade()):
   9  operation panel controls "devices": [source id | "#tag"] - a per-device control only for these sources (e.g. the
      greenhouse's buttons only on the greenhouse camera); without it, every source
   10 operation panel block "width" also "third" | "two_thirds": a wide screen's row is a third, a half ("narrow"),
-     two thirds or all ("wide") of it (the design page arranges blocks by dragging them and their edges)"""
+     two thirds or all ("wide") of it (the design page arranges blocks by dragging them and their edges)
+  11 operation panel block "place": {"x", "y", "w", "h"} on a 12-column grid and "phone": {"order", "hide"}; the
+     panel's "theme": {"accent", "big_text"}. A block without a place is placed from its order and width when the
+     panel is read (server/panel.py pack()), so nothing changes in the file
+  12 the operation panel's watch widget "values" {"vars": [variable names]}: what the scripts' variables are now"""
 from i18n import _
 
-FORMAT = 10
+FORMAT = 12
 
 
 def stamp(obj):
@@ -77,7 +81,7 @@ def upgrade(obj):
     """An older file brought to the current format.
     0 -> 1: the wait step's "seconds_param" (the only field that could take a parameter) becomes
             "seconds": {"param": ...} like every other value.
-    1 -> 2, 2 -> 3, 3 -> 4, 4 -> 5, 5 -> 6, 6 -> 7, 8 -> 9, 9 -> 10: nothing to change (they only add).
+    1 -> 2, 2 -> 3, 3 -> 4, 4 -> 5, 5 -> 6, 6 -> 7, 8 -> 9, 9 -> 10, 10 -> 11, 11 -> 12: nothing to change (they only add).
     7 -> 8: a rule's "action" becomes "do" (a step list), a situation's "on_enter" a step list (action_steps())."""
     if version(obj) >= FORMAT or not isinstance(obj, dict):
         return obj

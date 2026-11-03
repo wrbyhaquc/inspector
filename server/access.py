@@ -36,7 +36,7 @@ RUNTIME_WRITE = ("/api/auth/", "/api/language", "/api/panel/", "/api/shadow/", "
                  "/api/outputs/test", "/api/image/warm", "/api/jobs", "/api/spec/check", "/api/packs", "/api/system/",
                  "/api/storage/", "/api/ai/")
 RUNTIME_WRITE_EXACT = ("/api/scripts",)        # saving a script: only its settings (where it runs ...), automation.save
-RUNTIME_DESIGN_ONLY = ("/api/panel/definition",)
+RUNTIME_DESIGN_ONLY = ("/api/panel/definition", "/api/panel/draft", "/api/panel/publish")
 _sessions = {}                     # token -> (role, expires)
 
 

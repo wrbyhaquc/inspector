@@ -38,6 +38,13 @@ bind kinds:
   {"kind": "act_sub", "sub"}                                                run a sub-script now (one that needs no
                                                                             arguments, e.g. 掃描帳號清單)
 
+Where a block sits (spec v11): "place": {"x", "y", "w", "h"} on a wide screen's 12-column grid - column x (0-11),
+row y, w columns wide, h rows tall (no h = as tall as it needs); "phone": {"order", "hide"} - a phone shows one
+column, in "order" (no order = the wide screen's, row by row), without the blocks hidden there. A block without a
+place (a panel from before v11) is placed from its order and "width" when the panel is read (pack()).
+The panel's look: "theme": {"accent": "#rrggbb" (what to press), "big_text": true = large text unless a viewer
+turns it off}.
+
 A block may instead be a watch widget (監看元件): {"id", "title", "help", "widget": {"kind", ...options}, "items": []}
   devices     how each emulator is doing          options: show_step (the step it is on), show_alerts (its last alerts),
                                                            show_image (a small live picture)
@@ -52,6 +59,8 @@ A block may instead be a watch widget (監看元件): {"id", "title", "help", "w
   chat        通知與指令: the chat bots of this site    options: setup (add a bot / change its token / remove it),
                                                            pair (pair a chat, remove who may give commands)
               (the bots kept where it runs, notify.json; what they may do follows this panel - server/panel_chat.py)
+  values      what the scripts' variables are now  options: vars [variable names], on each emulator (or the one value
+              (counters, "last time" ...)                  a shared variable has)
 The consultant decides what users see and may change; the server checks every request against the widget.
 
 Every change is logged (<runtime dir>/panel_log.jsonl) with the old and the new value."""
@@ -100,14 +109,15 @@ def setting_of(c):
 
 
 WIDGETS = {"devices": N_("裝置狀態"), "incidents": N_("緊急事件"), "deploy": N_("部署開關"), "schedules": N_("排程表"), "log": N_("紀錄"),
-           "chat": N_("通知與指令(聊天 Bot)"), "list": N_("清單(帳號、地點…)")}
+           "chat": N_("通知與指令(聊天 Bot)"), "list": N_("清單(帳號、地點…)"), "values": N_("數值")}
 WIDGET_DEFAULTS = {"devices": {"show_step": True, "show_alerts": False, "show_image": False},
                    "incidents": {"limit": 10, "show_frames": True},
                    "deploy": {"scripts": [], "modes": ["off", "live"]},
                    "schedules": {"schedules": []},
                    "log": {"limit": 20, "panel_changes": True},
                    "chat": {"setup": True, "pair": True},
-                   "list": {"list": "", "scan_sub": "", "rename": True, "remove": True}}
+                   "list": {"list": "", "scan_sub": "", "rename": True, "remove": True},
+                   "values": {"vars": []}}
 
 
 def widget_blocks(panel, kind):
@@ -132,6 +142,10 @@ def check_widget(data_root, w):
             raise ValueError(_("「清單」請選擇要顯示哪一份清單"))
         if w.get("scan_sub") and w["scan_sub"] not in subs_mod.load_all(data_root):
             raise ValueError(_("「清單」選的掃描子腳本已經不存在"))
+    if kind == "values":
+        have = {v["name"] for v in automation.variables(data_root)}
+        if not w.get("vars") or any(v not in have for v in w["vars"]):
+            raise ValueError(_("「數值」請選擇要顯示的變數"))
     if kind == "schedules":
         have = {s["id"] for s in schedules.load(data_root)}
         if any(s not in have for s in w.get("schedules") or []):
@@ -141,6 +155,46 @@ def check_widget(data_root, w):
 # a block's width on a wide screen (spec v10): of a row of six columns 2, 3, 4 or 6; "auto" = half, or the whole row
 # for long lists, logs and settings asked per device (web/src/lib/panelLayout.ts); phones: one column
 WIDTHS = ("auto", "third", "narrow", "two_thirds", "wide")
+COLS = 12                                       # a wide screen's grid
+WIDTH_COLS = {"third": 4, "narrow": 6, "two_thirds": 8, "wide": 12}
+ACCENT = re.compile(r"#[0-9a-fA-F]{6}")
+
+
+def auto_wide(b, controls):
+    """"auto" width: the whole row for long lists and logs, and settings asked per device; else half."""
+    if b.get("widget"):
+        return b["widget"].get("kind") in ("list", "log", "chat", "devices")
+    by_id = {c["id"]: c for c in controls}
+    return any((by_id.get(i) or {}).get("scope") == "device" and by_id[i].get("type") != "action" for i in b.get("items") or [])
+
+
+def pack(panel):
+    """Every block a place on its page's grid: the ones without one (older panels, or new blocks) go after the placed
+    ones, in their order, filling each row left to right by their width."""
+    pages = [p["id"] for p in panel.get("pages") or []] or [None]
+    for pg in pages:
+        mine = [b for b in panel.get("blocks") or [] if (b.get("page") or pages[0]) == pg]
+        placed = [b["place"] for b in mine if isinstance(b.get("place"), dict) and isinstance(b["place"].get("y"), int)]
+        y = max((pl["y"] + (pl.get("h") if isinstance(pl.get("h"), int) else 1) for pl in placed), default=0)
+        x = 0
+        for b in mine:
+            if b.get("place") is not None:
+                continue
+            w = WIDTH_COLS.get(b.get("width")) or (COLS if auto_wide(b, panel.get("controls") or []) else COLS // 2)
+            if x + w > COLS:
+                x, y = 0, y + 1
+            b["place"] = {"x": x, "y": y, "w": w}
+            x += w
+    return panel
+
+
+def check_place(b):
+    pl, ph = b.get("place"), b.get("phone")
+    ok = isinstance(pl, dict) and all(isinstance(pl.get(k), int) and not isinstance(pl.get(k), bool) for k in ("x", "y", "w"))         and 0 <= pl["x"] < COLS and 1 <= pl["w"] <= COLS - pl["x"] and pl["y"] >= 0         and (pl.get("h") is None or (isinstance(pl["h"], int) and 1 <= pl["h"] <= 100)) and set(pl) <= {"x", "y", "w", "h"}
+    if ph is not None:
+        ok = ok and isinstance(ph, dict) and set(ph) <= {"order", "hide"} and isinstance(ph.get("hide", False), bool)             and (ph.get("order") is None or (isinstance(ph["order"], int) and not isinstance(ph["order"], bool)))
+    if not ok:
+        raise ValueError(_("區塊「{title}」的位置不正確", title=b.get("title")))
 
 
 def load(data_root):
@@ -186,7 +240,9 @@ def normalize(panel):
             b["items"].append(c["id"])
     for b in blocks:
         b.pop("_key", None)
-    return panel
+        if not b.get("phone"):
+            b.pop("phone", None)
+    return pack(panel)
 
 
 def source_kinds(panel):
@@ -199,7 +255,45 @@ def source_kinds(panel):
     return list(dict.fromkeys(out))
 
 
-def save(data_root, panel, check=True):
+def save_check_control(data_root, panel, c, check=True):
+    """What saving checks of one control (and puts right: a control follows its user setting)."""
+    if not re.fullmatch(r"[a-z][a-z0-9_]*", c.get("id") or ""):
+        raise ValueError(_("控制項「{label}」的代號只能用小寫英文、數字、底線", label=c.get('label')))
+    if not c.get("label"):
+        raise ValueError(_("每個控制項都要有名稱"))
+    if c.get("type") not in TYPES:
+        raise ValueError(_("控制項「{label}」的種類不正確", label=c.get('label')))
+    if (c.get("bind") or {}).get("kind") not in BINDS:
+        raise ValueError(_("控制項「{label}」還沒設定要接到哪裡", label=c['label']))
+    if (c["type"] == "action") != (c["bind"]["kind"] in ACTS):
+        raise ValueError(_("「{label}」:動作按鈕要接「{p2}」其中一種,其他種類不能接這些", label=c['label'], p2=_("、").join(_(v) for v in ACTS.values())))
+    if c["bind"]["kind"] == "schedule_device" and c.get("scope") != "device":
+        raise ValueError(_("「{label}」(這台要不要參加)必須是每台各自的設定", label=c['label']))
+    if c["bind"]["kind"] == "setting":
+        s = settings_mod.load(data_root).get(c["bind"].get("setting"))
+        if not s:
+            raise ValueError(_("「{label}」:請選擇要接的使用者設定", label=c['label']))
+        want = SETTING_CONTROL.get(s["type"])
+        if s["type"] == "list" and (s.get("item", "point") != "point" or not s.get("pick_from")):
+            want = None
+        if not want:
+            raise ValueError(_("「{label}」:使用者設定「{label2}」的種類還不能放在面板上", label=c['label'], label2=s['label']))
+        if c.get("type") == "single" and isinstance(c.get("options"), list) and c["options"] and s["type"] in ("number", "text"):
+            want = "single"                    # a number / text picked from given choices ("不動作 / 只通知 / ...")
+        c["type"] = want                       # the control follows the setting
+        c["scope"] = "device" if s.get("scope") == "device" else "global"
+        if s.get("pick_from"):
+            c["options"] = s["pick_from"]
+    if check:                                  # the target must exist (read its value once)
+        from drivers.sources import expand
+        dev = next((d for d in expand(panel.get("devices")) if applies(c, d)), None) if c.get("scope") == "device" else None
+        try:
+            value(data_root, c, dev)
+        except (ValueError, KeyError, OSError) as e:
+            raise ValueError(_("「{label}」接的設定讀不到:{e}", label=c['label'], e=e))
+
+
+def save(data_root, panel, check=True, write=True):
     src = panel.get("sources")
     if src:
         import drivers
@@ -221,7 +315,22 @@ def save(data_root, panel, check=True):
     for b in panel.get("blocks") or []:
         if b.get("width") not in (None, "", *WIDTHS):
             raise ValueError(_("區塊「{title}」的寬度不正確", title=b.get('title')))
+        if b.get("place") is not None:
+            check_place(b)
+        elif b.get("phone"):
+            check_place({**b, "place": {"x": 0, "y": 0, "w": 1}})
+    th = panel.get("theme")
+    if th:
+        if not isinstance(th, dict) or set(th) - {"accent", "big_text"} or (th.get("accent") and not ACCENT.fullmatch(str(th["accent"])))                 or not isinstance(th.get("big_text", False), bool):
+            raise ValueError(_("面板的外觀設定不正確(強調色要像 #0369a1)"))
+        th = {k: v for k, v in th.items() if v}
+    if th:
+        panel["theme"] = th
+    else:
+        panel.pop("theme", None)
     panel = normalize(panel)
+    for b in panel["blocks"]:
+        check_place(b)
     for b in panel["blocks"]:
         if b.get("widget"):
             check_widget(data_root, b["widget"])
@@ -229,43 +338,10 @@ def save(data_root, panel, check=True):
             b.pop("toggle", None)
     seen = set()
     for c in panel.get("controls", []):
-        if not re.fullmatch(r"[a-z][a-z0-9_]*", c.get("id") or ""):
-            raise ValueError(_("控制項「{label}」的代號只能用小寫英文、數字、底線", label=c.get('label')))
-        if c["id"] in seen:
+        if c.get("id") in seen:
             raise ValueError(_("控制項代號「{id}」重複", id=c['id']))
+        save_check_control(data_root, panel, c, check)
         seen.add(c["id"])
-        if not c.get("label"):
-            raise ValueError(_("每個控制項都要有名稱"))
-        if c.get("type") not in TYPES:
-            raise ValueError(_("控制項「{label}」的種類不正確", label=c.get('label')))
-        if (c.get("bind") or {}).get("kind") not in BINDS:
-            raise ValueError(_("控制項「{label}」還沒設定要接到哪裡", label=c['label']))
-        if (c["type"] == "action") != (c["bind"]["kind"] in ACTS):
-            raise ValueError(_("「{label}」:動作按鈕要接「{p2}」其中一種,其他種類不能接這些", label=c['label'], p2=_("、").join(_(v) for v in ACTS.values())))
-        if c["bind"]["kind"] == "schedule_device" and c.get("scope") != "device":
-            raise ValueError(_("「{label}」(這台要不要參加)必須是每台各自的設定", label=c['label']))
-        if c["bind"]["kind"] == "setting":
-            s = settings_mod.load(data_root).get(c["bind"].get("setting"))
-            if not s:
-                raise ValueError(_("「{label}」:請選擇要接的使用者設定", label=c['label']))
-            want = SETTING_CONTROL.get(s["type"])
-            if s["type"] == "list" and (s.get("item", "point") != "point" or not s.get("pick_from")):
-                want = None
-            if not want:
-                raise ValueError(_("「{label}」:使用者設定「{label2}」的種類還不能放在面板上", label=c['label'], label2=s['label']))
-            if c.get("type") == "single" and isinstance(c.get("options"), list) and c["options"] and s["type"] in ("number", "text"):
-                want = "single"                    # a number / text picked from given choices ("不動作 / 只通知 / ...")
-            c["type"] = want                       # the control follows the setting
-            c["scope"] = "device" if s.get("scope") == "device" else "global"
-            if s.get("pick_from"):
-                c["options"] = s["pick_from"]
-        if check:                                  # the target must exist (read its value once)
-            from drivers.sources import expand
-            dev = next((d for d in expand(panel.get("devices")) if applies(c, d)), None) if c.get("scope") == "device" else None
-            try:
-                value(data_root, c, dev)
-            except (ValueError, KeyError, OSError) as e:
-                raise ValueError(_("「{label}」接的設定讀不到:{e}", label=c['label'], e=e))
     for c in panel.get("controls", []):
         if not c.get("devices") or c.get("scope") != "device":     # only a per-device control is for some devices
             c.pop("devices", None)
@@ -276,6 +352,8 @@ def save(data_root, panel, check=True):
             c.pop("chat_off", None)
     from .panel_chat import check as check_chat
     check_chat(panel)
+    if not write:                                  # only checked (the editor's problems list)
+        return
     p = os.path.join(data_root, FILE)
     os.makedirs(os.path.dirname(p), exist_ok=True)              # a new project has no meta/ yet
     atomic.write_json(p, spec.stamp(panel), ensure_ascii=False, indent=1)

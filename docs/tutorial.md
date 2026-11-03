@@ -264,20 +264,32 @@ Saved, every rule reads as a sentence:
 
 ## 11. The operation panel: for the people on site
 
-**③ Automate › Operation panel design**
+**③ Automate › Operation panel design** (the same as the operation panel's settings at the top right › **Edit panel**)
 
 The people on site need neither scripts nor states: how things are now, a few buttons, a few settings. The operation
-panel is their page, phones included.
+panel is their page, phones included. It is edited where it is: on the left what can be added ("Add") and this page's blocks ("Outline"),
+in the middle the panel itself (with what it really shows), on the right what the picked block holds.
 
-1. "+ Add a settings block" - one block per thing they think about:
-   - "Equipment": action buttons that run sub-scripts (start the aerator, stop it, start the pump, feed now…);
-   - "Water level": wired to the user settings "Pump on below" and "Pump off above";
-   - "Feeding times": wired to the schedules' switches and start times.
-2. "Or add a monitor widget:": "Device status" (how each camera is, with "Small live screen"), "Log",
-   notifications and commands (Discord / Telegram).
-3. "Tabs" put the blocks on "Now", "Settings" and "Notifications".
-4. The "Layout" card is how a wide screen shows it: drag blocks to order them (onto a tab: to that page) and drag a
-   block's right edge to change its width (a third, half, two thirds, the full row). Phones show one column.
+1. While the panel is still empty, the middle offers "Make a first version from the pack": pick "Complete", "Simple" or
+   "Watch only" and the whole panel is laid out from the pack's schedules, user settings, situations and variables, to
+   change from there. To start again later, pick one under "Add › Templates".
+2. "Add › From the design" lists the pack's user settings, schedules, situations, sub-scripts, values (variables) and
+   lists, each with what it is now. Click one to put it at the bottom of the page (a setting or a button goes into the
+   picked block, if one is picked), or drag it to where it should go on the panel:
+   - a schedule becomes a block: its switch beside the title, start time, this one takes part, do it now;
+   - a user setting ("Pump on below") becomes a setting; a situation or a sub-script (start the aerator, feed now…) a button;
+   - a variable (feeds today) goes into a "Values" widget, a row per device.
+3. "Add › Watch widgets": "Device status" (how each camera is; tick "Small live screen" on the right), "Log",
+   notifications and commands (Discord / Telegram); an "Empty settings block" is wired up setting by setting.
+4. "Tabs" under "Outline" put the blocks on "Now", "Settings" and "Notifications".
+5. In the middle, drag a block to move it and pull its right or bottom edge to resize it (a wide screen's row has 12
+   columns). Switch to "Phone" to order the blocks for phones with ▲▼, or leave one off phones.
+6. "Undo" (Ctrl+Z) takes a change back; with no block picked, the right side holds the whole panel's settings (accent
+   colour, large text by default, which devices); "Problems" on the right lists what to deal with, "Chat" what the
+   chat bots can do.
+7. Every change is kept as a draft the users do not see. "Preview" shows it on a desktop, a tablet, a phone and each
+   device's own page; when it is right, "Publish" and the users see it at once. Every publish goes into "Version
+   history": load an older one as the draft and publish it to go back.
 
 ![Operation panel design](tutorial/en/panel_design.png)
 

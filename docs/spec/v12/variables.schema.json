@@ -1,6 +1,6 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
- "$id": "https://inspector.local/spec/v10/tests.schema.json",
+ "$id": "https://inspector.local/spec/v12/variables.schema.json",
  "$defs": {
   "ref": {
    "description": "執行時從參數 / 使用者設定 / 變數 / 狀態(畫面上讀到的數字)取值",
@@ -706,58 +706,41 @@
    }
   }
  },
- "title": "腳本測試",
+ "title": "變數",
  "type": "object",
  "properties": {
-  "tests": {
+  "vars": {
    "type": "array",
    "items": {
     "type": "object",
     "required": [
-     "id",
      "name",
-     "session",
-     "device",
-     "minutes",
-     "expect"
+     "scope",
+     "reset"
     ],
+    "additionalProperties": false,
     "properties": {
-     "id": {
-      "type": "string"
-     },
      "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+     },
+     "label": {
       "type": "string"
      },
-     "session": {
-      "type": "string"
-     },
-     "device": {
-      "type": "string"
-     },
-     "start": {
-      "type": "number"
-     },
-     "minutes": {
-      "type": "number"
-     },
-     "sub_result": {
+     "scope": {
       "enum": [
-       "success",
-       "fail"
+       "device",
+       "global"
       ]
      },
-     "sub_results": {
-      "type": "object"
+     "reset": {
+      "enum": [
+       "daily",
+       "never"
+      ]
      },
-     "expect": {
-      "type": "array",
-      "items": {
-       "type": "object",
-       "required": [
-        "kind",
-        "when"
-       ]
-      }
+     "initial": {
+      "type": "number"
      }
     }
    }
@@ -766,7 +749,7 @@
    "type": "number"
   },
   "format": {
-   "const": 10,
+   "const": 12,
    "description": "腳本規範版本"
   },
   "version": {

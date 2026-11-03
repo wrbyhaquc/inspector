@@ -3378,10 +3378,15 @@ def _device_status(n, st, names):
 
 
 @app.get("/api/panel")
-def panel_get():
-    from . import panel as pm
+def panel_get(request: Request, draft: bool = False):
+    """The panel with what is on it now. draft: the draft being edited instead of the published panel (for whoever
+    may design it: the editor's contents and its preview)."""
+    from . import panel as pm, panel_draft as pd
     from automation import schedules as sm
-    pnl = pm.load(DATA_ROOT)
+    if draft and getattr(request.state, "role", None) != "admin":
+        raise HTTPException(403, _("只有導入顧問能看草稿"))
+    d = pd.load_draft(DATA_ROOT) if draft else None
+    pnl = d["panel"] if d else pm.load(DATA_ROOT)
     st = _runner_live() or {}
     from drivers.sources import expand
     devices = _panel_devices(pnl)
@@ -3434,7 +3439,7 @@ def panel_get():
     from notify import asks
     todo = _panel_todo(pnl, st, devices, cards, blocks)
     return {"title": pnl.get("title", _("操作面板")), "devices": devices, "controls": out_controls, "cards": cards, "todo": todo,
-            "pages": pnl.get("pages") or [], "blocks": blocks, "asks": [q for q in asks.pending(RUNTIME_DIR) if q["device"] in devices],
+            "pages": pnl.get("pages") or [], "theme": pnl.get("theme") or {}, "blocks": blocks, "asks": [q for q in asks.pending(RUNTIME_DIR) if q["device"] in devices],
             "paused": bool(st.get("hold_all")), "paused_mode": (st.get("hold_all") or {}).get("mode"),
             "running": bool(st), "history": pm.history(DATA_ROOT, 20)}
 
@@ -3625,6 +3630,12 @@ def _widget_data(w, st, devices, cards, pm):
                 rows.append({"t": h["t"], "device": h.get("device"), "text": _("操作面板:{what}", what=what), "level": "panel"})
         rows.sort(key=lambda r: -r["t"])
         return {"rows": rows[:int(w["limit"])]}
+    if kind == "values":
+        defs = {v["name"]: v for v in automation.variables(DATA_ROOT)}
+        vals = st.get("vars") or {}
+        cols = [{"name": n, "label": defs[n].get("label") or n, "shared": defs[n].get("scope") == "global"} for n in w["vars"] if n in defs]
+        return {"vars": cols, "running": bool(st), "shared": {c["name"]: (vals.get("global") or {}).get(c["name"]) for c in cols if c["shared"]},
+                "values": {n: {c["name"]: ((vals.get("device") or {}).get(n) or {}).get(c["name"]) for c in cols if not c["shared"]} for n in devices}}
     return {}
 
 
@@ -3987,6 +3998,7 @@ def panel_definition():
             "schedules": [{"id": s["id"], "name": s["name"], "sub": s["sub"], "params": params(s["sub"])} for s in sm.load(DATA_ROOT)],
             "entries": entries, "devices": [d["name"] for d in st.get("devices") or []],
             "settings": list(us.load(DATA_ROOT).values()),
+            "variables": [{"name": v["name"], "label": v.get("label") or v["name"], "scope": v.get("scope")} for v in automation.variables(DATA_ROOT)],
             "widgets": tr(pm.WIDGETS), "widget_defaults": pm.WIDGET_DEFAULTS, "modes": tr(automation.MODES),
             "source_kinds": [{"kind": k, "label": v.get("label", k), "category": v.get("category"), "category_label": v.get("category_label")}
                              for k, v in __import__("drivers").describe().items()],
@@ -3999,18 +4011,81 @@ def panel_definition():
                       for x in lists.load(DATA_ROOT).values()]}
 
 
+@app.get("/api/panel/start")
+def panel_start():
+    """What the panel can be made of (the design's settings, schedules, situations ... and what they are now), and
+    first versions of a whole panel from them (server/panel_start.py)."""
+    from . import panel_start as ps
+    return ps.start(DATA_ROOT, RUNTIME_DIR, _runner_live() or {})
+
+
 class PanelDefinition(BaseModel):
     panel: dict
 
 
 @app.post("/api/panel/definition")
 def panel_definition_save(req: PanelDefinition):
-    from . import panel as pm
+    """Publish a panel at once, without a draft (an AI over MCP, scripts); kept as a version like any publish."""
+    from . import panel_draft as pd
     try:
-        pm.save(DATA_ROOT, req.panel)
+        pd.publish(DATA_ROOT, req.panel, _("直接存檔(沒有經過草稿)"), drop=False)
     except ValueError as e:
         _bad(e)
     return {"ok": True}
+
+
+@app.get("/api/panel/draft")
+def panel_draft_get():
+    """The draft being edited (None: there is none, the editor starts from the published panel) and what is wrong
+    with whichever it is."""
+    from . import panel as pm, panel_draft as pd
+    d = pd.load_draft(DATA_ROOT)
+    return {"draft": d, "problems": pd.problems(DATA_ROOT, d["panel"] if d else pm.load(DATA_ROOT))}
+
+
+@app.post("/api/panel/draft")
+def panel_draft_save(req: PanelDefinition):
+    from . import panel_draft as pd
+    pd.save_draft(DATA_ROOT, req.panel)
+    return {"ok": True, "problems": pd.problems(DATA_ROOT, req.panel)}
+
+
+@app.post("/api/panel/draft/drop")
+def panel_draft_drop():
+    from . import panel_draft as pd
+    pd.drop_draft()
+    return {"ok": True}
+
+
+class PanelPublish(BaseModel):
+    panel: dict
+    note: str = ""
+
+
+@app.post("/api/panel/publish")
+def panel_publish(req: PanelPublish):
+    from . import panel_draft as pd
+    try:
+        pd.publish(DATA_ROOT, req.panel, req.note.strip() or _("發佈"))
+    except ValueError as e:
+        _bad(e)
+    return {"ok": True}
+
+
+@app.get("/api/panel/versions")
+def panel_versions():
+    from . import panel_draft as pd
+    return {"items": pd.versions()}
+
+
+@app.get("/api/panel/versions/{vid}")
+def panel_version(vid: str):
+    from . import panel as pm, panel_draft as pd
+    try:
+        v = pd.version(vid)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    return {**v, "panel": pm.normalize(v["panel"])}
 
 
 @app.post("/api/panel/chat_preview")

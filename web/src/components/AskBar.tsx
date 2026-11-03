@@ -21,21 +21,21 @@ export function AskBar({ items, big = false, refresh }: { items: AskItem[]; big?
   return (
     <div className="flex flex-col gap-2">
       {items.map(q => (
-        <div key={q.id} className={`rounded-xl border-2 border-rose-300 bg-rose-50 ${big ? 'px-4 py-3' : 'px-3 py-2 text-sm'}`}>
-          <div className={`${big ? 'text-xl' : ''} text-rose-900`}>
+        <div key={q.id} className={`rounded-lg border border-rose-200 bg-rose-50 ${big ? 'px-4 py-3 text-sm' : 'px-3 py-2 text-sm'}`}>
+          <div className={`${big ? 'font-medium' : ''} text-rose-900`}>
             <span className="font-semibold">❓ {dn(q.device)}{q.script_name ? ` · ${q.script_name}` : ''}</span>:{q.text}
           </div>
           <div className="flex flex-wrap items-center gap-2 mt-2">
             {q.options.map((o, k) => (
               <button key={k} disabled={ans.isPending} onClick={() => { setMsg(null); ans.mutate({ id: q.id, option: k + 1 }) }}
-                className={`rounded-lg bg-white border-2 border-rose-400 text-rose-900 font-semibold hover:bg-rose-100 ${big ? 'px-5 py-2 text-xl' : 'px-3 py-1'}`}>{o}</button>
+                className={`rounded-md bg-white border border-rose-300 text-rose-900 font-semibold hover:bg-rose-100 ${big ? 'h-9 px-4 text-sm' : 'px-3 py-1'}`}>{o}</button>
             ))}
-            <span className={`text-rose-700 ${big ? 'text-base' : 'text-xs'}`}>
+            <span className={`text-rose-700 ${big ? 'text-[0.8125rem]' : 'text-xs'}`}>
               {t('還有 {p1}', { p1: left(q) })}{q.default ? t(',沒人回答就選「{p1}」', { p1: q.options[q.default - 1] }) : t(',沒人回答腳本就停在失敗')}</span>
           </div>
         </div>
       ))}
-      {msg && <div className={`${big ? 'rounded-xl px-4 py-3' : 'text-xs'} ${msg.ok ? 'text-emerald-800' : 'text-rose-800'}`}>{msg.ok ? '✔ ' : '✖ '}{msg.text}</div>}
+      {msg && <div className={`${big ? 'px-1 text-sm' : 'text-xs'} ${msg.ok ? 'text-emerald-800' : 'text-rose-800'}`}>{msg.ok ? '✔ ' : '✖ '}{msg.text}</div>}
     </div>
   )
 }

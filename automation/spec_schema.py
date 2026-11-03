@@ -149,7 +149,13 @@ def _schema(kind):
             "items": {"type": "array", "items": {"type": "string"}},
             "page": {"type": "string", "description": _("在哪個分頁(沒填 = 第一個)")},
             "width": {"enum": ["auto", "third", "narrow", "two_thirds", "wide"], "description": _("寬螢幕上:自動 / 1/3 列 / 半列 / 2/3 列 / 整列")},
-            "widget": {"type": "object", "required": ["kind"], "properties": {"kind": {"enum": ["devices", "incidents", "deploy", "schedules", "log", "chat", "list"]}}}}}
+            "widget": {"type": "object", "required": ["kind"], "properties": {"kind": {"enum": ["devices", "incidents", "deploy", "schedules", "log", "chat", "list", "values"]}}},
+            "place": {"type": "object", "required": ["x", "y", "w"], "additionalProperties": False,
+                      "description": _("寬螢幕 12 欄格線上的位置:第幾欄、第幾列、佔幾欄、幾列高(沒填 = 依內容)"), "properties": {
+                          "x": {"type": "integer", "minimum": 0, "maximum": 11}, "y": {"type": "integer", "minimum": 0},
+                          "w": {"type": "integer", "minimum": 1, "maximum": 12}, "h": {"type": "integer", "minimum": 1, "maximum": 100}}},
+            "phone": {"type": "object", "additionalProperties": False, "description": _("手機(一欄)上:排第幾、要不要藏起來"), "properties": {
+                "order": {"type": "integer"}, "hide": {"type": "boolean"}}}}}
         page = {"type": "object", "required": ["id", "title"], "additionalProperties": False, "properties": {
             "id": {"type": "string", "pattern": ID}, "title": {"type": "string", "minLength": 1}}}
         return {**base, "title": _("操作面板(腳本規範 v{FORMAT});同一份設計也決定聊天 Bot 能做什麼", FORMAT=spec.FORMAT), "type": "object",
@@ -161,6 +167,9 @@ def _schema(kind):
                         "q": {"type": "string", "description": _("名稱過濾(這些字都要有)")},
                         "help": {"type": "string", "description": _("掃描前要準備什麼")},
                         "new_mode": {"enum": ["shadow", "live"], "description": _("選用後主腳本先試跑或正式執行")}}},
+                    "theme": {"type": "object", "additionalProperties": False, "description": _("面板的外觀"), "properties": {
+                        "accent": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": _("強調色(要按的東西)")},
+                        "big_text": {"type": "boolean", "description": _("預設用大字(看的人可以自己關掉)")}}},
                     "blocks": {"type": "array", "items": block}, "controls": {"type": "array", "items": control}, **META}}
     if kind == "variables":
         item = {"type": "object", "required": ["name", "scope", "reset"], "additionalProperties": False, "properties": {
