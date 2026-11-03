@@ -126,7 +126,7 @@ function BotPanel({ id, enabled }: { id: string; enabled: boolean }) {
         <span className="text-stone-600">{t('可以下指令的人:')}</span>
         {(b?.allowed ?? []).length === 0 && <span className="text-stone-400">{t('(還沒有;其他人傳的訊息一律不理)')}</span>}
         {(b?.allowed ?? []).map(u => <span key={u.id} className="flex items-center gap-1 bg-white border border-stone-200 rounded px-1.5 py-0.5">
-          {u.name || u.id}<button className="text-stone-400 hover:text-rose-600" title={t('移除')} onClick={() => unpair.mutate(u.id)}>✕</button></span>)}
+          {u.name || u.id}<button className="text-stone-400 hover:text-rose-600" title={t('移除')} onClick={() => { if (confirm(t('不讓「{p1}」下指令?', { p1: u.name || u.id }))) unpair.mutate(u.id) }}>✕</button></span>)}
       </div>
       <details className="text-[11px] text-stone-500">
         <summary className="cursor-pointer">{t('可以傳哪些指令(跟著「操作面板設計」;改面板就會改這裡)')}</summary>
