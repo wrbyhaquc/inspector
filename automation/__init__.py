@@ -471,6 +471,8 @@ def save(data_root, script, note=""):
              subs.load_all(data_root), {v["name"] for v in variables(data_root)})
     import drivers
     drivers.check_script(script, _("腳本「{name}」", name=script.get('name', '')), data_root)
+    from . import spec_schema
+    spec_schema.must_match("script", spec.stamp(dict(script)))
     from project import overlay
     d = _dir(data_root, script["id"])
     os.makedirs(d, exist_ok=True)

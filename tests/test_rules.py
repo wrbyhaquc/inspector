@@ -105,6 +105,28 @@ def test_template_falls_back_when_nothing_looks_alike(tmp_path):
     assert generic.evaluate(s, noise, tpls)[0] == "none"
 
 
+def test_a_flat_area_in_the_search_margin_matches_no_reference(tmp_path, monkeypatch):
+    """OpenCV can score an all-black window 1.0 against any reference (rounding in its running sums: an icon row
+    ending above a black area was read as 'the buff is on'). Flat windows score 0, like _ncc."""
+    if generic.cv2 is None:
+        pytest.skip("no OpenCV")
+    box = (40, 20, 30, 28)
+    icon = picture(lambda d: (d.rectangle((40, 20, 69, 47), fill=(200, 180, 120)), d.ellipse((46, 26, 62, 42), fill=(30, 30, 30))))
+    s = state("template", {"search": 32, "match_min": 0.85, "margin": 0.05, "fallback": "no"}, box=box)
+    generic.tpl_add(str(tmp_path), "s", "yes", icon, box, "a")
+    tpls = generic.load_templates(str(tmp_path), s)
+    assert generic.evaluate(s, icon, tpls)[0] == "yes"
+    black = picture(lambda d: d.rectangle((0, 0, W, 18), fill=(120, 90, 60)), bg=(0, 0, 0))
+    real = generic.cv2.matchTemplate
+
+    def flat_is_one(reg, t, method):                       # what OpenCV returned on the real frames
+        r = real(reg, t, method)
+        r[r.shape[0] - 1, :] = 1.0                          # the bottom row of windows is all black here
+        return r
+    monkeypatch.setattr(generic.cv2, "matchTemplate", flat_is_one)
+    assert generic.evaluate(s, black, tpls)[0] == "no"
+
+
 # ---------------------------------------------------------------- read digits
 def _font(size):
     for name in ("arialbd.ttf", "DejaVuSans-Bold.ttf", "LiberationSans-Bold.ttf"):
@@ -196,3 +218,56 @@ def test_answers_decide_the_thresholds_and_none_of_them_comes_out_wrong():
     assert s["basis"] == "answers" and s["wrong"] == 0
     assert s["low_max"] < 0.003 and s["high_min"] > 0.004          # the two answers on each other's side: undecided
     assert s["unsure_answers"] == 2
+
+
+def _icon_and_number(text, shift):
+    """A green icon with a white cross, and the number right of it; both moved right by shift px."""
+    f = _font(52)
+    im = Image.new("RGB", (W, H), (10, 10, 12))
+    d = ImageDraw.Draw(im)
+    d.rectangle((10 + shift, 30, 39 + shift, 59), fill=(40, 180, 60))
+    d.line((14 + shift, 44, 35 + shift, 44), fill=(255, 255, 255), width=3)
+    d.line((24 + shift, 34, 24 + shift, 55), fill=(255, 255, 255), width=3)
+    x = 50 + shift
+    for ch in text:
+        d.text((x, 20), ch, font=f, fill=(255, 55, 40))
+        x += int(f.getlength(ch)) + 5
+    return np.asarray(im)
+
+
+def test_digits_move_with_their_icon(tmp_path, refs):
+    s = state("digits", {"colors": RED, "part": "all", "follow": {"roi": "icon", "search": [120, 6]}}, typ="number",
+              box=(46, 10, 110, 90))
+    s["rois"].append({"id": "icon", "box": [6, 26, 38, 38]})
+    generic.validate(s)
+    generic.follow_set(str(tmp_path), "s", _icon_and_number("42", 0), (6, 26, 38, 38), "f")
+    r = generic.DigitRefs(refs)
+    r.follow = generic.load_templates(str(tmp_path), s).follow
+    assert generic.eval_digits(s, _icon_and_number("42", 0), r)[0] == 42
+    v, info = generic.eval_digits(s, _icon_and_number("57", 90), r)       # the fixed region would cut the number
+    assert v == 57 and info["moved"] == [90, 0], info
+    lost = np.asarray(Image.new("RGB", (W, H), (10, 10, 12)))
+    assert generic.eval_digits(s, lost, r)[0] is None                    # no icon: undecided, not a misread
+
+
+def test_digits_follow_needs_its_own_icon_region():
+    s = state("digits", {"colors": RED, "follow": {"roi": "r"}}, typ="number")
+    with pytest.raises(ValueError):
+        generic.validate(s)
+
+
+def test_digits_end_at_a_wide_gap(refs):
+    s = state("digits", {"colors": RED, "part": "all"}, typ="number")
+    img = _digits("42")
+    img = img.copy()
+    img[40:70, 250:262] = (255, 55, 40)                  # an arrow-like mark far after the number
+    assert generic.eval_digits(s, img, refs)[0] is None
+    s["source"]["params"]["max_gap"] = 40
+    generic.validate(s)
+    assert generic.eval_digits(s, img, refs)[0] == 42
+
+
+def test_a_whole_number_takes_every_point_as_a_thousands_separator():
+    assert generic.to_number("361,744.059") == 361744.059
+    assert generic.to_number("361,744.059", whole=True) == 361744059
+    assert generic.to_number("1.250", whole=True) == 1250

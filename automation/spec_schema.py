@@ -229,6 +229,14 @@ def schema_errors(kind, doc, limit=20):
     return out
 
 
+def must_match(kind, doc):
+    """Raise ValueError when a document about to be saved does not match the spec (the same check as export and
+    the JSON editor): a value the run accepts but the spec does not (e.g. true / false compared) is caught here."""
+    errs = schema_errors(kind, doc, 3)
+    if errs:
+        raise ValueError(_("不符合腳本規範:{p1}", p1=_("、").join(f"{e['path']} {e['message']}" for e in errs)))
+
+
 def check(kind, doc, data_root):
     """-> [{"path", "message"}]; empty = the document can be saved."""
     errs = schema_errors(kind, doc)

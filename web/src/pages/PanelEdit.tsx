@@ -724,6 +724,11 @@ function WidgetEditor({ w, info, onChange }: { w: PanelWidget; info: PanelDefini
     case 'devices': return <div className="flex flex-wrap gap-4">
       <span className="text-stone-600">{t('每台的狀態,另外顯示:')}</span>
       {flag('show_step', t('目前這一步'), t('例如「等待 55 分鐘 · 還剩 12:30」'))}{flag('show_alerts', t('最近的提醒'))}{flag('show_image', t('即時小畫面'), t('每 3 秒更新一次'))}
+      {(info.states ?? []).length > 0 && <div className="w-full flex flex-wrap gap-3">
+        <span className="text-stone-600">{t('卡片上顯示這些狀態的值:')}</span>
+        {(info.states ?? []).map(s => <label key={s.id} className="flex items-center gap-1"><input type="checkbox" checked={ids('states').includes(s.id)} onChange={e => pick('states', s.id, e.target.checked)} />{s.name}</label>)}
+        <span className="text-xs text-stone-500 w-full">{t('例如水位、溫度、庫存:數字帶單位、比例顯示百分比、分類顯示名稱;看不出來時顯示「—」。')}</span>
+      </div>}
     </div>
     case 'incidents': return <div className="flex flex-wrap items-center gap-4">{limit}{flag('show_frames', t('顯示發生當下的畫面'))}</div>
     case 'deploy': return <div className="flex flex-col gap-2">

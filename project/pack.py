@@ -227,15 +227,15 @@ def export_check(model=None, out=None):
     scripts = automation.load_all(design)
     bad = []
     for sc in scripts:
-        bad += [_("主腳本「{name}」:{msg}", name=sc.get("name") or sc["id"], msg=e["message"])
+        bad += [_("主腳本「{name}」:{why}", name=sc.get("name") or sc["id"], why=e["message"])
                 for e in spec_schema.check("script", sc, design)[:1]]
     for sid, sub in subs_mod.load_all(design).items():
-        bad += [_("子腳本「{name}」:{msg}", name=sub.get("name") or sid, msg=e["message"])
+        bad += [_("子腳本「{name}」:{why}", name=sub.get("name") or sid, why=e["message"])
                 for e in spec_schema.check("sub", sub, design)[:1]]
     panel_file = os.path.join(design, "meta", "panel.json")
     if os.path.exists(panel_file):
         with open(panel_file, encoding="utf-8") as f:
-            bad += [_("操作面板:{msg}", msg=e["message"]) for e in spec_schema.check("panel", json.load(f), design)[:1]]
+            bad += [_("操作面板:{why}", why=e["message"]) for e in spec_schema.check("panel", json.load(f), design)[:1]]
     for b in bad:
         add("error", b)
     if not bad:

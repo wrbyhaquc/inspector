@@ -143,10 +143,19 @@ def build(data_root, holdout=(), sch=None):
     items = []
     sessions = os.path.join(project.work_of(data_root), "sessions")
     gone = {s for s in {r["session"] for r in labels} if not os.path.isdir(os.path.join(sessions, s))}
+    there = {}                                          # (session, device) -> the frame files it still has
     for r in labels:
         if r["session"] in gone:                        # a recording deleted since it was labelled (to make room)
             continue
         f = rel(data_root, r["frame"])
+        k = (r["session"], r["device"])
+        if k not in there:
+            try:
+                there[k] = set(os.listdir(os.path.join(sessions, k[0], "devices", k[1], "frames")))
+            except OSError:
+                there[k] = None                         # no frames folder to check against
+        if there[k] is not None and os.path.basename(f) not in there[k]:     # a frame deleted since (thinning the recordings)
+            continue
         it = {"frame": f, "session": r["session"], "device": r["device"], "id": r["id"], "t": r["t"],
               "targets": {h["id"]: target(h, r, hidden) for h in hs},
               "rule": {h["id"]: r.get(h["id"]) for h in hs if h["kind"] == "class"}}

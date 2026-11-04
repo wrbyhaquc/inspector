@@ -1,7 +1,7 @@
 import { t } from '../i18n'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { api, type CleanRecord, type KeepKind, type LocationCheck, type StorageSettings } from '../api'
+import { api, imageUrl, type CleanRecord, type KeepKind, type LocationCheck, type StorageSettings } from '../api'
 import { Button, Card, ErrorText, Page } from '../components/ui'
 import { bytes, dateTime } from '../lib/format'
 import { StorageCard } from './Overview'
@@ -20,7 +20,7 @@ export default function Storage() {
         {tabs.map(([k, tx]) => <button key={k} onClick={() => { setTab(k); history.replaceState(null, '', `#${k}`) }}
           className={`px-4 py-2 text-sm -mb-px border-b-2 ${tab === k ? 'border-stone-900 font-medium' : 'border-transparent text-stone-500'}`}>{tx}</button>)}
       </div>
-      {tab === 'overview' ? <><StorageCard /><HistoryCard /></> : tab === 'keep' ? <><KeepCard />{edition.name !== 'runtime' && <ModelsCard />}</> : tab === 'protect' ? <ProtectCard />
+      {tab === 'overview' ? <><StorageCard /><HistoryCard /></> : tab === 'keep' ? <><KeepCard />{edition.name !== 'runtime' && <><ThinCard /><ModelsCard /></>}</> : tab === 'protect' ? <ProtectCard />
         : tab === 'location' ? <LocationCard /> : <RecordCard />}
     </Page>
   )
@@ -234,7 +234,7 @@ function HistoryCard() {
               <span className="text-stone-500 num">{dateTime(r.t)}</span>
               <span className="text-xs px-1.5 rounded bg-stone-100 self-center">{BY[r.by] ?? r.by}</span>
               {r.what === 'stopped' ? <span className="text-amber-800">{r.why}</span> : <span>
-                {r.what === 'recordings' ? t('刪掉 {n} 段錄影', { n: r.sessions?.length ?? 0 }) : r.what === 'models' ? t('刪掉 {n} 次訓練', { n: r.runs?.length ?? 0 }) : t('執行紀錄')}
+                {r.what === 'recordings' ? t('刪掉 {n} 段錄影', { n: r.sessions?.length ?? 0 }) : r.what === 'models' ? t('刪掉 {n} 次訓練', { n: r.runs?.length ?? 0 }) : r.what === 'thinned' ? t('錄影瘦身({n} 段錄影)', { n: r.recordings ?? 0 }) : t('執行紀錄')}
                 {' · '}{t('{n} 個檔案、{size}', { n: r.files, size: bytes(r.bytes) })}
                 {(r.sessions ?? r.runs)?.length ? <span className="text-xs text-stone-500 font-mono">{' '}{(r.sessions ?? r.runs)!.join(', ')}</span> : null}</span>}
             </div>
@@ -268,6 +268,43 @@ function ModelsCard() {
           <span className="text-xs text-stone-600">{!s.keep_models ? t('全部保留') : p?.runs.length ? t('會刪 {n} 次訓練、{size}:{runs}', { n: p.runs.length, size: bytes(p.bytes), runs: p.runs.join(', ') }) : t('沒有要刪的訓練')}</span>
         </div>
         <ErrorText error={error || clean.error} />
+      </div>
+    </Card>
+  )
+}
+
+/** Thinning the recordings: look for the frames that add nothing to training (the same picture and the same labels
+ * as the frame kept just before), look at a few, then delete them. */
+function ThinCard() {
+  const qc = useQueryClient()
+  const q = useQuery({ queryKey: ['storageThin'], queryFn: api.storageThin, refetchInterval: d => d.state.data?.job?.status === 'running' ? 2000 : false })
+  const done = () => { qc.invalidateQueries({ queryKey: ['storageThin'] }); qc.invalidateQueries({ queryKey: ['storage'] }); qc.invalidateQueries({ queryKey: ['storageHistory'] }) }
+  const plan = useMutation({ mutationFn: api.storageThinPlan, onSuccess: done })
+  const apply = useMutation({ mutationFn: api.storageThinApply, onSuccess: done })
+  const p = q.data?.plan, job = q.data?.job, running = job?.status === 'running'
+  return (
+    <Card title={t('錄影瘦身')} extra={<span className="text-xs text-stone-500">{t('先試算,看過再刪')}</span>}>
+      <div className="flex flex-col gap-3 text-sm max-w-3xl">
+        <div className="text-stone-600">{t('同一台、一分鐘內,畫面幾乎一樣、自動標籤也完全一樣的畫面,對訓練只是重複同一個答案:只留前面那張。有人回答或標過的、題目和測試集用到的(和它前後 3 秒)、腳本測試重播的錄影、還在錄的、還沒有標籤的,都不會刪。')}</div>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button disabled={running || plan.isPending} onClick={() => plan.mutate()}>{running && job?.title === t('錄影瘦身:試算') ? t('試算中…') : t('試算')}</Button>
+          {p && <Button disabled={running || apply.isPending || !p.drop_frames} onClick={() => {
+            if (confirm(t('刪掉 {n} 張重複的畫面({size})?這無法復原。', { n: p.drop_frames, size: bytes(p.drop_bytes) }))) apply.mutate()
+          }}>{running && job?.title === t('錄影瘦身:刪除') ? t('刪除中…') : t('刪掉重複的畫面')}</Button>}
+          {p && <span className="text-xs text-stone-600 num">{t('{time} 試算:{all} 張({size})裡有 {n} 張重複,可省 {drop}', { time: dateTime(p.t), all: p.frames, size: bytes(p.bytes), n: p.drop_frames, drop: bytes(p.drop_bytes) })}</span>}
+        </div>
+        {running && <div className="text-xs text-stone-500 font-mono">{job?.log?.slice(-1)[0]}</div>}
+        {!running && job?.status === 'failed' && <div className="text-xs text-rose-700 font-mono whitespace-pre-wrap">{job.log?.slice(-3).join('\n')}</div>}
+        {p && p.samples.length > 0 && <details>
+          <summary className="cursor-pointer text-stone-600">{t('看幾組:右邊那張會被刪,左邊那張留著')}</summary>
+          <div className="flex flex-col gap-2 mt-2">
+            {p.samples.map(x => <div key={x.frame} className="grid grid-cols-2 gap-2">
+              <img src={imageUrl(x.like, 480)} alt={t('留著')} className="rounded border border-stone-200 w-full" loading="lazy" />
+              <img src={imageUrl(x.frame, 480)} alt={t('會刪')} className="rounded border border-rose-200 w-full" loading="lazy" />
+            </div>)}
+          </div>
+        </details>}
+        <ErrorText error={q.error || plan.error || apply.error} />
       </div>
     </Card>
   )

@@ -50,7 +50,9 @@ import project
 FILE = os.path.join("meta", "lists.json")
 SEARCH = 520
 MIN_SCORE = 0.62
-SCALES = [1.0, 0.75, 0.7]
+SCALES = [1.0, 0.78, 0.76, 0.74, 0.72, 0.7, 0.68]   # the highlighted (last used) row shows the name smaller;
+                                                # the match peaks sharply (0.72 -> 0.72, 0.75 -> 0.49), so step finely
+MIN_SCORE_SCALED = 0.6
 MATCH = 0.5                # a row "fits" a name above this (whole-name comparison): one place ~0.8-0.97, two ~0.1-0.5,
                            # but two names one character apart up to ~0.87: only a run of rows tells them apart
 ROW_OK = 0.6               # a row laid on a name must still look like it at least this much
@@ -288,7 +290,7 @@ def capture(data_root, spec, device, snap, swipe, tap, pages=60):
             x, y, w, h = box
             b = {"id": bid, "label": f"{spec.get('title') or spec['id']} {len(walked) + 1}", "x": x + w // 2,
                  "y": y + h // 2, "find": True, "box": box, "search": SEARCH, "min_score": MIN_SCORE, "feature": "text",
-                 "scales": SCALES, "min_score_scaled": 0.5, "group": spec["group"], "list": spec["id"]}
+                 "scales": SCALES, "min_score_scaled": MIN_SCORE_SCALED, "group": spec["group"], "list": spec["id"]}
             if spec.get("per_device"):
                 b["device"] = device
             b = buttons.save(data_root, b, fr)

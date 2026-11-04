@@ -47,7 +47,9 @@ turns it off}.
 
 A block may instead be a watch widget (監看元件): {"id", "title", "help", "widget": {"kind", ...options}, "items": []}
   devices     how each emulator is doing          options: show_step (the step it is on), show_alerts (its last alerts),
-                                                           show_image (a small live picture)
+                                                           show_image (a small live picture), states [state ids
+                                                           whose value each card shows: a number with its unit, a
+                                                           ratio as a percentage, a class by its name]
   incidents   the urgent incidents                options: limit, show_frames (the picture of the moment)
   deploy      which main script runs where        options: scripts [ids the users may switch], modes [the modes they
                                                            may choose: off / shadow / live]
@@ -136,6 +138,11 @@ def check_widget(data_root, w):
             raise ValueError(_("「部署開關」請選擇要開放的主腳本"))
         if not w.get("modes") or any(m not in automation.MODES for m in w["modes"]):
             raise ValueError(_("「部署開關」請選擇使用者可以切換的模式"))
+    if kind == "devices" and w.get("states"):
+        import schema as schema_mod
+        have = {s["id"] for s in schema_mod.load(data_root)["states"] if s["type"] in ("number", "ratio", "class")}
+        if any(s not in have for s in w["states"]):
+            raise ValueError(_("「裝置狀態」選的狀態已經不存在"))
     if kind == "list":
         from automation import lists
         if w.get("list") not in lists.load(data_root):

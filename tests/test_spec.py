@@ -51,3 +51,15 @@ def test_a_panel_control_may_name_its_sources():
         "controls": [{"id": "c", "label": "C", "type": "action", "scope": "device", "devices": ["CAM-1", "#north"],
                       "bind": {"kind": "act_stop"}}]}))
     assert errs == []
+
+
+def test_saving_refuses_what_the_spec_does_not_take(tmp_path, monkeypatch):
+    """true / false compared passes the run's own check; the spec takes only numbers there, so saving says so."""
+    from automation import spec_schema
+    doc = {"id": "s", "name": "S", "steps": [{"type": "if", "then": [], "else": [],
+           "when": [[{"kind": "compare", "left": {"setting": "x"}, "op": "is", "right": True}]]}]}
+    import pytest
+    with pytest.raises(ValueError):
+        spec_schema.must_match("sub", doc)
+    doc["steps"][0]["when"][0][0]["right"] = 1
+    spec_schema.must_match("sub", doc)

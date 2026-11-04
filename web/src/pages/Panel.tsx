@@ -349,6 +349,8 @@ function DeviceCard({ c, more, step, alerts, tick, stop, onOpen, onMsg }: {
                 {p.wait_left != null ? t('這個還剩 {p1}', { p1: span(p.wait_left) }) : ''}{p.wait_left != null && p.eta != null ? ' · ' : ''}{p.eta != null ? t('約 {p1} 完成', { p1: clockIn(p.eta) }) : ''}</div>}
             </>
           : <div className="text-[0.8125rem] text-stone-500 line-clamp-2">{c.now}</div>}
+        {(more?.values ?? []).length > 0 && <div className="text-xs text-stone-600 flex flex-wrap gap-x-3 gap-y-0.5">
+          {more!.values!.map(v => <span key={v.name} className="whitespace-nowrap">{v.name} <b className="num font-medium">{v.text ?? '—'}</b></span>)}</div>}
         {step && more?.step && <div className="text-xs text-stone-500 truncate">{t('目前這一步:{step}', { step: more.step })}</div>}
         {alerts && c.alerts.length > 0 && <div className="text-xs text-stone-500 flex flex-col">{c.alerts.map((a, i) => <span key={i} className="truncate">
           <span className="text-stone-400 mr-1 num">{new Date(a.t * 1000).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</span>{a.text}</span>)}</div>}

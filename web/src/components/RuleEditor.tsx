@@ -1,7 +1,7 @@
 import { t } from '../i18n'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { api, imageUrl, ruleTemplateUrl, type AnswerValue, type HsvRange, type RatioSuggestion, type RulePreviewItem, type RuleTemplate, type StateDef } from '../api'
+import { api, imageUrl, ruleTemplateUrl, type AnswerValue, type HsvRange, type RatioSuggestion, type RulePreviewItem, type RuleTemplate, type StateDef, type GlyphsInfo } from '../api'
 import { COLORS } from '../lib/schema'
 import { Zoom } from './FrameView'
 import QuickAnswers from './QuickAnswers'
@@ -659,6 +659,7 @@ function DigitsRule({ s, box, setP }: { s: StateDef; box: number[]; setP: (k: st
   const sig = JSON.stringify([s.rois, p])
   const gl = useQuery({ queryKey: ['glyphs', s.id, frame, sig], queryFn: () => api.ruleGlyphs(s, frame!), enabled: !!frame && (p.colors ?? []).length > 0 })
   const [typed, setTyped] = useState<Record<number, string>>({})
+  const [stamp, setStamp] = useState(0)
   const teach = useMutation({
     mutationFn: ({ i, c }: { i: number; c: string }) => api.ruleGlyphTeach(s, frame!, i, c),
     onSuccess: d => { qc.setQueryData(['glyphs', s.id, frame, sig], d); qc.invalidateQueries({ queryKey: ['ruleTemplates', s.id] }); setTyped({}) },
@@ -682,8 +683,17 @@ function DigitsRule({ s, box, setP }: { s: StateDef; box: number[]; setP: (k: st
           <label className="flex items-center gap-2">{t('每個字元至少要像')}
             <input type="number" step={0.05} min={0.3} max={0.95} className={`${input} w-20 num`} value={p.match_min ?? 0.6} onChange={e => setP('match_min', Number(e.target.value))} />
             <span className="text-xs text-stone-500">{t('(低於就算「不確定」,腳本會等)')}</span></label>
+          <label className="flex items-center gap-2">{t('字元間隔超過')}
+            <input type="number" min={1} max={200} className={`${input} w-20 num`} value={p.max_gap ?? ''} placeholder={t('不限')}
+              onChange={e => setP('max_gap', e.target.value === '' ? undefined : Math.round(Number(e.target.value)))} />
+            <span className="text-xs text-stone-500">{t('像素就當作數字結束(後面跟著單位或箭頭時用)')}</span></label>
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={!!p.whole} onChange={e => setP('whole', e.target.checked || undefined)} />
+            {t('只有整數(小點都當作千分位)')}</label>
         </div>
       </section>
+      <FollowSection s={s} setP={setP} frame={frame} info={gl.data} stamp={stamp}
+        onSet={d => { qc.setQueryData(['glyphs', s.id, frame, sig], d); setStamp(Date.now()) }} />
       <section className="flex flex-col gap-2">
         <div className="font-medium text-stone-700">{t('3. 教它認字元')}</div>
         <p className="text-xs text-stone-500">{t('下面是這張畫面切出來的字元和目前認成什麼。認錯或還沒教過的,在下面填正確的字元(0~9 . , / % - :)按「教」。每個字元教 2~5 個例子最穩;換幾張畫面多教幾次。教之前請先')}<b>{t('儲存')}</b>{t('狀態定義。')}</p>
@@ -725,5 +735,53 @@ function DigitsRule({ s, box, setP }: { s: StateDef; box: number[]; setP: (k: st
         </div>}
       </section>
     </div>
+  )
+}
+
+/** A number whose place moves with an icon beside it (labeler/generic.py, params.follow): which region holds the
+ *  icon, how far to look for it, and its picture taken from the frame shown. */
+function FollowSection({ s, setP, frame, info, stamp, onSet }: {
+  s: StateDef; setP: (k: string, v: any) => void; frame?: string; info?: GlyphsInfo; stamp: number; onSet: (d: GlyphsInfo) => void
+}) {
+  const p = s.source.params ?? {}
+  const fl = p.follow as { roi?: string; search?: [number, number]; min?: number } | undefined
+  const others = s.rois.filter(r => r.id !== p.roi)
+  const set = useMutation({ mutationFn: () => api.ruleFollowSet(s, frame!), onSuccess: onSet })
+  const put = (k: string, v: any) => setP('follow', { ...fl, [k]: v })
+  const search = fl?.search ?? [200, 10]
+  return (
+    <section className="flex flex-col gap-2">
+      <label className="flex items-center gap-2 font-medium text-stone-700">
+        <input type="checkbox" checked={!!fl} onChange={e => setP('follow', e.target.checked ? { roi: others[0]?.id ?? '', search: [200, 10], min: 0.7 } : undefined)} />
+        {t('跟著圖示移動(可選)')}</label>
+      <p className="text-xs text-stone-500">{t('數字的位置會左右跑時用(例如前面的數字變長,整排往右推):另外框住數字旁邊一個固定的圖示,每張畫面先找到圖示,讀數字的範圍就跟著移動同樣的距離。')}</p>
+      {fl && (others.length === 0 ? <Empty>{t('先在上面加一個範圍,框住數字旁邊的圖示')}</Empty> : (
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap gap-x-6 gap-y-2 items-center">
+            <label className="flex items-center gap-2">{t('圖示範圍')}
+              <select className={input} value={fl.roi ?? ''} onChange={e => put('roi', e.target.value)}>
+                {others.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select></label>
+            <label className="flex items-center gap-2">{t('左右找')}
+              <input type="number" min={0} max={1000} className={`${input} w-20 num`} value={search[0]} onChange={e => put('search', [Math.round(Number(e.target.value)), search[1]])} />
+              {t('上下找')}
+              <input type="number" min={0} max={1000} className={`${input} w-20 num`} value={search[1]} onChange={e => put('search', [search[0], Math.round(Number(e.target.value))])} />
+              <span className="text-xs text-stone-500">{t('像素')}</span></label>
+            <label className="flex items-center gap-2">{t('圖示至少要像')}
+              <input type="number" step={0.05} min={0.3} max={0.99} className={`${input} w-20 num`} value={fl.min ?? 0.7} onChange={e => put('min', Number(e.target.value))} /></label>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button disabled={!frame || !fl.roi || set.isPending} onClick={() => set.mutate()}>{t('用這張畫面的圖示')}</Button>
+            {info?.follow !== 'unset' && <img src={`${ruleTemplateUrl(s.id, 'follow.png')}?v=${stamp}`} alt="" className="h-8 border border-stone-300 bg-stone-900" style={{ imageRendering: 'pixelated' }} />}
+            <span className={`text-sm ${info?.follow === 'found' ? 'text-stone-700' : 'text-amber-700'}`}>
+              {info?.follow === 'unset' ? t('還沒有圖示:選一張看得到圖示的畫面,按左邊的按鈕(請先儲存狀態定義)')
+                : info?.follow === 'lost' ? t('這張畫面找不到圖示(相似度 {p1}),數字會是「不確定」', { p1: info.follow_score?.toFixed(2) ?? '—' })
+                : info?.follow === 'found' ? t('找到圖示(相似度 {p1}),往右 {p2}、往下 {p3} 像素', { p1: info.follow_score?.toFixed(2) ?? '', p2: info.moved?.[0] ?? 0, p3: info.moved?.[1] ?? 0 })
+                : ''}</span>
+          </div>
+          <ErrorText error={set.error} />
+        </div>
+      ))}
+    </section>
   )
 }

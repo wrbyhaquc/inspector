@@ -122,7 +122,7 @@ def clean(shadow_dir, runtime_dir, work_dir, keep=None, today=None, dry=False, b
 
 def note(runtime_dir, by, what, files, size, detail=None):
     """One cleaning, written down: by "runner" | "user" | "room" (making room on a full disk), what "records" |
-    "recordings"."""
+    "recordings" | "models" | "thinned" (frames of recordings, project/thin.py)."""
     try:
         os.makedirs(runtime_dir, exist_ok=True)
         with open(os.path.join(runtime_dir, CLEAN_LOG), "a", encoding="utf-8") as f:

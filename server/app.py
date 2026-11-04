@@ -758,6 +758,33 @@ def storage_models_clean():
     return _models_clean(by="user")
 
 
+@app.get("/api/storage/thin")
+def storage_thin():
+    """Thinning the recordings (project/thin.py): the latest plan (what would go, a few pairs to look at), the job."""
+    from project import thin
+    j = jobs.latest("thin")
+    return {"plan": thin.summary(DATA_ROOT), "job": j.info(tail=20) if j else None}
+
+
+@app.post("/api/storage/thin/plan")
+def storage_thin_plan():
+    """Look for the frames that add nothing (a job; nothing is deleted)."""
+    if jobs.running("thin") or jobs.running("labeler") or jobs.running("train"):
+        _bad(_("正在產生標籤、訓練或整理錄影,等它做完再試算"))
+    return jobs.start("thin", ["project.thin", "--data", DATA_ROOT], _("錄影瘦身:試算")).info()
+
+
+@app.post("/api/storage/thin/apply")
+def storage_thin_apply():
+    """Delete what the plan found (a job; every frame is checked again first)."""
+    from project import thin
+    if jobs.running("thin") or jobs.running("labeler") or jobs.running("train"):
+        _bad(_("正在產生標籤、訓練或整理錄影,等它做完再刪"))
+    if not thin.summary(DATA_ROOT):
+        _bad(_("還沒有試算,先按「試算」"))
+    return jobs.start("thin", ["project.thin", "--data", DATA_ROOT, "--runtime", RUNTIME_DIR, "--apply"], _("錄影瘦身:刪除")).info()
+
+
 @app.get("/api/storage/history")
 def storage_history(limit: int = Query(50, le=500)):
     """The cleanings so far, newest first (by the runner, a person, or making room on a full disk)."""
@@ -1607,24 +1634,41 @@ class GlyphsReq(BaseModel):
 
 
 def _glyphs_of(st, frame):
+    """-> (frame, characters found, taught references, where the number was read (None: its icon was not found), info)"""
     from labeler import generic
     if st.get("source", {}).get("rule") != "digits":
         _bad(_("這個狀態不是「讀數字」規則"))
     p = st["source"].get("params") or {}
-    box = generic._box(st, p.get("roi"))
     img = _load_rgb(frame)
-    return img, generic.glyphs(img, box, p.get("colors"))
+    refs = generic.load_templates(DATA_ROOT, st)
+    box, info = generic.digits_box(st, img, refs)
+    return img, (generic.until_gap(generic.glyphs(img, box, p.get("colors")), p.get("max_gap")) if box else []), refs, box, info
 
 
 @app.post("/api/rules/glyphs")
 def rule_glyphs(req: GlyphsReq):
     """The characters a digits rule finds on one frame, and what it reads each as (to teach the wrong ones)."""
     from labeler import generic
-    img, gs = _glyphs_of(req.state, req.frame)
-    refs = generic.load_templates(DATA_ROOT, req.state)
+    img, gs, refs, box, info = _glyphs_of(req.state, req.frame)
     out = [{"box": [int(v) for v in b], "char": c, "score": sc} for (b, _x), (c, sc) in zip(gs, generic.read_chars(img, gs, refs))]
-    v, info = generic.eval_digits(req.state, img, refs)
-    return {"glyphs": out, "text": info["text"], "value": v, "taught": len(refs)}
+    v, read = generic.eval_digits(req.state, img, refs)
+    return {"glyphs": out, "text": read["text"], "value": v, "taught": len(refs),
+            "box": [int(x) for x in box] if box else None, **{k: x for k, x in info.items() if k.startswith("follow") or k == "moved"}}
+
+
+@app.post("/api/rules/follow")
+def rule_follow_set(req: GlyphsReq):
+    """Take the picture of the icon a digits rule's number moves with from this frame (its icon region)."""
+    import re
+    from labeler import generic
+    sid = req.state.get("id") or ""
+    if not re.fullmatch(r"[a-z][a-z0-9_]*", sid):
+        _bad(_("狀態代號不正確"))
+    fl = ((req.state.get("source") or {}).get("params") or {}).get("follow") or {}
+    if not fl.get("roi"):
+        _bad(_("先選擇數字旁邊的圖示範圍"))
+    generic.follow_set(DATA_ROOT, sid, _load_rgb(req.frame), generic._box(req.state, fl["roi"]), req.frame)
+    return rule_glyphs(GlyphsReq(state=req.state, frame=req.frame))
 
 
 class GlyphTeach(GlyphsReq):
@@ -1641,7 +1685,7 @@ def rule_glyph_teach(req: GlyphTeach):
         _bad(_("狀態代號不正確"))
     if len(req.char) != 1 or req.char not in generic.CHARS:
         _bad(_("只能教這些字元:{CHARS}", CHARS=generic.CHARS))
-    img, gs = _glyphs_of(req.state, req.frame)
+    img, gs, _refs, _where, _info = _glyphs_of(req.state, req.frame)
     if not 0 <= req.index < len(gs):
         _bad(_("找不到這個字元,請重新整理"))
     name = generic.glyph_add(DATA_ROOT, sid, req.char, img, gs[req.index][0], req.frame)
@@ -3554,6 +3598,21 @@ def panel_stuck_frame(frame: str):
     return FileResponse(f)
 
 
+def _state_text(s, v):
+    """A state's value as people read it on a device card: 1,250 次, 32.5%, a class's name; None when it cannot be told."""
+    v = (v or {}).get("value")
+    if v is None:
+        return None
+    if s["type"] == "ratio" and isinstance(v, (int, float)):
+        return f"{v * 100:.1f}%"
+    if s["type"] == "number" and isinstance(v, (int, float)):
+        txt = f"{v:,}" if isinstance(v, int) or float(v).is_integer() else f"{v:,.2f}"
+        return f"{txt} {s['unit']}" if s.get("unit") else txt
+    if s["type"] == "class":
+        return next((c.get("name") or str(c["value"]) for c in s.get("classes") or [] if c["value"] == v), str(v))
+    return str(v)
+
+
 def _widget_data(w, st, devices, cards, pm):
     """What a watch widget of the operation panel shows (only what its options let users see)."""
     import automation
@@ -3562,13 +3621,20 @@ def _widget_data(w, st, devices, cards, pm):
     kind = w["kind"]
     by_name = {d["name"]: d for d in st.get("devices") or []}
     if kind == "devices":
+        shown = []
+        if w.get("states"):
+            import schema as schema_mod
+            defs = {s["id"]: s for s in schema_mod.load(DATA_ROOT)["states"]}
+            shown = [defs[s] for s in w["states"] if s in defs]
         out = []
         for c in cards:
-            p = (by_name.get(c["device"]) or {}).get("proc") or {}
+            d = by_name.get(c["device"]) or {}
+            p = d.get("proc") or {}
             out.append({"device": c["device"], "now": c["now"], "tone": c["tone"], "label": c.get("label"), "online": c["online"], "today": c["today"],
                         "step": (p.get("now") if w.get("show_step") and p else None),
                         "alerts": c["alerts"] if w.get("show_alerts") else [],
-                        "image": bool(w.get("show_image")) and c["online"]})
+                        "image": bool(w.get("show_image")) and c["online"],
+                        "values": [{"name": s["name"], "text": _state_text(s, (d.get("state") or {}).get(s["id"]))} for s in shown]})
         return {"devices": out}
     if kind == "incidents":
         root = os.path.join(SHADOW_DIR, "incidents")
@@ -3999,6 +4065,8 @@ def panel_definition():
             "entries": entries, "devices": [d["name"] for d in st.get("devices") or []],
             "settings": list(us.load(DATA_ROOT).values()),
             "variables": [{"name": v["name"], "label": v.get("label") or v["name"], "scope": v.get("scope")} for v in automation.variables(DATA_ROOT)],
+            "states": [{"id": s["id"], "name": s["name"], "type": s["type"]} for s in __import__("schema").load(DATA_ROOT)["states"]
+                       if s["type"] in ("number", "ratio", "class")],
             "widgets": tr(pm.WIDGETS), "widget_defaults": pm.WIDGET_DEFAULTS, "modes": tr(automation.MODES),
             "source_kinds": [{"kind": k, "label": v.get("label", k), "category": v.get("category"), "category_label": v.get("category_label")}
                              for k, v in __import__("drivers").describe().items()],

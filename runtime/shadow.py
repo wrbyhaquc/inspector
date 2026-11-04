@@ -90,7 +90,7 @@ from labeler import generic, rules as auto_rules
 
 from . import arbiter
 
-from . import incidents as incidents_mod, judge, quality as quality_mod, retention
+from . import button_health, incidents as incidents_mod, judge, quality as quality_mod, retention
 from .joblog import JobLog
 from project import word
 from i18n import _
@@ -267,6 +267,10 @@ class Shadow:
         # how sure the model is per state while it runs; says so when a state starts going wrong (runtime/quality.py)
         self.quality = quality_mod.Quality(self.fast, os.path.basename(self.run_dir) if self.run_dir else "rules", lambda: self.names,
                                            lambda dev, text: self.alert(dev, _("[品質監測] {text}", text=text)))
+        # how often the picture buttons a step taps are found; says so when one stops being found (runtime/button_health.py)
+        self.button_health = button_health.ButtonHealth(
+            self.fast, lambda: {b: x.get("label") or b for b, x in buttons_mod.load(self.data_root).items()},
+            lambda text: self.alert("", _("[按鈕監測] {text}", text=text)))
         self._trust_job = None
         self._list_pics = {}                                  # where the names of a list fit on the last frame
         self.fire_days = {}                                   # (device, script, rule) -> [date, times fired that day]
@@ -553,6 +557,8 @@ class Shadow:
             return f.get("point") if f else None
         frame = self.cur_frames.get(n)
         (x, y), score = buttons_mod.locate(b, frame, self.data_root)
+        if not spec and frame is not None:
+            self.button_health.add(time.time(), b["id"], n, x is not None, score)
         if x is None:
             return None
         if spec:                                          # a list name: no other name of the list may fit that row better
@@ -1034,9 +1040,6 @@ class Shadow:
             if not dec.get("stable") and not dec.get("urgent") and not dec.get("on_enter"):
                 dec["exec"], dec["wait"] = _("確認中"), True
                 continue
-            run = self.procs.get(n)
-            if run and dec["action"] in automation.TAPPING and not self._may_take_over(n, run, dec, now):
-                continue
             if key in self.blocked:
                 dec["exec"] = _("已暫停:{p1}", p1=self.blocked[key])
                 continue
@@ -1067,6 +1070,11 @@ class Shadow:
             if dec["action"] not in ("notify", "set_var") and len(q) >= c["max_per_min"]:
                 dec["exec"] = _("已達每分鐘 {max_per_min} 次上限", max_per_min=c['max_per_min'])
                 dec["wait"] = True
+                continue
+            # only a rule that is really going to act takes control: one still cooling down (or over a limit) leaves
+            # the running sub-script alone, or the sub-script stops and starts on every tick
+            run = self.procs.get(n)
+            if run and dec["action"] in automation.TAPPING and not self._may_take_over(n, run, dec, now):
                 continue
             # no effect since last time = the same decision has held ever since this rule last fired
             cur = self.current.get((n, dec["script"])) or {}
@@ -2096,6 +2104,7 @@ class Shadow:
         finally:
             self.incidents.close_all(time.time())
             self.quality.close(time.time())
+            self.button_health.close(time.time())
             for n, run in list(self.procs.items()) + [(k, v) for k, v in self.parked.items() if k not in self.procs]:
                 # a schedule (also one set aside for an urgent rule) carries on after the next start
                 if run.origin.get("schedule") and not run.done:

@@ -15,6 +15,14 @@
                "1250/2000"). A character that looks like none of them (score < params.match_min) -> undecided.
                A mark much shorter than the digits is told by its place and shape, untaught (small_char()): "." at
                the bottom of the line, "," reaching below it, "-" across the middle; any other one is a speck.
+               A number whose place moves with something next to it (a row of icons that shifts): params.follow =
+               {"roi": a second region around an icon beside the number, "search": [x, y] px to look for it around
+               there (default 200, 10), "min": how alike it must be (default 0.7)}. The icon's picture is taken from
+               one frame (follow_set, kept as follow.png beside the taught characters); on every frame the icon is
+               found near its region and the number region moves by as much. Icon not found -> undecided.
+               params.max_gap (optional, px): the number ends at the first gap between characters wider than this
+               (a unit, an arrow or an icon that follows the number at its own distance is left out).
+               params.whole (optional): the number has no decimals; every "." is a thousands separator like ",".
 
   bar          how full a bar is (a "ratio" state: a progress bar, a water level, a battery): the region is the whole bar,
                from where it starts filling (0%) to where it is full (100%). params.dir = the way it fills: "right"
@@ -60,6 +68,9 @@ BAR_DIRS = {"right": N_("由左往右填滿"), "left": N_("由右往左填滿"),
 CHARS = "0123456789.,/%-:"
 PARTS = {"all": N_("整段數字"), "left": N_("「/」左邊"), "right": N_("「/」右邊")}
 GLYPH_SIZE = (12, 18)          # characters are compared at this size (w, h)
+FOLLOW_FILE = "follow.png"     # digits: the icon the number moves with (next to the taught characters)
+FOLLOW_SEARCH = [200, 10]      # how far (x, y px) the icon is looked for around where it was
+FOLLOW_MIN = 0.7
 FEATURES = {"gray": N_("灰階(看形狀)"), "color": N_("彩色(形狀和顏色)"), "minch": N_("最暗通道(不受背景顏色影響)")}
 
 
@@ -344,12 +355,16 @@ def read_glyph(rgb, refs):
     return best_c, round(best, 3)
 
 
-def to_number(text, part="all"):
+def to_number(text, part="all", whole=False):
+    """whole: a number with no decimals - every point or comma is a thousands separator (small text where the two
+    cannot be told apart)."""
     if part in ("left", "right"):
         if "/" not in text:
             return None
         text = text.split("/")[0 if part == "left" else 1]
     t = text.replace(",", "").replace("%", "").replace(":", "")
+    if whole:
+        t = t.replace(".", "")
     if not t or t in ("-", ".") or t.count(".") > 1 or "-" in t[1:]:
         return None
     try:
@@ -359,19 +374,86 @@ def to_number(text, part="all"):
     return int(v) if v.is_integer() and "." not in t else v
 
 
-def eval_digits(state, img, refs):
+class DigitRefs(list):
+    """The taught characters of a digits rule [(character, feature, width / height)], and .follow: the picture of the
+    icon the number moves with ((gray feature, its box) or None)."""
+    follow = None
+
+
+def follow_path(data_root, state_id):
+    return os.path.join(tpl_dir(data_root, state_id), FOLLOW_FILE)
+
+
+def follow_set(data_root, state_id, img, box, frame):
+    """Remember what the icon the number moves with looks like: the frame cut at the icon region (box x, y, w, h)."""
+    d = tpl_dir(data_root, state_id)
+    os.makedirs(d, exist_ok=True)
+    Image.fromarray(crop(img, box)).save(follow_path(data_root, state_id))
+    atomic.write_json(os.path.join(d, FOLLOW_FILE + ".json"), {"frame": frame, "box": [int(v) for v in box],
+                                                               "created": time.time()})
+
+
+def digits_box(state, img, refs):
+    """-> (where to read the number on this frame (x, y, w, h) or None, info). With params.follow the number region
+    moves as far as the icon has moved from where it was when it was shown to the rule."""
     p = state["source"].get("params", {})
     box = _box(state, p.get("roi"))
-    gs = glyphs(img, box, p.get("colors"))
+    fl = p.get("follow")
+    if not fl:
+        return box, {}
+    ref = getattr(refs, "follow", None)
+    if ref is None:
+        return None, {"follow": "unset"}
+    t, (ix, iy, iw, ih) = ref
+    sx, sy = (fl.get("search") or FOLLOW_SEARCH)[:2]
+    H, W = img.shape[:2]
+    x0, y0 = max(0, ix - sx), max(0, iy - sy)
+    reg = _feature(img[y0:min(H, iy + ih + sy), x0:min(W, ix + iw + sx)], "gray")
+    if reg.shape[0] < ih or reg.shape[1] < iw:
+        return None, {"follow": "lost", "follow_score": None}
+    if cv2 is not None:
+        _a, sc, _b, (bx, by) = cv2.minMaxLoc(_match_map(reg, t))
+    else:
+        sc, bx, by = -1.0, 0, 0
+        for yy in range(reg.shape[0] - ih + 1):
+            for xx in range(reg.shape[1] - iw + 1):
+                v = _ncc(reg[yy:yy + ih, xx:xx + iw], t)
+                if v > sc:
+                    sc, bx, by = v, xx, yy
+    if sc < fl.get("min", FOLLOW_MIN):
+        return None, {"follow": "lost", "follow_score": round(float(sc), 3)}
+    dx, dy = x0 + bx - ix, y0 + by - iy
+    x, y, w, h = box
+    x, y = min(max(0, x + dx), W - w), min(max(0, y + dy), H - h)
+    return [x, y, w, h], {"follow": "found", "follow_score": round(float(sc), 3), "moved": [int(dx), int(dy)]}
+
+
+def until_gap(gs, max_gap):
+    """The characters up to the first gap wider than max_gap px (what follows is a unit or an icon, not the number)."""
+    if not max_gap:
+        return gs
+    for i in range(1, len(gs)):
+        if gs[i][0][0] - gs[i - 1][0][1] > max_gap:
+            return gs[:i]
+    return gs
+
+
+def eval_digits(state, img, refs):
+    p = state["source"].get("params", {})
+    box, info = digits_box(state, img, refs)
+    if box is None:
+        return None, {"text": "", "chars": 0, "min_score": None, **info}
+    gs = until_gap(glyphs(img, box, p.get("colors")), p.get("max_gap"))
     chars, scores = [], []
     for c, sc in read_chars(img, gs, refs):
         chars.append(c or "?")
         scores.append(sc)
     text = "".join(chars)
-    info = {"text": text, "chars": len(gs), "min_score": min(scores) if scores else None}
+    info = {"text": text, "chars": len(gs), "min_score": min(scores) if scores else None, **info,
+            **({"box": [int(v) for v in box]} if p.get("follow") else {})}
     if not gs or not refs or min(scores) < p.get("match_min", 0.6) or "?" in text:
         return None, info
-    v = to_number(text, p.get("part", "all"))
+    v = to_number(text, p.get("part", "all"), bool(p.get("whole")))
     lo, hi = state.get("min"), state.get("max")
     if v is None or (lo is not None and v < lo) or (hi is not None and v > hi):
         return None, info                                 # not a number, or outside what this state can be
@@ -508,10 +590,28 @@ def _feature(a, kind):
 feature = _feature          # (the live workbench makes a reference picture before it is saved)
 
 
+FLAT_VAR = 1.0          # a window that varies less than this (std 1 of 255) has no picture to compare
+
+
 def _ncc(a, b):
     a = a - a.mean(); b = b - b.mean()
+    if (a * a).mean() < FLAT_VAR:
+        return 0.0
     d = np.sqrt((a * a).sum() * (b * b).sum())
     return float((a * b).sum() / d) if d > 0 else 0.0
+
+
+def _match_map(reg, t):
+    """cv2 TM_CCOEFF_NORMED of the 2-D template t at every position of reg, scored like _ncc: OpenCV gives a flat
+    window (e.g. an all-black area in the search margin) 1.0, which would match any reference; it gets 0 here."""
+    r = cv2.matchTemplate(reg, t, cv2.TM_CCOEFF_NORMED)
+    h, w = t.shape
+    H, W = r.shape
+    s1, s2 = cv2.integral2(reg.astype(np.float64))[:2]
+    sm = s1[h:h + H, w:w + W] - s1[:H, w:w + W] - s1[h:h + H, :W] + s1[:H, :W]
+    sq = s2[h:h + H, w:w + W] - s2[:H, w:w + W] - s2[h:h + H, :W] + s2[:H, :W]
+    r[sq / (w * h) - (sm / (w * h)) ** 2 < FLAT_VAR] = 0.0
+    return r
 
 
 def load_templates(data_root, state):
@@ -519,12 +619,20 @@ def load_templates(data_root, state):
     [(character, glyph feature, width / height)]."""
     p = state["source"].get("params", {})
     if state["source"].get("rule") == "digits":
-        out = []
+        out = DigitRefs()
         for name, meta in tpl_index(data_root, state["id"]).items():
             path = os.path.join(tpl_dir(data_root, state["id"]), name)
             if os.path.exists(path):
                 rgb = np.asarray(Image.open(path).convert("RGB"))
                 out.append((meta["value"], _glyph_feat(rgb), rgb.shape[1] / max(1, rgb.shape[0])))
+        fl = (state["source"].get("params") or {}).get("follow")
+        path = follow_path(data_root, state["id"])
+        if fl and os.path.exists(path):                     # the icon is looked for where its region is now
+            ix, iy, iw, ih = _box(state, fl.get("roi"))
+            im = Image.open(path).convert("RGB")
+            if im.size != (iw, ih):
+                im = im.resize((iw, ih), Image.BILINEAR)
+            out.follow = (_feature(np.asarray(im), "gray"), (ix, iy, iw, ih))
         return out
     box = _box(state, p.get("roi"))
     kind = p.get("feature", "gray")
@@ -545,7 +653,7 @@ def _best_match(reg, t, w, h):
     if reg.shape[0] < h or reg.shape[1] < w:
         return -1.0
     if cv2 is not None and t.ndim == 2:              # same score as _ncc at every shift, ~25x faster
-        return float(cv2.matchTemplate(reg, t, cv2.TM_CCOEFF_NORMED).max())
+        return float(_match_map(reg, t).max())
     sc = -1.0
     for yy in range(reg.shape[0] - h + 1):
         for xx in range(reg.shape[1] - w + 1):
@@ -628,13 +736,18 @@ class Engine:
         return values, scores, flags
 
 
+CODE_VERSION = 2        # raise when the generic rules answer differently for the same settings (2: flat windows)
+
+
 def signature(schema, data_root):
-    """Changes whenever a generic rule's settings or reference crops change (-> rule cache key)."""
-    parts = []
+    """Changes whenever the generic rules' code, a rule's settings or reference crops change (-> rule cache key)."""
+    parts = [CODE_VERSION]
     for s in schema["states"]:
         if is_generic(s):
             parts.append({"id": s["id"], "rois": s.get("rois"), "source": s.get("source"),
-                          "tpl": sorted(tpl_index(data_root, s["id"]).keys()) if s["source"]["rule"] in ("template", "digits") else None})
+                          "tpl": sorted(tpl_index(data_root, s["id"]).keys()) if s["source"]["rule"] in ("template", "digits") else None,
+                          "follow": os.path.getmtime(follow_path(data_root, s["id"]))
+                          if s["source"]["rule"] == "digits" and os.path.exists(follow_path(data_root, s["id"])) else None})
     return hashlib.md5(json.dumps(parts, sort_keys=True).encode()).hexdigest()[:10]
 
 
@@ -668,6 +781,17 @@ def validate(state):
             raise ValueError(_("{sid}:請點選數字的顏色", sid=sid))
         if p.get("part", "all") not in PARTS:
             raise ValueError(_("{sid}:要取哪一段數字不正確", sid=sid))
+        if p.get("max_gap") is not None and not (isinstance(p["max_gap"], int) and 1 <= p["max_gap"] <= 200):
+            raise ValueError(_("{sid}:字元間隔上限要是 1~200 的整數(像素)", sid=sid))
+        fl = p.get("follow")
+        if fl:
+            if fl.get("roi") not in {r["id"] for r in state.get("rois", [])} or fl.get("roi") == p.get("roi"):
+                raise ValueError(_("{sid}:跟著移動的圖示要另外框一個範圍(不是數字的範圍)", sid=sid))
+            sr = fl.get("search", FOLLOW_SEARCH)
+            if not (isinstance(sr, list) and len(sr) == 2 and all(isinstance(v, int) and 0 <= v <= 1000 for v in sr)):
+                raise ValueError(_("{sid}:找圖示的範圍要是 0~1000 的兩個整數(左右、上下)", sid=sid))
+            if not (isinstance(fl.get("min", FOLLOW_MIN), (int, float)) and 0.3 <= fl.get("min", FOLLOW_MIN) <= 0.99):
+                raise ValueError(_("{sid}:圖示的相似度門檻要在 0.3~0.99", sid=sid))
         return
     if state["type"] != "class":
         raise ValueError(_("{sid}:「{p2}」規則只能用在分類型的狀態", sid=sid, p2=_(KINDS[state['source']['rule']])))

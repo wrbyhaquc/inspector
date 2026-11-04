@@ -105,6 +105,24 @@ def test_a_notice_not_about_one_device_does_not_stop_the_runner(capsys):
     assert "found a new source" in capsys.readouterr().out
 
 
+def test_a_rule_cooling_down_does_not_take_control_from_a_sub_script():
+    """An urgent rule that is not going to act must not pause the running sub-script on every tick."""
+    from runtime.shadow import Shadow
+    asked = []
+    fake = types.SimpleNamespace(ctrl={"max_per_min": 60, "max_strikes": 10}, tap_times=collections.defaultdict(collections.deque),
+                                 blocked={}, no_effect=set(), strikes=collections.Counter(), held={}, current={},
+                                 fire_times=collections.defaultdict(collections.deque), fire_days={},
+                                 last_fire={("A", "hunt", "r8"): 100.0}, procs={"A": object()},
+                                 hold_of=lambda n: None, start_wait=lambda n, now: 0,
+                                 _may_take_over=lambda n, run, dec, now: asked.append(dec["rule"]) or False)
+    dec = {"script": "hunt", "script_name": "hunt", "rule": "r8", "rule_name": "HP", "action": "tap", "text": "", "reason": "",
+           "mode": "live", "urgent": True, "stable": True, "cooldown": 30}
+    Shadow._execute(fake, "A", {}, [dict(dec)], "frame", 110.0)
+    assert asked == []
+    Shadow._execute(fake, "A", {}, [dict(dec)], "frame", 131.0)     # cooled down: now it may step in
+    assert asked == ["r8"]
+
+
 def test_first_start_of_a_blank_project_uses_no_device_found(tmp_path, monkeypatch):
     """A new computer with emulators running: they are only found (the Sources page lists them to pick)."""
     from drivers import sources, Device
@@ -172,6 +190,28 @@ def test_export_check_compares_with_the_last_release(tmp_path):
     project.save({**p, "description": "changed"})
     moved = pack.export_check(out=out)
     assert "design/project.json" in moved["changes"]["changed"] and not moved["changes"]["added"]
+
+
+def test_export_check_reports_an_invalid_panel_instead_of_crashing(tmp_path):
+    """The check is there to list what is wrong: a design that fails the spec is a line in the list, not an HTTP 500."""
+    import i18n
+    from project import pack
+    panel_file = os.path.join(project.pack_dir(), "design", "meta", "panel.json")
+    os.makedirs(os.path.dirname(panel_file), exist_ok=True)
+    assert not os.path.exists(panel_file)
+    with open(panel_file, "w", encoding="utf-8") as f:
+        json.dump({"blocks": []}, f)                                # no "controls"
+    try:
+        errors = [c["text"] for c in pack.export_check(out=str(tmp_path))["checks"] if c["level"] == "error"]
+        assert len(errors) == 1 and errors[0].startswith("操作面板:") and "controls" in errors[0]
+        token = i18n.use("en")
+        try:
+            errors = [c["text"] for c in pack.export_check(out=str(tmp_path))["checks"] if c["level"] == "error"]
+        finally:
+            i18n.reset(token)
+        assert len(errors) == 1 and errors[0].startswith("Operation panel: ") and "{" not in errors[0]
+    finally:
+        os.remove(panel_file)
 
 
 def test_naming_the_project_is_the_first_stop_of_the_route(monkeypatch):

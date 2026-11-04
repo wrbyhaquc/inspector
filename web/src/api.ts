@@ -134,7 +134,11 @@ export interface RulePreviewItem { frame: string; value: AnswerValue | null; rat
 export type RatioSuggestion = { none: 'one_group' | 'few_frames' | 'answers_mixed' }
   | { low_max: number; high_min: number; basis: 'answers' | 'gap'; high: number; low: number; unsure: number; wrong: number; unsure_answers: number; none?: undefined }
 /** what a 讀數字 rule finds on one frame: each character, what it is read as */
-export interface GlyphsInfo { glyphs: { box: [number, number, number, number]; char: string | null; score: number }[]; text: string; value: number | null; taught: number }
+export interface GlyphsInfo {
+  glyphs: { box: [number, number, number, number]; char: string | null; score: number }[]; text: string; value: number | null; taught: number
+  box?: number[] | null                                  // where the number was read (it moves with its icon)
+  follow?: 'unset' | 'lost' | 'found'; follow_score?: number | null; moved?: [number, number]
+}
 export interface RuleTemplate { file: string; value: AnswerValue; frame: string; box: number[]; created: number }
 
 // ---------- shadow mode ----------
@@ -199,6 +203,7 @@ export interface PanelDefinition {
   buttons: { id: string; label: string; group?: string; device?: string; list?: string }[]
   lists: ListInfo[]
   settings: SettingDecl[]; variables: { name: string; label: string; scope?: string }[]
+  states?: { id: string; name: string; type: string }[]
   widgets: Record<string, string>; widget_defaults: Record<string, Record<string, unknown>>; modes: Record<string, string>
   main_scripts: { id: string; name: string }[]; runnable_subs: { id: string; name: string }[]
   acts: Record<string, string>
@@ -241,7 +246,7 @@ export interface WidgetData {
   // values: the variables shown, the shared ones' values and each emulator's own (running: the runner is up)
   vars?: { name: string; label: string; shared: boolean }[]; running?: boolean; shared?: Record<string, unknown>; values?: Record<string, Record<string, unknown>>
   bots?: ChatBot[]; types?: { type: string; label: string; help: string }[]; setup?: boolean; pair?: boolean
-  devices?: { device: string; now: string; tone: string; online: boolean; today: { name: string; text: string; code: string }[]; step: string | null; alerts: { t: number; text: string }[]; image: boolean }[]
+  devices?: { device: string; now: string; tone: string; online: boolean; today: { name: string; text: string; code: string }[]; step: string | null; alerts: { t: number; text: string }[]; image: boolean; values?: { name: string; text: string | null }[] }[]
   items?: { id: string; device: string; start: number; end: number | null; status: string; triggers: string[]; story: { t: number; text: string }[]; frame: string | null }[]
   rows?: { id: string; name: string; enabled?: boolean; at?: string; modes?: Record<string, string>; devices?: Record<string, { text: string; code: string }>; t?: number; device?: string; text?: string; level?: string }[]
   modes?: Record<string, string>; all_modes?: Record<string, string>
@@ -566,8 +571,11 @@ export interface Storage {
 export type KeepKind = 'actions' | 'incidents' | 'schedules' | 'logs'
 /** what cleaning the run's records would delete / deleted */
 export interface CleanResult { files: number; bytes: number; kinds: Partial<Record<KeepKind, { files: number; bytes: number }>> }
-export interface CleanRecord { t: number; by: 'runner' | 'user' | 'room'; what: 'records' | 'recordings' | 'models' | 'stopped'; files: number; bytes: number
-  kinds?: CleanResult['kinds']; sessions?: string[]; runs?: string[]; why?: string }
+export interface CleanRecord { t: number; by: 'runner' | 'user' | 'room'; what: 'records' | 'recordings' | 'models' | 'thinned' | 'stopped'; files: number; bytes: number
+  kinds?: CleanResult['kinds']; sessions?: string[]; runs?: string[]; why?: string; recordings?: number }
+/** thinning the recordings (project/thin.py): what the latest look found; samples: a frame that would go and the kept one it looks like */
+export interface ThinPlan { t: number; labels: string; frames: number; bytes: number; drop_frames: number; drop_bytes: number
+  recordings: { session: string; device: string; frames: number; drop: number; bytes: number }[]; samples: { frame: string; like: string }[] }
 /** this computer's storage settings: how new recordings keep their frames */
 export interface StorageSettings { record_format: 'png' | 'jpg'; jpeg_quality: number; keep: Record<KeepKind, number>; keep_models: number; min_free_gb: number; when_full: 'stop' | 'cycle' }
 export type AiLevel = 'read' | 'design' | 'run'
@@ -620,6 +628,9 @@ export const api = {
   storageHistory: () => req<{ items: CleanRecord[] }>('GET', '/api/storage/history'),
   storageModelsPreview: () => req<{ runs: string[]; bytes: number }>('GET', '/api/storage/models'),
   storageModelsClean: () => req<{ runs: string[]; bytes: number }>('POST', '/api/storage/models'),
+  storageThin: () => req<{ plan: ThinPlan | null; job: JobInfo | null }>('GET', '/api/storage/thin'),
+  storageThinPlan: () => req<JobInfo>('POST', '/api/storage/thin/plan'),
+  storageThinApply: () => req<JobInfo>('POST', '/api/storage/thin/apply'),
   storageLocation: () => req<StorageLocation>('GET', '/api/storage/location'),
   aiRequests: () => req<{ items: AiRequest[] }>('GET', '/api/ai/requests'),
   aiConnect: () => req<{ folder: string; python: string; port: number; lan_mcp: string | null; local_mcp: string; tokens: number }>('GET', '/api/ai/connect'),
@@ -755,6 +766,7 @@ export const api = {
   ruleGlyphs: (state: StateDef, frame: string) => req<GlyphsInfo>('POST', '/api/rules/glyphs', { state, frame }),
   ruleGlyphTeach: (state: StateDef, frame: string, index: number, char: string) =>
     req<GlyphsInfo>('POST', '/api/rules/glyph', { state, frame, index, char }),
+  ruleFollowSet: (state: StateDef, frame: string) => req<GlyphsInfo>('POST', '/api/rules/follow', { state, frame }),
   ruleTemplates: (stateId: string) => req<RuleTemplate[]>('GET', `/api/rules/templates/${stateId}`),
   ruleTemplateAdd: (b: { state_id: string; value: AnswerValue; frame: string; box: number[] }) => req<{ file: string }>('POST', '/api/rules/templates', b),
   ruleTemplateDelete: (stateId: string, file: string) => req<{ deleted: string }>('DELETE', `/api/rules/templates/${stateId}/${file}`),

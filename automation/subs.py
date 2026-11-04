@@ -561,6 +561,8 @@ def save(data_root, sub, note=""):
     vs = [h["version"] for h in history(data_root, sub["id"])] if os.path.exists(os.path.join(d, "current.json")) else []
     v = (max(vs) if vs else 0) + 1
     out = spec.stamp({**sub, "version": v, "created": time.time(), "note": note})
+    from . import spec_schema
+    spec_schema.must_match("sub", out)
     _write(os.path.join(d, f"v{v}.json"), out)
     _write(os.path.join(d, "current.json"), {"version": v})
     return out
