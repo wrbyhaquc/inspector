@@ -53,6 +53,8 @@ MIN_SCORE = 0.62
 SCALES = [1.0, 0.78, 0.76, 0.74, 0.72, 0.7, 0.68]   # the highlighted (last used) row shows the name smaller;
                                                 # the match peaks sharply (0.72 -> 0.72, 0.75 -> 0.49), so step finely
 MIN_SCORE_SCALED = 0.6
+SCALED_MARGIN = 0.1        # a name seen only smaller must beat every other name there by this much (shrunk, names
+                           # a character apart score alike: 0.63 vs 0.59 on a real highlighted row)
 MATCH = 0.5                # a row "fits" a name above this (whole-name comparison): one place ~0.8-0.97, two ~0.1-0.5,
                            # but two names one character apart up to ~0.87: only a run of rows tells them apart
 ROW_OK = 0.6               # a row laid on a name must still look like it at least this much

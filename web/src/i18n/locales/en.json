@@ -2635,5 +2635,7 @@
  "{time} 試算:{all} 張({size})裡有 {n} 張重複,可省 {drop}": "Looked at {time}: {n} of {all} frames ({size}) repeat; {drop} can be saved",
  "看幾組:右邊那張會被刪,左邊那張留著": "A few pairs: the right one goes, the left one stays",
  "留著": "Kept",
- "會刪": "Goes"
+ "會刪": "Goes",
+ "例如維修前把全部停下來,維修後用這個排程讓它們回來": "e.g. stop everything before a maintenance break, and bring it back afterwards with this schedule",
+ "這台停下來或暫停中時,先按「繼續」再執行": "If the device is stopped or paused, resume it first, then run"
 }

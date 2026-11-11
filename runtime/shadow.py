@@ -272,7 +272,6 @@ class Shadow:
             self.fast, lambda: {b: x.get("label") or b for b, x in buttons_mod.load(self.data_root).items()},
             lambda text: self.alert("", _("[按鈕監測] {text}", text=text)))
         self._trust_job = None
-        self._list_pics = {}                                  # where the names of a list fit on the last frame
         self.fire_days = {}                                   # (device, script, rule) -> [date, times fired that day]
         self.var_defs, self.var_labels = [], {}
         self.vars = self._load_vars()
@@ -562,22 +561,17 @@ class Shadow:
         if x is None:
             return None
         if spec:                                          # a list name: no other name of the list may fit that row better
-            for o, (oy, osc) in self._list_names(n, spec, frame).items():
-                if o != b["id"] and abs(oy - y) < 25 and osc > score:
-                    return None
-        return [int(x), int(y)]
-
-    def _list_names(self, n, spec, frame):
-        """Where each name of a (picture-matched) list fits on this frame: {id: (y, score)}, once per frame."""
-        seen = self._list_pics
-        if not (seen.get("frame") is frame and seen.get("list") == spec["id"]):
-            out = {}
+            mine = buttons_mod.score_at(b, frame, x, y, self.data_root)   # (scored right there, not where each fits best)
+            full = buttons_mod.score_at(b, frame, x, y, self.data_root, scales=[1.0])
+            # a name found only smaller (a highlighted row in another font) must win clearly: shrunk, names a
+            # character apart score about the same
+            margin = 0.0 if full is not None and full >= float(b.get("min_score", 0.8)) else lists_mod.SCALED_MARGIN
             for o in lists_mod.items(self.data_root, spec, n):
-                (ox, oy), osc = buttons_mod.locate(o, frame, self.data_root)
-                if ox is not None:
-                    out[o["id"]] = (oy, osc)
-            seen = self._list_pics = {"frame": frame, "list": spec["id"], "names": out}
-        return seen["names"]
+                if o["id"] != b["id"]:
+                    theirs = buttons_mod.score_at(o, frame, x, y, self.data_root)
+                    if theirs is not None and mine is not None and (theirs >= mine or theirs > mine - margin):
+                        return None
+        return [int(x), int(y)]
 
     def list_capture(self, n, list_id, owner):
         """Walk a list (lists.py) on device n in a thread, saving the new names as buttons (the 擷取清單 step).
@@ -1433,6 +1427,13 @@ class Shadow:
         if not s:
             return
         hold = self.hold_of(n)
+        if hold and s.get("resume_held"):                 # this schedule brings a stopped / paused device back
+            self._release_rules(n)
+            self.page_hold.pop(n, None)
+            self._set_hold(n, "run", _("排程「{name}」", name=s["name"]), now)
+            self.alert(n, _("排程「{name}」:這台原本{was},已按「繼續」並開始執行", name=s["name"],
+                            was=_("停下來") if hold["mode"] == "stop" else _("暫停中")))
+            hold = None
         wait = self.start_wait(n, now)
         why = ((_("這台已停下來") if hold["mode"] == "stop" else _("這台暫停中")) + _("(按「繼續」恢復)") if hold
                else _("啟動確認中") if wait else _("這台沒有畫面") if st is None
@@ -1801,6 +1802,9 @@ class Shadow:
                     self._act_done(n, req, now, _("已停止「{sub_name}」", sub_name=run.info(self.names)['sub_name']))
                 continue
             hold = self.hold_of(n)
+            if hold and k == "schedule" and any(x["id"] == req.get("id") and x.get("resume_held")
+                                                for x in schedules.effective(self.data_root, self.fast)):
+                hold = None                               # that schedule lets the device go on itself when it starts
             why = ((_("這台已停下來") if hold["mode"] == "stop" else _("這台暫停中")) + _(",先按「繼續」") if hold
                    else _("這台沒有畫面") if st is None else None)
             if why:

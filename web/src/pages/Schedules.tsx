@@ -185,6 +185,8 @@ function Editor({ s, devices, onChange }: { s: Schedule; devices: string[]; onCh
             <input type="number" min={1} max={1440} className={`${input} w-20 num`} value={s.max_minutes} onChange={e => onChange(x => { x.max_minutes = Number(e.target.value) })} />{t('分鐘,超過就中斷')}</label>
           <label className="flex items-center gap-1.5"><input type="checkbox" checked={s.pause_others} onChange={e => onChange(x => { x.pause_others = e.target.checked })} />
             {t('執行期間暫停主腳本(守門規則照常)')}</label>
+          <label className="flex items-center gap-1.5" title={t('例如維修前把全部停下來,維修後用這個排程讓它們回來')}><input type="checkbox" checked={!!s.resume_held} onChange={e => onChange(x => { x.resume_held = e.target.checked })} />
+            {t('這台停下來或暫停中時,先按「繼續」再執行')}</label>
           <span className="text-xs text-stone-500">{t('改完按上方「儲存」才會生效')}</span>
         </div>
         </Modal>

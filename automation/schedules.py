@@ -9,6 +9,8 @@
     "sub", "args",                 the sub-script and its parameters
     "device_args": {device: {...}},  per-emulator parameters (e.g. other accounts), merged over "args"
     "pause_others": bool,          the main scripts do nothing on that emulator while it runs (guard rules still do)
+    "resume_held": bool,           an emulator stopped / paused (停下來 / 暫停) when it is due: let it go on (繼續) and run
+                                   (e.g. bringing everything back after a service break everything was stopped for)
     "max_minutes": minutes}]}      stop it if it runs longer than this
 
 What the users change on the operation panel - a schedule's switch, start time and emulators - is kept where it
@@ -152,7 +154,7 @@ def save(data_root, items, subs, start=None):
     start = start if start is not None else _read(data_root).get("day_start", "00:00")
     if _hhmm(start) is None:
         raise ValueError(_("每天的開始時間要像 04:30"))
-    keep = ("id", "name", "enabled", "at", "days", "window", "devices", "sub", "args", "device_args", "pause_others", "max_minutes")
+    keep = ("id", "name", "enabled", "at", "days", "window", "devices", "sub", "args", "device_args", "pause_others", "resume_held", "max_minutes")
     out = [{k: s[k] for k in keep if k in s} for s in items]
     p = os.path.join(data_root, FILE)
     os.makedirs(os.path.dirname(p), exist_ok=True)

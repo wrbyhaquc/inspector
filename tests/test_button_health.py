@@ -40,3 +40,22 @@ def test_looks_are_counted_per_hour_and_written(tmp_path):
     m.add(11 * H, "ok_btn", "A", True, 0.9)                  # the next hour: the first one is written
     rows = bh.read(m.dir, 100000, today=__import__("datetime").date.fromtimestamp(10 * H))
     assert rows and rows[0]["n"] == 4 and rows[0]["found"] == 2
+
+
+def test_a_row_is_scored_by_each_name_right_there_not_where_each_fits_best(monkeypatch):
+    """Two names of a list one character apart both fit one row; at that row the right one fits better."""
+    import numpy as np
+    from automation import buttons
+    rng = np.random.default_rng(1)
+    a = rng.integers(0, 255, (32, 150)).astype(np.float32)
+    b = a.copy()
+    b[:, 100:125] = rng.integers(0, 255, (32, 25))                 # one "character" differs
+    pics = {"a": a, "b": b}
+    monkeypatch.setattr(buttons, "_template", lambda root, btn: pics[btn["id"]])
+    monkeypatch.setattr(buttons, "_feature", lambda img, kind: np.asarray(img, dtype=np.float32)[..., 0])
+    frame = np.zeros((720, 1280, 3), np.uint8)
+    frame[300:332, 200:350] = np.repeat(b[..., None], 3, axis=2).astype(np.uint8)   # the row shows "b"
+    sa = buttons.score_at({"id": "a"}, frame, 275, 316, "root")
+    sb = buttons.score_at({"id": "b"}, frame, 275, 316, "root")
+    assert sb > 0.99 and 0.5 < sa < sb                              # "a" fits too, but "b" fits better
+    assert buttons.score_at({"id": "a"}, frame, None, None, "root") is None

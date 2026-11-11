@@ -1972,5 +1972,6 @@
  "還沒有試算,先按「試算」": "Nothing looked at yet: press \"Look\" first",
  "錄影瘦身:試算": "Thinning the recordings: a look",
  "錄影瘦身:刪除": "Thinning the recordings: deleting",
- "不符合腳本規範:{p1}": "Does not match the script spec: {p1}"
+ "不符合腳本規範:{p1}": "Does not match the script spec: {p1}",
+ "排程「{name}」:這台原本{was},已按「繼續」並開始執行": "Schedule \"{name}\": this device was {was}; resumed it and started"
 }

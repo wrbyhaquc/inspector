@@ -162,7 +162,7 @@ export interface IncidentSummary {
 }
 export interface Schedule {
   id: string; name: string; enabled: boolean; at: string; days: number[]; window: number; devices: string[]
-  sub: string; args: Record<string, ArgValue>; device_args?: Record<string, Record<string, ArgValue>>; pause_others: boolean; max_minutes: number
+  sub: string; args: Record<string, ArgValue>; device_args?: Record<string, Record<string, ArgValue>>; pause_others: boolean; resume_held?: boolean; max_minutes: number
 }
 /** what the users changed on the operation panel, kept where it runs over the design */
 export type ScheduleOverride = { enabled?: boolean; at?: string; devices?: string[] }

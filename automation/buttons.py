@@ -232,6 +232,28 @@ def _feature(img, kind):
     return np.asarray(img.convert("L"), dtype=np.float32)
 
 
+def score_at(b, frame, x, y, data_root=None, pad=12, scales=None):
+    """How well find button b's picture fits right at (x, y) - a tap point another button was found at (any of b's
+    scales; None if b has no picture). Two names of a list one character apart both fit a row: the row is the name
+    that fits it best there, not wherever each name fits best on the whole screen."""
+    data_root = data_root or DATA_ROOT
+    t = _template(data_root, b)
+    if t is None or cv2 is None or frame is None or x is None:
+        return None
+    h, w = t.shape[:2]
+    x0, y0 = max(0, int(x) - w - pad), max(0, int(y) - h // 2 - pad)
+    x1, y1 = min(frame.shape[1], int(x) + w + pad), min(frame.shape[0], int(y) + h // 2 + pad)
+    reg = _feature(Image.fromarray(frame[y0:y1, x0:x1]), b.get("feature"))
+    best = None
+    for sc in scales or b.get("scales") or [1.0]:
+        tt = t if sc == 1.0 else cv2.resize(t, None, fx=sc, fy=sc, interpolation=cv2.INTER_AREA)
+        if reg.shape[0] < tt.shape[0] or reg.shape[1] < tt.shape[1]:
+            continue
+        s = float(cv2.matchTemplate(reg, tt, cv2.TM_CCOEFF_NORMED).max())
+        best = s if best is None else max(best, s)
+    return best
+
+
 def locate(b, frame, data_root=None):
     """-> ((x, y) to tap, score) for a find button in an RGB frame of the coordinate space; ((None, None), score) if not found."""
     data_root = data_root or DATA_ROOT
