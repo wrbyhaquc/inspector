@@ -117,6 +117,16 @@ STATE_SHARE = 0.5        # one state may take at most this share of the hourly s
 MAX_SWITCHES_PER_HOUR = 30   # situation switches of one script on one device; more = a loop, the script stops
 
 
+def snapshot_finished(mark, snap):
+    """Today's mark of a schedule says the run in this snapshot already ended (so it must not carry on after a restart).
+    A mark left by an earlier run (it failed, then someone pressed "run now") does not: that run is a new one."""
+    if not mark:
+        return False
+    if snap.get("job") and mark.get("run"):
+        return mark["run"] == snap["job"]
+    return float(mark.get("t") or 0) >= float(snap.get("t") or 0)
+
+
 def _write_json(path, obj):
     tmp = path + ".tmp"
     try:
@@ -1483,7 +1493,7 @@ class Shadow:
             snap = None
         sid = ((snap or {}).get("origin") or {}).get("schedule")
         s = next((x for x in items if x["id"] == sid), None)
-        if not snap or not s or self.sched_state.done(sid, n, now):
+        if not snap or not s or snapshot_finished(self.sched_state.done(sid, n, now), snap):
             os.remove(p)
             return False
         try:
