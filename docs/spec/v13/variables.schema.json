@@ -1,6 +1,6 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
- "$id": "https://inspector.local/spec/v12/variables.schema.json",
+ "$id": "https://inspector.local/spec/v13/variables.schema.json",
  "$defs": {
   "ref": {
    "description": "執行時從參數 / 使用者設定 / 變數 / 狀態(畫面上讀到的數字)取值",
@@ -445,6 +445,7 @@
       "input_text",
       "launch_app",
       "pick",
+      "walk_to",
       "capture_list",
       "wait",
       "wait_until",
@@ -453,6 +454,7 @@
       "repeat_until",
       "for_each",
       "call",
+      "call_item",
       "set_var",
       "notify",
       "output",
@@ -614,6 +616,21 @@
       "stop"
      ]
     },
+    "catalog": {
+     "type": "string",
+     "description": "照目錄項目做:哪個目錄"
+    },
+    "item": {
+     "description": "照目錄項目做:哪一項(項目代號,或執行時從使用者設定 / 參數取)",
+     "oneOf": [
+      {
+       "type": "string"
+      },
+      {
+       "$ref": "#/$defs/ref"
+      }
+     ]
+    },
     "var": {
      "type": "string"
     },
@@ -660,6 +677,118 @@
     },
     "command": {
      "type": "string"
+    },
+    "open": {
+     "$ref": "#/$defs/point",
+     "description": "走到地圖上的位置:點哪裡打開地圖"
+    },
+    "close": {
+     "$ref": "#/$defs/point",
+     "description": "走到地圖上的位置:點哪裡關掉地圖"
+    },
+    "anchor": {
+     "$ref": "#/$defs/point",
+     "description": "走到地圖上的位置:地圖上的基準圖示(找圖的按鈕)"
+    },
+    "me": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "color",
+      "box"
+     ],
+     "description": "走到地圖上的位置:「自己」在地圖上的樣子(顏色)和地圖在畫面上的範圍",
+     "properties": {
+      "color": {
+       "type": "array",
+       "items": {
+        "type": "integer"
+       },
+       "minItems": 3,
+       "maxItems": 3
+      },
+      "tol": {
+       "type": "number"
+      },
+      "min_px": {
+       "type": "number"
+      },
+      "box": {
+       "type": "array",
+       "items": {
+        "type": "number"
+       },
+       "minItems": 4,
+       "maxItems": 4
+      }
+     }
+    },
+    "points": {
+     "type": "array",
+     "minItems": 1,
+     "items": {
+      "type": "object",
+      "required": [
+       "x",
+       "y"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "x": {
+        "type": "number"
+       },
+       "y": {
+        "type": "number"
+       },
+       "label": {
+        "type": "string"
+       },
+       "near": {
+        "type": "number"
+       }
+      }
+     },
+     "description": "走到地圖上的位置:依序要走到的點(從基準圖示算起)"
+    },
+    "stick": {
+     "type": "object",
+     "required": [
+      "x",
+      "y",
+      "r"
+     ],
+     "additionalProperties": false,
+     "description": "走到地圖上的位置:方向控制(搖桿)的中心和推多遠",
+     "properties": {
+      "x": {
+       "type": "number"
+      },
+      "y": {
+       "type": "number"
+      },
+      "r": {
+       "type": "number"
+      },
+      "press": {
+       "enum": [
+        "drag",
+        "edge"
+       ]
+      }
+     }
+    },
+    "near": {
+     "$ref": "#/$defs/num"
+    },
+    "push_ms": {
+     "$ref": "#/$defs/num"
+    },
+    "max_moves": {
+     "$ref": "#/$defs/num"
+    },
+    "until": {
+     "$ref": "#/$defs/when",
+     "description": "走到地圖上的位置:這個條件成立就算到了(可不填)"
     }
    }
   },
@@ -749,7 +878,7 @@
    "type": "number"
   },
   "format": {
-   "const": 12,
+   "const": 13,
    "description": "腳本規範版本"
   },
   "version": {

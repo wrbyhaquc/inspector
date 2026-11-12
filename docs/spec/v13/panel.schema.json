@@ -1,0 +1,1152 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://inspector.local/spec/v13/panel.schema.json",
+ "$defs": {
+  "ref": {
+   "description": "執行時從參數 / 使用者設定 / 變數 / 狀態(畫面上讀到的數字)取值",
+   "oneOf": [
+    {
+     "type": "object",
+     "properties": {
+      "param": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "param"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "setting": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "setting"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "var": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "var"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "state": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "state"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "sum": {
+       "type": "array",
+       "minItems": 1,
+       "items": {
+        "$ref": "#/$defs/num"
+       }
+      }
+     },
+     "required": [
+      "sum"
+     ],
+     "additionalProperties": false
+    }
+   ]
+  },
+  "num": {
+   "description": "數字,或執行時從參數 / 設定 / 變數取值",
+   "oneOf": [
+    {
+     "type": "number"
+    },
+    {
+     "$ref": "#/$defs/ref"
+    }
+   ]
+  },
+  "text": {
+   "description": "文字(可用 {代號} 帶入變數或參數),或執行時取值",
+   "oneOf": [
+    {
+     "type": "string"
+    },
+    {
+     "$ref": "#/$defs/ref"
+    }
+   ]
+  },
+  "point": {
+   "description": "位置:按鈕庫的按鈕、座標、點位參數或使用者設定",
+   "oneOf": [
+    {
+     "type": "object",
+     "properties": {
+      "button": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "button"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "x": {
+       "type": "number"
+      },
+      "y": {
+       "type": "number"
+      }
+     },
+     "required": [
+      "x",
+      "y"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "param": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "param"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "setting": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "setting"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "maxProperties": 0
+    }
+   ]
+  },
+  "cond": {
+   "type": "object",
+   "additionalProperties": false,
+   "properties": {
+    "kind": {
+     "enum": [
+      "state",
+      "became",
+      "count",
+      "change",
+      "time",
+      "always",
+      "var",
+      "elapsed",
+      "device",
+      "visible",
+      "compare"
+     ]
+    },
+    "left": {
+     "$ref": "#/$defs/num"
+    },
+    "right": {
+     "$ref": "#/$defs/num"
+    },
+    "state": {
+     "type": "string"
+    },
+    "op": {
+     "enum": [
+      "is",
+      "is_not",
+      "lt",
+      "lte",
+      "gt",
+      "gte"
+     ]
+    },
+    "value": {
+     "description": "比較的值:選項、數字或參照"
+    },
+    "for": {
+     "type": "number",
+     "minimum": 0
+    },
+    "min_conf": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 1
+    },
+    "within": {
+     "type": "number"
+    },
+    "times": {
+     "$ref": "#/$defs/num"
+    },
+    "dir": {
+     "enum": [
+      "drop",
+      "rise"
+     ]
+    },
+    "amount": {
+     "$ref": "#/$defs/num"
+    },
+    "from": {
+     "type": "string"
+    },
+    "to": {
+     "type": "string"
+    },
+    "days": {
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 6
+     }
+    },
+    "var": {
+     "type": "string"
+    },
+    "device": {
+     "type": "string"
+    },
+    "target": {
+     "$ref": "#/$defs/point"
+    }
+   }
+  },
+  "when": {
+   "description": "條件:外層「或者」,內層「而且」",
+   "type": "array",
+   "items": {
+    "type": "array",
+    "items": {
+     "$ref": "#/$defs/cond"
+    }
+   }
+  },
+  "args": {
+   "type": "object",
+   "description": "呼叫子腳本的參數:代號 → 值(位置、數字、文字、清單或參照)"
+  },
+  "action": {
+   "type": "object",
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "type": {
+     "enum": [
+      "tap",
+      "long_press",
+      "back",
+      "call",
+      "goto",
+      "set_var",
+      "wait",
+      "none",
+      "notify",
+      "stop",
+      "hold",
+      "output"
+     ]
+    },
+    "text": {
+     "type": "string"
+    },
+    "target": {
+     "$ref": "#/$defs/point"
+    },
+    "sub": {
+     "type": "string"
+    },
+    "args": {
+     "$ref": "#/$defs/args"
+    },
+    "on_success": {
+     "type": "string"
+    },
+    "on_fail": {
+     "type": "string"
+    },
+    "situation": {
+     "type": "string"
+    },
+    "var": {
+     "type": "string"
+    },
+    "mode": {
+     "enum": [
+      "set",
+      "add",
+      "now"
+     ]
+    },
+    "value": {
+     "$ref": "#/$defs/text_or_num"
+    },
+    "output": {
+     "type": "string"
+    },
+    "command": {
+     "type": "string"
+    }
+   }
+  },
+  "text_or_num": {
+   "oneOf": [
+    {
+     "type": "number"
+    },
+    {
+     "type": "string"
+    },
+    {
+     "$ref": "#/$defs/ref"
+    }
+   ]
+  },
+  "rule": {
+   "type": "object",
+   "required": [
+    "id",
+    "when",
+    "do"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "id": {
+     "type": "string",
+     "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "name": {
+     "type": "string"
+    },
+    "enabled": {
+     "type": "boolean"
+    },
+    "urgent": {
+     "type": "boolean"
+    },
+    "when": {
+     "$ref": "#/$defs/when"
+    },
+    "do": {
+     "$ref": "#/$defs/steps",
+     "description": "條件成立時依序做的步驟(和子腳本同一套步驟)"
+    },
+    "cooldown": {
+     "type": "number",
+     "minimum": 0
+    },
+    "max_per_hour": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 1
+    },
+    "max_per_day": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 1
+    }
+   }
+  },
+  "situation": {
+   "type": "object",
+   "required": [
+    "id",
+    "name",
+    "rules"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "id": {
+     "type": "string",
+     "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "name": {
+     "type": "string"
+    },
+    "rules": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/rule"
+     }
+    },
+    "on_enter": {
+     "oneOf": [
+      {
+       "$ref": "#/$defs/steps"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "進入這個情境時做一次的步驟"
+    },
+    "max_seconds": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "on_timeout": {
+     "type": "string"
+    }
+   }
+  },
+  "step": {
+   "type": "object",
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "type": {
+     "enum": [
+      "tap",
+      "long_press",
+      "swipe",
+      "back",
+      "input_text",
+      "launch_app",
+      "pick",
+      "walk_to",
+      "capture_list",
+      "wait",
+      "wait_until",
+      "if",
+      "retry",
+      "repeat_until",
+      "for_each",
+      "call",
+      "call_item",
+      "set_var",
+      "notify",
+      "output",
+      "succeed",
+      "fail",
+      "ask",
+      "goto",
+      "stop",
+      "stay",
+      "hold"
+     ]
+    },
+    "situation": {
+     "type": "string",
+     "description": "切換情境:要切到的情境"
+    },
+    "after": {
+     "type": "object",
+     "additionalProperties": false,
+     "description": "做完這個操作之後:等幾秒,或等到條件成立",
+     "properties": {
+      "seconds": {
+       "$ref": "#/$defs/num"
+      },
+      "until": {
+       "$ref": "#/$defs/when"
+      },
+      "timeout": {
+       "$ref": "#/$defs/num"
+      },
+      "on_timeout": {
+       "enum": [
+        "fail",
+        "continue"
+       ]
+      }
+     }
+    },
+    "fail_goto": {
+     "type": "string",
+     "description": "呼叫子腳本失敗時切到的情境(第 7 版留下的寫法)"
+    },
+    "options": {
+     "description": "問使用者:選項(2~6 個),每個選了要做的步驟",
+     "type": "array",
+     "minItems": 2,
+     "maxItems": 6,
+     "items": {
+      "type": "object",
+      "required": [
+       "label"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "label": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 20
+       },
+       "then": {
+        "$ref": "#/$defs/steps"
+       }
+      }
+     }
+    },
+    "default": {
+     "description": "問使用者:沒人回答時選第幾個(0 = 失敗)",
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 6
+    },
+    "label": {
+     "type": "string"
+    },
+    "target": {
+     "$ref": "#/$defs/point"
+    },
+    "from": {
+     "$ref": "#/$defs/point"
+    },
+    "say": {
+     "type": "string",
+     "description": "給使用者看:正在做什麼(白話)"
+    },
+    "say_fail": {
+     "type": "string",
+     "description": "給使用者看:這一步失敗時說什麼(白話)"
+    },
+    "to": {
+     "$ref": "#/$defs/point"
+    },
+    "ms": {
+     "$ref": "#/$defs/num"
+    },
+    "seconds": {
+     "$ref": "#/$defs/num"
+    },
+    "when": {
+     "$ref": "#/$defs/when"
+    },
+    "timeout": {
+     "$ref": "#/$defs/num"
+    },
+    "on_timeout": {
+     "enum": [
+      "fail",
+      "continue"
+     ]
+    },
+    "then": {
+     "$ref": "#/$defs/steps"
+    },
+    "else": {
+     "$ref": "#/$defs/steps"
+    },
+    "elif": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "when"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "when": {
+        "$ref": "#/$defs/when"
+       },
+       "then": {
+        "$ref": "#/$defs/steps"
+       }
+      }
+     }
+    },
+    "steps": {
+     "$ref": "#/$defs/steps"
+    },
+    "times": {
+     "$ref": "#/$defs/num"
+    },
+    "delay": {
+     "$ref": "#/$defs/num"
+    },
+    "max_times": {
+     "$ref": "#/$defs/num"
+    },
+    "max_seconds": {
+     "$ref": "#/$defs/num"
+    },
+    "sub": {
+     "type": "string"
+    },
+    "args": {
+     "$ref": "#/$defs/args"
+    },
+    "on_fail": {
+     "enum": [
+      "fail",
+      "continue",
+      "stop"
+     ]
+    },
+    "catalog": {
+     "type": "string",
+     "description": "照目錄項目做:哪個目錄"
+    },
+    "item": {
+     "description": "照目錄項目做:哪一項(項目代號,或執行時從使用者設定 / 參數取)",
+     "oneOf": [
+      {
+       "type": "string"
+      },
+      {
+       "$ref": "#/$defs/ref"
+      }
+     ]
+    },
+    "var": {
+     "type": "string"
+    },
+    "mode": {
+     "enum": [
+      "set",
+      "add",
+      "now"
+     ]
+    },
+    "value": {
+     "$ref": "#/$defs/text_or_num"
+    },
+    "list": {
+     "type": "string"
+    },
+    "as": {
+     "type": "string",
+     "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "as_label": {
+     "type": "string"
+    },
+    "on_item_fail": {
+     "enum": [
+      "fail",
+      "continue"
+     ]
+    },
+    "max_swipes": {
+     "$ref": "#/$defs/num"
+    },
+    "settle": {
+     "$ref": "#/$defs/num"
+    },
+    "package": {
+     "$ref": "#/$defs/text"
+    },
+    "text": {
+     "$ref": "#/$defs/text"
+    },
+    "output": {
+     "type": "string"
+    },
+    "command": {
+     "type": "string"
+    },
+    "open": {
+     "$ref": "#/$defs/point",
+     "description": "走到地圖上的位置:點哪裡打開地圖"
+    },
+    "close": {
+     "$ref": "#/$defs/point",
+     "description": "走到地圖上的位置:點哪裡關掉地圖"
+    },
+    "anchor": {
+     "$ref": "#/$defs/point",
+     "description": "走到地圖上的位置:地圖上的基準圖示(找圖的按鈕)"
+    },
+    "me": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "color",
+      "box"
+     ],
+     "description": "走到地圖上的位置:「自己」在地圖上的樣子(顏色)和地圖在畫面上的範圍",
+     "properties": {
+      "color": {
+       "type": "array",
+       "items": {
+        "type": "integer"
+       },
+       "minItems": 3,
+       "maxItems": 3
+      },
+      "tol": {
+       "type": "number"
+      },
+      "min_px": {
+       "type": "number"
+      },
+      "box": {
+       "type": "array",
+       "items": {
+        "type": "number"
+       },
+       "minItems": 4,
+       "maxItems": 4
+      }
+     }
+    },
+    "points": {
+     "type": "array",
+     "minItems": 1,
+     "items": {
+      "type": "object",
+      "required": [
+       "x",
+       "y"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "x": {
+        "type": "number"
+       },
+       "y": {
+        "type": "number"
+       },
+       "label": {
+        "type": "string"
+       },
+       "near": {
+        "type": "number"
+       }
+      }
+     },
+     "description": "走到地圖上的位置:依序要走到的點(從基準圖示算起)"
+    },
+    "stick": {
+     "type": "object",
+     "required": [
+      "x",
+      "y",
+      "r"
+     ],
+     "additionalProperties": false,
+     "description": "走到地圖上的位置:方向控制(搖桿)的中心和推多遠",
+     "properties": {
+      "x": {
+       "type": "number"
+      },
+      "y": {
+       "type": "number"
+      },
+      "r": {
+       "type": "number"
+      },
+      "press": {
+       "enum": [
+        "drag",
+        "edge"
+       ]
+      }
+     }
+    },
+    "near": {
+     "$ref": "#/$defs/num"
+    },
+    "push_ms": {
+     "$ref": "#/$defs/num"
+    },
+    "max_moves": {
+     "$ref": "#/$defs/num"
+    },
+    "until": {
+     "$ref": "#/$defs/when",
+     "description": "走到地圖上的位置:這個條件成立就算到了(可不填)"
+    }
+   }
+  },
+  "steps": {
+   "type": "array",
+   "items": {
+    "$ref": "#/$defs/step"
+   }
+  },
+  "param": {
+   "type": "object",
+   "required": [
+    "name",
+    "type"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "name": {
+     "type": "string",
+     "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "label": {
+     "type": "string"
+    },
+    "type": {
+     "enum": [
+      "point",
+      "number",
+      "text",
+      "list"
+     ]
+    },
+    "item": {
+     "enum": [
+      "point",
+      "number",
+      "text"
+     ]
+    },
+    "from_list": {
+     "type": "string"
+    },
+    "default": {}
+   }
+  }
+ },
+ "title": "操作面板(腳本規範 v13);同一份設計也決定聊天 Bot 能做什麼",
+ "type": "object",
+ "required": [
+  "blocks",
+  "controls"
+ ],
+ "additionalProperties": false,
+ "properties": {
+  "title": {
+   "type": "string"
+  },
+  "devices": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   }
+  },
+  "pages": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": [
+     "id",
+     "title"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+     },
+     "title": {
+      "type": "string",
+      "minLength": 1
+     }
+    }
+   },
+   "description": "分頁(沒有 = 一頁)"
+  },
+  "sources": {
+   "type": "object",
+   "additionalProperties": false,
+   "description": "使用者可以掃描、選用的來源",
+   "properties": {
+    "kinds": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "種類,或「大類/*」"
+    },
+    "q": {
+     "type": "string",
+     "description": "名稱過濾(這些字都要有)"
+    },
+    "help": {
+     "type": "string",
+     "description": "掃描前要準備什麼"
+    },
+    "new_mode": {
+     "enum": [
+      "shadow",
+      "live"
+     ],
+     "description": "選用後主腳本先試跑或正式執行"
+    }
+   }
+  },
+  "theme": {
+   "type": "object",
+   "additionalProperties": false,
+   "description": "面板的外觀",
+   "properties": {
+    "accent": {
+     "type": "string",
+     "pattern": "^#[0-9a-fA-F]{6}$",
+     "description": "強調色(要按的東西)"
+    },
+    "big_text": {
+     "type": "boolean",
+     "description": "預設用大字(看的人可以自己關掉)"
+    }
+   }
+  },
+  "blocks": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": [
+     "id",
+     "title"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "title": {
+      "type": "string"
+     },
+     "help": {
+      "type": "string"
+     },
+     "toggle": {
+      "type": "string"
+     },
+     "items": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "page": {
+      "type": "string",
+      "description": "在哪個分頁(沒填 = 第一個)"
+     },
+     "width": {
+      "enum": [
+       "auto",
+       "third",
+       "narrow",
+       "two_thirds",
+       "wide"
+      ],
+      "description": "寬螢幕上:自動 / 1/3 列 / 半列 / 2/3 列 / 整列"
+     },
+     "widget": {
+      "type": "object",
+      "required": [
+       "kind"
+      ],
+      "properties": {
+       "kind": {
+        "enum": [
+         "devices",
+         "incidents",
+         "deploy",
+         "schedules",
+         "log",
+         "chat",
+         "list",
+         "values"
+        ]
+       }
+      }
+     },
+     "place": {
+      "type": "object",
+      "required": [
+       "x",
+       "y",
+       "w"
+      ],
+      "additionalProperties": false,
+      "description": "寬螢幕 12 欄格線上的位置:第幾欄、第幾列、佔幾欄、幾列高(沒填 = 依內容)",
+      "properties": {
+       "x": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 11
+       },
+       "y": {
+        "type": "integer",
+        "minimum": 0
+       },
+       "w": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 12
+       },
+       "h": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100
+       }
+      }
+     },
+     "phone": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "手機(一欄)上:排第幾、要不要藏起來",
+      "properties": {
+       "order": {
+        "type": "integer"
+       },
+       "hide": {
+        "type": "boolean"
+       }
+      }
+     }
+    }
+   }
+  },
+  "controls": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": [
+     "id",
+     "label",
+     "type",
+     "bind"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+     },
+     "label": {
+      "type": "string",
+      "minLength": 1
+     },
+     "help": {
+      "type": "string"
+     },
+     "type": {
+      "enum": [
+       "toggle",
+       "time",
+       "number",
+       "multi",
+       "single",
+       "action"
+      ]
+     },
+     "scope": {
+      "enum": [
+       "global",
+       "device"
+      ]
+     },
+     "bind": {
+      "type": "object",
+      "required": [
+       "kind"
+      ],
+      "properties": {
+       "kind": {
+        "enum": [
+         "setting",
+         "schedule",
+         "schedule_device",
+         "schedule_arg",
+         "entry_arg",
+         "act_schedule",
+         "act_sub",
+         "act_situation",
+         "act_stop"
+        ]
+       }
+      }
+     },
+     "min": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "max": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "unit": {
+      "type": "string"
+     },
+     "scale": {
+      "type": "number"
+     },
+     "options": {
+      "oneOf": [
+       {
+        "type": "string",
+        "pattern": "^(list|catalog):"
+       },
+       {
+        "type": "array"
+       }
+      ]
+     },
+     "chat": {
+      "type": "string",
+      "description": "在聊天 Bot 裡的名稱(不填 = 用名稱)"
+     },
+     "chat_off": {
+      "type": "boolean",
+      "description": "只放在頁面,聊天裡不能用"
+     },
+     "devices": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "每台各自的控制項只給這些來源(代號或 #標籤);不填 = 每一台"
+     }
+    }
+   }
+  },
+  "format": {
+   "const": 13,
+   "description": "腳本規範版本"
+  },
+  "version": {
+   "type": "integer"
+  },
+  "created": {
+   "type": "number"
+  },
+  "note": {
+   "type": "string"
+  }
+ }
+}

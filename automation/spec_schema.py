@@ -67,8 +67,8 @@ DEFS = {
         "on_enter": {"oneOf": [{"$ref": "#/$defs/steps"}, {"type": "null"}], "description": N_("進入這個情境時做一次的步驟")},
         "max_seconds": {"type": ["number", "null"]}, "on_timeout": {"type": "string"}}},
     "step": {"type": "object", "required": ["type"], "additionalProperties": False, "properties": {
-        "type": {"enum": ["tap", "long_press", "swipe", "back", "input_text", "launch_app", "pick", "capture_list", "wait",
-                          "wait_until", "if", "retry", "repeat_until", "for_each", "call", "set_var", "notify", "output",
+        "type": {"enum": ["tap", "long_press", "swipe", "back", "input_text", "launch_app", "pick", "walk_to", "capture_list", "wait",
+                          "wait_until", "if", "retry", "repeat_until", "for_each", "call", "call_item", "set_var", "notify", "output",
                           "succeed", "fail", "ask", "goto", "stop", "stay", "hold"]},
         "situation": {"type": "string", "description": N_("切換情境:要切到的情境")},
         "after": {"type": "object", "additionalProperties": False, "description": N_("做完這個操作之後:等幾秒,或等到條件成立"),
@@ -91,11 +91,32 @@ DEFS = {
         "steps": {"$ref": "#/$defs/steps"}, "times": {"$ref": "#/$defs/num"}, "delay": {"$ref": "#/$defs/num"},
         "max_times": {"$ref": "#/$defs/num"}, "max_seconds": {"$ref": "#/$defs/num"},
         "sub": {"type": "string"}, "args": {"$ref": "#/$defs/args"}, "on_fail": {"enum": ["fail", "continue", "stop"]},
+        "catalog": {"type": "string", "description": N_("照目錄項目做:哪個目錄")},
+        "item": {"description": N_("照目錄項目做:哪一項(項目代號,或執行時從使用者設定 / 參數取)"),
+                 "oneOf": [{"type": "string"}, {"$ref": "#/$defs/ref"}]},
         "var": {"type": "string"}, "mode": {"enum": ["set", "add", "now"]}, "value": {"$ref": "#/$defs/text_or_num"},
         "list": {"type": "string"}, "as": {"type": "string", "pattern": ID}, "as_label": {"type": "string"},
         "on_item_fail": {"enum": ["fail", "continue"]}, "max_swipes": {"$ref": "#/$defs/num"}, "settle": {"$ref": "#/$defs/num"},
         "package": {"$ref": "#/$defs/text"}, "text": {"$ref": "#/$defs/text"},
-        "output": {"type": "string"}, "command": {"type": "string"}}},
+        "output": {"type": "string"}, "command": {"type": "string"},
+        "open": {"$ref": "#/$defs/point", "description": N_("走到地圖上的位置:點哪裡打開地圖")},
+        "close": {"$ref": "#/$defs/point", "description": N_("走到地圖上的位置:點哪裡關掉地圖")},
+        "anchor": {"$ref": "#/$defs/point", "description": N_("走到地圖上的位置:地圖上的基準圖示(找圖的按鈕)")},
+        "me": {"type": "object", "additionalProperties": False, "required": ["color", "box"],
+               "description": N_("走到地圖上的位置:「自己」在地圖上的樣子(顏色)和地圖在畫面上的範圍"),
+               "properties": {"color": {"type": "array", "items": {"type": "integer"}, "minItems": 3, "maxItems": 3},
+                              "tol": {"type": "number"}, "min_px": {"type": "number"},
+                              "box": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4}}},
+        "points": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["x", "y"], "additionalProperties": False,
+                   "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "label": {"type": "string"},
+                                  "near": {"type": "number"}}},
+                   "description": N_("走到地圖上的位置:依序要走到的點(從基準圖示算起)")},
+        "stick": {"type": "object", "required": ["x", "y", "r"], "additionalProperties": False,
+                  "description": N_("走到地圖上的位置:方向控制(搖桿)的中心和推多遠"),
+                  "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "r": {"type": "number"},
+                                 "press": {"enum": ["drag", "edge"]}}},
+        "near": {"$ref": "#/$defs/num"}, "push_ms": {"$ref": "#/$defs/num"}, "max_moves": {"$ref": "#/$defs/num"},
+        "until": {"$ref": "#/$defs/when", "description": N_("走到地圖上的位置:這個條件成立就算到了(可不填)")}}},
     "steps": {"type": "array", "items": {"$ref": "#/$defs/step"}},
     "param": {"type": "object", "required": ["name", "type"], "additionalProperties": False, "properties": {
         "name": {"type": "string", "pattern": ID}, "label": {"type": "string"},
@@ -139,7 +160,7 @@ def _schema(kind):
             "bind": {"type": "object", "required": ["kind"], "properties": {"kind": {"enum": [
                 "setting", "schedule", "schedule_device", "schedule_arg", "entry_arg", "act_schedule", "act_sub", "act_situation", "act_stop"]}}},
             "min": {"type": ["number", "null"]}, "max": {"type": ["number", "null"]}, "unit": {"type": "string"},
-            "scale": {"type": "number"}, "options": {"oneOf": [{"type": "string", "pattern": "^list:"}, {"type": "array"}]},
+            "scale": {"type": "number"}, "options": {"oneOf": [{"type": "string", "pattern": "^(list|catalog):"}, {"type": "array"}]},
             "chat": {"type": "string", "description": _("在聊天 Bot 裡的名稱(不填 = 用名稱)")},
             "chat_off": {"type": "boolean", "description": _("只放在頁面,聊天裡不能用")},
             "devices": {"type": "array", "items": {"type": "string"},
@@ -171,6 +192,21 @@ def _schema(kind):
                         "accent": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": _("強調色(要按的東西)")},
                         "big_text": {"type": "boolean", "description": _("預設用大字(看的人可以自己關掉)")}}},
                     "blocks": {"type": "array", "items": block}, "controls": {"type": "array", "items": control}, **META}}
+    if kind == "catalogs":
+        call = {"type": "object", "required": ["sub"], "additionalProperties": False, "properties": {
+            "sub": {"type": "string", "description": _("要呼叫的子腳本")}, "args": {"$ref": "#/$defs/args"}}}
+        item = {"type": "object", "required": ["id", "name", "calls"], "additionalProperties": False, "properties": {
+            "id": {"type": "string", "pattern": ID}, "name": {"type": "string", "minLength": 1},
+            "folder": {"type": "string", "description": _("放在哪個資料夾(a/b)")},
+            "calls": {"type": "array", "minItems": 1, "items": call, "description": _("做法:依序呼叫這些子腳本")},
+            "here": {"$ref": "#/$defs/when", "description": _("怎麼看出已經在那裡(先看:已經在就不用做;做完後等它成立)")},
+            "here_wait": {"type": "number", "description": _("做完後等「已經在那裡」成立最多幾秒")},
+            "note": {"type": "string"}}}
+        cat = {"type": "object", "required": ["id", "name", "items"], "additionalProperties": False, "properties": {
+            "id": {"type": "string", "pattern": ID}, "name": {"type": "string", "minLength": 1}, "description": {"type": "string"},
+            "items": {"type": "array", "items": item}}}
+        return {**base, "title": _("目錄(腳本規範 v{FORMAT})", FORMAT=spec.FORMAT), "type": "object",
+                "properties": {"catalogs": {"type": "array", "items": cat}, "saved": {"type": "number"}, **META}}
     if kind == "variables":
         item = {"type": "object", "required": ["name", "scope", "reset"], "additionalProperties": False, "properties": {
             "name": {"type": "string", "pattern": ID}, "label": {"type": "string"}, "scope": {"enum": ["device", "global"]},
@@ -193,7 +229,7 @@ def _schema(kind):
     raise KeyError(kind)
 
 
-KINDS = {"script": N_("主腳本 / 守門規則"), "sub": N_("子腳本"), "variables": N_("變數"), "outputs": N_("輸出"), "tests": N_("腳本測試"), "panel": N_("操作面板")}
+KINDS = {"script": N_("主腳本 / 守門規則"), "sub": N_("子腳本"), "variables": N_("變數"), "outputs": N_("輸出"), "tests": N_("腳本測試"), "panel": N_("操作面板"), "catalogs": N_("目錄")}
 
 _WORD = {"required": N_("缺少欄位"), "additionalProperties": N_("不認得的欄位"), "enum": N_("值不正確"),
          "type": N_("型別不對"), "const": N_("值不對"), "pattern": N_("格式不對(只能用小寫英文、數字、底線,且以英文開頭)"),

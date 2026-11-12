@@ -9,9 +9,10 @@ import { usePersistentState } from '../lib/persist'
 import { ButtonsEditor, VarsEditor, perDeviceItem } from './Scripts'
 import { SettingsEditor } from './UserSettings'
 import { ShareSubs } from './ShareSubs'
+import { CatalogsEditor } from './Catalogs'
 import { dn, sourceIds } from '../lib/sources'
 
-type LibTab = 'buttons' | 'lists' | 'vars' | 'settings' | 'outputs' | 'share' | 'templates'
+type LibTab = 'buttons' | 'lists' | 'catalogs' | 'vars' | 'settings' | 'outputs' | 'share' | 'templates'
 const KIND_NAME: Record<string, string> = { script: t('主腳本'), guard_rules: t('守門規則'), sub: t('子腳本') }
 
 /** The parts every script shares: named buttons, variables and ready-made templates. */
@@ -26,7 +27,7 @@ export default function Library() {
   const saved = () => qc.invalidateQueries({ queryKey: ['scripts'] })
   const tabs: [LibTab, string][] = [
     ['buttons', t('按鈕({p1})', { p1: info ? info.buttons.filter(b => !perDeviceItem(info, b) && !b.list).length : 0 })],
-    ['lists', t('清單({p1})', { p1: info?.lists.length ?? 0 })], ['vars', t('變數({p1})', { p1: info?.variables.length ?? 0 })], ['settings', t('使用者設定({p1})', { p1: info?.settings.length ?? 0 })], ['outputs', t('輸出({p1})', { p1: info?.outputs.length ?? 0 })], ['share', t('分享子腳本')], ['templates', t('範本({p1})', { p1: info?.templates.length ?? 0 })]]
+    ['lists', t('清單({p1})', { p1: info?.lists.length ?? 0 })], ['catalogs', t('目錄({p1})', { p1: info?.catalogs.length ?? 0 })], ['vars', t('變數({p1})', { p1: info?.variables.length ?? 0 })], ['settings', t('使用者設定({p1})', { p1: info?.settings.length ?? 0 })], ['outputs', t('輸出({p1})', { p1: info?.outputs.length ?? 0 })], ['share', t('分享子腳本')], ['templates', t('範本({p1})', { p1: info?.templates.length ?? 0 })]]
   return (
     <Page title={t('素材庫')} intro={<PageIntro id="library" what={t('腳本動手時用的零件:畫面上的按鈕位置、控制設備的輸出、計數用的變數。')} start={t('要點畫面就新增「按鈕」;要控制設備(網址、MQTT…)就新增「輸出」,存好後按「測試」。')} ch={6} />} desc={t('腳本共用的零件。按鈕:取好名字的點擊位置(可以找圖示再點);變數:計數器、上次時間;範本:做好的腳本,改一改就能用。')}>
       <ErrorText error={q.error} />
@@ -39,6 +40,7 @@ export default function Library() {
       {!info ? <Card><Empty>{q.isLoading ? t('讀取中…') : t('讀取失敗')}</Empty></Card>
         : tab === 'buttons' ? <ButtonsEditor info={info} devices={devices} onSaved={saved} />
         : tab === 'lists' ? <Lists info={info} devices={devices} running={!!shadow.data?.status.running} onSaved={saved} />
+        : tab === 'catalogs' ? <CatalogsEditor info={info} devices={devices} onSaved={saved} />
         : tab === 'vars' ? <VarsEditor key={JSON.stringify(info.variables)} info={info} onSaved={saved} />
         : tab === 'settings' ? <SettingsEditor />
         : tab === 'outputs' ? <OutputsEditor onSaved={saved} />

@@ -3,11 +3,12 @@ list each device goes through, or how long to stay on each. The design declares 
 
   declarations  <data_root>/meta/user_settings.json   part of the design (it travels with the scripts)
                 {"settings": [{"id", "label", "description",
-                               "type": "number" | "text" | "bool" | "time" | "point" | "list",
+                               "type": "number" | "text" | "bool" | "time" | "point" | "list" | "item",
                                "item": for a list: "point" | "number" | "text",
                                "pick_from": for a point or a list of points: "list:<list id>" (the names of a
                                             list - that emulator's if the list is per device); the value must be
-                                            one of them,
+                                            one of them; for an item: "catalog:<catalog id>" (automation/catalogs.py),
+                                            the value {"item": item id},
                                "scope": "shared" (one value) | "device" (one per emulator),
                                "default", "device_default": {device: value},
                                "min", "max" (a number), "min_items", "max_items" (a list)}]}
@@ -28,7 +29,7 @@ from i18n import N_, _
 
 FILE = os.path.join("meta", "user_settings.json")
 VALUES = "user_settings_values.json"
-TYPES = {"number": N_("數字"), "text": N_("文字"), "bool": N_("開關"), "time": N_("時間"), "point": N_("位置(單選)"), "list": N_("清單(多選)")}
+TYPES = {"number": N_("數字"), "text": N_("文字"), "bool": N_("開關"), "time": N_("時間"), "point": N_("位置(單選)"), "list": N_("清單(多選)"), "item": N_("目錄的一項(單選)")}
 ITEMS = {"point": N_("位置"), "number": N_("數字"), "text": N_("文字")}
 SCOPES = {"device": N_("每台各自"), "shared": N_("全部共用")}
 _cache = {}
@@ -130,6 +131,9 @@ def choices(data_root, s, device=None):
         from . import lists
         spec = lists.load(data_root).get(src[5:])
         return [{"label": b["label"], "value": {"button": b["id"]}} for b in lists.ordered(data_root, spec, device)] if spec else []
+    if src.startswith("catalog:"):
+        from . import catalogs
+        return catalogs.choices(data_root, src[8:])
     return None
 
 
@@ -157,7 +161,7 @@ def check_value(data_root, s, v, device=None):
     allowed = choices(data_root, s, device)
     key = lambda x: json.dumps(x, sort_keys=True, ensure_ascii=False)
     ok = {key(c["value"]) for c in allowed} if allowed is not None else None
-    if t == "point":
+    if t in ("point", "item"):
         if not isinstance(v, dict) or (ok is not None and key(v) not in ok):
             raise ValueError(_("「{name}」的選項不正確,請重新整理頁面", name=name))
         return v
@@ -196,8 +200,12 @@ def validate(data_root, decls):
         if s["type"] == "list" and s.get("item", "point") not in ITEMS:
             raise ValueError(_("{where}:清單的每一項要是位置、數字或文字", where=where))
         src = s.get("pick_from")
-        if src and not src.startswith("list:") or src and s["type"] not in ("point", "list"):
+        if src and not src.startswith("list:") and not src.startswith("catalog:") or src and src.startswith("list:") and s["type"] not in ("point", "list")                 or (s["type"] == "item") != bool(src and src.startswith("catalog:")):
             raise ValueError(_("{where}:可選項目的來源不正確", where=where))
+        if s["type"] == "item":
+            from . import catalogs
+            if src[8:] not in catalogs.load(data_root):
+                raise ValueError(_("{where}:找不到目錄「{p2}」", where=where, p2=src[8:]))
         if src and src.startswith("list:"):
             from . import lists
             spec = lists.load(data_root).get(src[5:])

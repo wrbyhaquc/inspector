@@ -806,7 +806,7 @@ function ControlEditor({ c, info, open, onOpen, onChange, onMove, onDelete, firs
     if (!s) return
     delete x.options; delete x.unit; delete x.scale; delete x.min; delete x.max
     x.scope = s.scope === 'device' ? 'device' : 'global'
-    x.type = ({ number: 'number', bool: 'toggle', time: 'time', point: 'single', list: 'multi' } as Record<string, PanelControl['type']>)[s.type] ?? 'single'
+    x.type = ({ number: 'number', bool: 'toggle', time: 'time', point: 'single', item: 'single', list: 'multi' } as Record<string, PanelControl['type']>)[s.type] ?? 'single'
     if (s.pick_from) x.options = s.pick_from as PanelControl['options']
     if (s.type === 'number') { x.unit = ''; x.scale = 1 }
     if (!x.label || x.label === t('新的控制項') || x.label === '新的控制項') x.label = s.label

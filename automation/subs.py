@@ -15,6 +15,8 @@ Steps (nested blocks hold their own step lists):
   back         {}
   input_text   {"text"}                   type into the text box that has the focus (tap it first); {variable} filled in
   launch_app   {"package"}                start the app (or bring it to the front): after it was closed
+  walk_to      {"open", "close", "anchor", "me", "points", "stick", "near", "push_ms", "max_moves"}   go to a place on a
+                                          map in strides (automation/mapnav.py)
   pick         {"target", "max_swipes", "settle"}   a name of a list (a place, an account): scroll the list until it
                                           shows, tap it once it has stayed put "settle" seconds (the list glides on)
   wait         {"seconds"}
@@ -25,6 +27,8 @@ Steps (nested blocks hold their own step lists):
   for_each     {"list": a list parameter, "as": name, "as_label", "steps": [...], "on_item_fail": "fail" | "continue"}
                run the steps once per item of the list; inside, parameter <as> is the item and <as>_no its number (1, 2..)
   call         {"sub", "args": {param: value}, "on_fail": "fail" | "continue"}
+  call_item    {"catalog", "item": item id | {"setting"} | {"param"}, "on_fail"}   run the call of one item of a catalog
+               (automation/catalogs.py): the one people chose in a user setting, say - each item its own sub-script
   notify       {"text"}
   ask          {"text", "options": [{"label", "then": [...]}], "timeout", "default": option no. | 0, "var"}
                ask people (a paired chat, the runner page, the operation panel) and wait for the answer; then run the
@@ -55,17 +59,17 @@ from . import VAR_MODES, _read, _write, spec, values
 from .conds import check as check_cond
 from i18n import N_, _
 
-STEP_TYPES = {"tap": N_("點擊"), "long_press": N_("長按"), "swipe": N_("滑動"), "back": N_("返回鍵"), "input_text": N_("輸入文字"), "launch_app": N_("啟動 App"), "pick": N_("在清單中找到並點擊"), "capture_list": N_("擷取清單(掃描新項目)"), "wait": N_("等待秒數"),
+STEP_TYPES = {"tap": N_("點擊"), "long_press": N_("長按"), "swipe": N_("滑動"), "back": N_("返回鍵"), "input_text": N_("輸入文字"), "launch_app": N_("啟動 App"), "pick": N_("在清單中找到並點擊"), "walk_to": N_("走到地圖上的位置"), "capture_list": N_("擷取清單(掃描新項目)"), "wait": N_("等待秒數"),
               "wait_until": N_("等到條件成立"), "if": N_("如果…否則"), "retry": N_("失敗就重試"), "repeat_until": N_("重複直到"),
               "for_each": N_("對每一個…"),
-              "call": N_("呼叫子腳本"), "set_var": N_("設定變數"), "notify": N_("通知"), "ask": N_("問使用者"), "output": N_("送到輸出"),
+              "call": N_("呼叫子腳本"), "call_item": N_("照目錄項目做"), "set_var": N_("設定變數"), "notify": N_("通知"), "ask": N_("問使用者"), "output": N_("送到輸出"),
               "succeed": N_("結束(成功)"), "fail": N_("結束(失敗)"),
               "goto": N_("切換情境"), "stop": N_("停下這台"), "stay": N_("原地等著(不動作)"), "hold": N_("暫停其他腳本")}
 # how the step menu is grouped on the page
-STEP_GROUPS = [(N_("操作畫面"), ["tap", "long_press", "swipe", "back", "input_text", "pick", "launch_app", "capture_list"]),
+STEP_GROUPS = [(N_("操作畫面"), ["tap", "long_press", "swipe", "back", "input_text", "pick", "walk_to", "launch_app", "capture_list"]),
                (N_("等待"), ["wait", "wait_until"]),
                (N_("判斷與重複"), ["if", "repeat_until", "for_each", "retry"]),
-               (N_("呼叫與結束"), ["call", "succeed", "fail", "stop", "goto"]),
+               (N_("呼叫與結束"), ["call", "call_item", "succeed", "fail", "stop", "goto"]),
                (N_("溝通"), ["notify", "ask", "output"]),
                (N_("記錄"), ["set_var"]),
                (N_("規則專用"), ["stay", "hold"])]
@@ -165,7 +169,15 @@ def walk(steps):
 
 
 def calls(sub):
-    return {st.get("sub") for st in walk(sub.get("steps")) if st.get("type") == "call"}
+    """the sub-scripts it may call: its call steps', and every item's of the catalogs its call_item steps use"""
+    out = set()
+    for st in walk(sub.get("steps")):
+        if st.get("type") == "call":
+            out.add(st.get("sub"))
+        elif st.get("type") == "call_item":
+            from . import catalogs
+            out |= catalogs.subs_of(catalogs.load().get(st.get("catalog")))
+    return out
 
 
 def used_by(data_root, scripts=None, subs=None):
@@ -275,6 +287,19 @@ def _describe_step(st, names, subs=None, params=None):
                         for k, v in (st.get("args") or {}).items())
         return _("呼叫子腳本「{name}」", name=name) + (_("({n})", n=args) if args else "") + \
             {"continue": _("(失敗也繼續)"), "stop": _("(失敗就停下這台)")}.get(st.get("on_fail"), "")
+    if t == "walk_to":
+        n = len(st.get("points") or [])
+        return _("走到地圖上的位置") + (_("(經過 {n} 個點)", n=n) if n > 1 else "")
+    if t == "call_item":
+        from . import catalogs
+        cat = catalogs.load().get(st.get("catalog")) or {}
+        v = st.get("item")
+        if values.is_ref(v):
+            what = _v(v, params)
+        else:
+            it = catalogs.item(None, st.get("catalog"), catalogs.item_id(v))
+            what = _("「{name}」", name=catalogs.label(cat, it)) if it else _("「{name}」(已刪除)", name=v)
+        return _("照目錄「{cat}」的 {what} 做", cat=cat.get("name") or st.get("catalog"), what=what) +             {"continue": _("(失敗也繼續)"), "stop": _("(失敗就停下這台)")}.get(st.get("on_fail"), "")
     if t == "set_var":
         return _("變數「{var}」", var=st.get('var')) + (_("記下現在時間") if st.get("mode") == "now" else f"{_(VAR_MODES.get(st.get('mode'), ''))} {_v(st.get('value'), params)}")
     if t in ("notify", "succeed", "fail"):
@@ -390,7 +415,7 @@ def _check_steps(steps, sub, lib, states, path, allowed=None, var_names=None):
                 values.check(a["seconds"], where, "number", params=params, settings=decls, var_names=var_names, states=states)
                 if not values.is_ref(a["seconds"]) and not 0 <= float(a["seconds"]) <= 3600:
                     raise ValueError(_("{where}:然後等待的秒數要在 0~3600", where=where))
-        if t == "call" and st.get("on_fail", "fail") not in ON_FAIL:
+        if t in ("call", "call_item") and st.get("on_fail", "fail") not in ON_FAIL:
             raise ValueError(_("{where}:子腳本失敗時要怎麼做?", where=where))
         if t in ("tap", "long_press", "pick"):
             _check_point(st.get("target"), params, where)
@@ -473,6 +498,35 @@ def _check_steps(steps, sub, lib, states, path, allowed=None, var_names=None):
             raise ValueError(_("{where}:裡面至少要有一個步驟", where=where))
         if t == "if" and not (st.get("then") or st.get("else") or any(e.get("then") for e in st.get("elif") or [])):
             raise ValueError(_("{where}:「成立時」「否則如果」或「否則」至少要有一個步驟", where=where))
+        if t == "walk_to":
+            me, stick = st.get("me") or {}, st.get("stick") or {}
+            if not (st.get("open") and st.get("close") and "button" in (st.get("anchor") or {})):
+                raise ValueError(_("{where}:請設定打開、關閉地圖的位置,和地圖上的基準圖示", where=where))
+            for k in ("open", "close", "anchor"):
+                _check_point(st.get(k), params, where)
+            if st.get("until"):
+                _check_when(st["until"], states, where, var_names, params)
+            if not (isinstance(me.get("color"), list) and len(me["color"]) == 3 and isinstance(me.get("box"), list) and len(me["box"]) == 4):
+                raise ValueError(_("{where}:請設定「自己」在地圖上的顏色和地圖的範圍", where=where))
+            if not (st.get("points") and all(isinstance(p, dict) and "x" in p and "y" in p for p in st["points"])):
+                raise ValueError(_("{where}:請設定要走到的點", where=where))
+            if not all(k in stick for k in ("x", "y", "r")):
+                raise ValueError(_("{where}:請設定方向控制(搖桿)的位置", where=where))
+        if t == "call_item":
+            from . import catalogs
+            cat = catalogs.load().get(st.get("catalog"))
+            if not cat:
+                raise ValueError(_("{where}:請選擇目錄", where=where))
+            v = st.get("item")
+            if isinstance(v, dict) and set(v) == {"setting"}:
+                s = decls.get(v["setting"])
+                if not s or s.get("type") != "item" or s.get("pick_from") != f"catalog:{cat['id']}":
+                    raise ValueError(_("{where}:使用者設定「{setting}」不是從目錄「{name}」選一項", where=where, setting=v["setting"], name=cat["name"]))
+            elif isinstance(v, dict) and set(v) == {"param"}:
+                if not any(p["name"] == v["param"] and p["type"] == "text" for p in params):
+                    raise ValueError(_("{where}:沒有「{param}」這個文字參數", where=where, param=v["param"]))
+            elif not catalogs.item(None, cat["id"], catalogs.item_id(v)):
+                raise ValueError(_("{where}:請選擇目錄「{name}」的哪一項", where=where, name=cat["name"]))
         if t == "call":
             target = lib.get(st.get("sub"))
             if not target:
@@ -612,7 +666,8 @@ def set_layout(data_root, lay):
 def delete(data_root, sid):
     if sid not in ids(data_root):
         raise ValueError(_("找不到這個子腳本"))
-    users = used_by(data_root).get(sid)
+    from . import catalogs
+    users = (used_by(data_root).get(sid) or []) + (catalogs.used_by(data_root).get(sid) or [])
     if users:
         raise ValueError(_("還有地方在用這個子腳本:") + _("、").join(users))
     trash = os.path.join(_dir(data_root), ".deleted")

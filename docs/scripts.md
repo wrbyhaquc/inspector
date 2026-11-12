@@ -34,11 +34,11 @@ Main scripts, global guard rules and sub-scripts all use the same cards and the 
 
 A rule's "then do in order", a situation's "on entry" and a sub-script's steps all use the same steps:
 
-- **Operate the screen**: tap, long press, swipe, back key, type text, find in a list and tap, launch an app, capture a list.
+- **Operate the screen**: tap, long press, swipe, back key, type text, find in a list and tap, walk to a place on the map, launch an app, capture a list.
   Tap-like steps can set "after it": wait some seconds, or until the screen / a number meets a condition.
 - **Wait**: wait seconds, wait until a condition holds.
 - **Decide and repeat**: if… else, repeat until, for each…, retry on failure.
-- **Call and end**: call a sub-script (when it fails: fail entirely / go on / stop this device), end (success), end (failure), stop this device, switch situation.
+- **Call and end**: call a sub-script (when it fails: fail entirely / go on / stop this device), do an item of a catalog, end (success), end (failure), stop this device, switch situation.
 - **Communicate**: notify, ask the user, send to an output.
 - **Record**: set a variable.
 - **Rules only**: stay put (do nothing, and keep the rules below from acting), pause other scripts (guard rules only).
@@ -47,6 +47,38 @@ Some steps only make sense in certain places:
 
 - **Switch situation**: only in main-script rules and situation entries (sub-scripts and guard rules have no situations).
 - **Stay put / pause other scripts**: only as the single step of a rule.
+
+## Catalogs: choosing one of many, each done its own way
+
+A **catalog** (Library › Catalogs) is a list of named items to choose from, filed in folders. Each item says what doing
+it means: which sub-scripts to call, in order, and with what (go in, choose the area, walk on). Items of one catalog may use different sub-scripts - e.g. the places
+to go, some reached through the map and some only after entering somewhere and walking on; or the rooms to clean, each
+with its own route.
+
+- Let the people running it choose: add a user setting of the kind "an item of a catalog". It shows on the operation
+  panel and in the chat bot like any other choice, with the catalog's folders.
+- In a script, the step **do an item of a catalog** runs the chosen item (the setting's value, a text parameter, or a
+  fixed item): it calls that item's sub-scripts in order, each with its arguments.
+- An item may also say **how to tell it is already there** (conditions, like an "if"). Then it is checked first:
+  already there means nothing to do (no second trip, no second fee); after the steps it waits until it holds, and not
+  seeing it means the item failed - so the caller can try another one.
+- Adding a new item is only filling in the catalog; no script changes.
+
+## Walking to a place on a map
+
+**Walk to a place on the map** is for screens that show "me" on a map and move "me" with a joystick (a game, a robot's
+floor plan). It goes in stretches: open the map, see where the "me" mark is, close the map, push the joystick towards the
+next point for a moment, again.
+
+- **The anchor sign**: a fixed sign on the map (a find button). The points count from it, so a map that opens centred on
+  "me" still works.
+- **"Me"**: the colour of the mark, and the area of the screen where the map is (the biggest patch of that colour).
+- **The points**, in order: e.g. the start of a bridge, its end, the field behind it. Each may say how close counts.
+- **The joystick**: its centre and how far to push; "hold it at the edge" is faster where the game allows it.
+- Optional **done when**: a condition, e.g. "the place name says I am out of the safe area".
+
+Which way a push really goes on the map, and how far, is learnt while walking: nothing to calibrate. When pushes hardly
+move "me" (something in the way), it tries to the sides with short pushes; still stuck = the step fails.
 
 ## Conditions
 

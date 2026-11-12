@@ -52,10 +52,14 @@ What each version added (older files are upgraded by upgrade()):
   11 operation panel block "place": {"x", "y", "w", "h"} on a 12-column grid and "phone": {"order", "hide"}; the
      panel's "theme": {"accent", "big_text"}. A block without a place is placed from its order and width when the
      panel is read (server/panel.py pack()), so nothing changes in the file
-  12 the operation panel's watch widget "values" {"vars": [variable names]}: what the scripts' variables are now"""
+  12 the operation panel's watch widget "values" {"vars": [variable names]}: what the scripts' variables are now
+  13 catalogs (目錄, automation/catalogs.py, meta/catalogs.json): named items, each a few sub-script calls done
+     in order ("calls") and optionally how to tell it is already there ("here"), filed in folders; the step call_item {"catalog", "item": item id | {"setting"} | {"param"}, "on_fail"}
+     runs one; a user setting of type "item" (pick_from "catalog:<id>", value {"item": id}) lets people choose one,
+     and an operation panel control's "options" may be "catalog:<id>" (its items)"""
 from i18n import _
 
-FORMAT = 12
+FORMAT = 13
 
 
 def stamp(obj):
@@ -81,7 +85,7 @@ def upgrade(obj):
     """An older file brought to the current format.
     0 -> 1: the wait step's "seconds_param" (the only field that could take a parameter) becomes
             "seconds": {"param": ...} like every other value.
-    1 -> 2, 2 -> 3, 3 -> 4, 4 -> 5, 5 -> 6, 6 -> 7, 8 -> 9, 9 -> 10, 10 -> 11, 11 -> 12: nothing to change (they only add).
+    1 -> 2, 2 -> 3, 3 -> 4, 4 -> 5, 5 -> 6, 6 -> 7, 8 -> 9, 9 -> 10, 10 -> 11, 11 -> 12, 12 -> 13: nothing to change (they only add).
     7 -> 8: a rule's "action" becomes "do" (a step list), a situation's "on_enter" a step list (action_steps())."""
     if version(obj) >= FORMAT or not isinstance(obj, dict):
         return obj

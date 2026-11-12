@@ -625,6 +625,18 @@ class Shadow:
         threading.Thread(target=work, daemon=True, name=f"capture {n}").start()
         return job
 
+    def map_me(self, n, anchor, me):
+        """walk_to (automation/mapnav.py): ((anchor x, y), (me x, y)) on device n's screen now, or None."""
+        from automation import mapnav
+        a = self.resolve_point(n, anchor) if anchor else None
+        if not a or not me:
+            return None
+        b = buttons_mod.load(self.data_root).get((anchor or {}).get("button")) or {}
+        w, h = (b.get("box") or [0, 0, 24, 24])[2:]
+        ex = [a[0] - w // 2 - 6, a[1] - h // 2 - 6, w + 12, h + 12]          # the anchor itself may be the same colour
+        m = mapnav.find_me(self.cur_frames.get(n), me.get("box"), me.get("color"), me.get("tol", 40), me.get("min_px", 6), [ex])
+        return (a, m) if m else None
+
     def list_find(self, n, target):
         """A name of a list (lists.py) on device n's screen now -> {"point"} where it is, {"swipe": "down" | "up",
         "move": [x, y1, y2]} which way it is (one page), or None (not a list name / no list rows on the screen)."""

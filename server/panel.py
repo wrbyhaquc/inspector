@@ -96,7 +96,7 @@ ACTS = {"act_schedule": N_("立即執行排程"), "act_sub": N_("立即執行子
 BINDS = {"setting": N_("使用者設定"), "schedule": N_("排程的開關或開始時間"), "schedule_device": N_("這台要不要參加排程"),
          "schedule_arg": N_("排程子腳本的參數(舊接法)"), "entry_arg": N_("主腳本情境進入時的參數(舊接法)"), **ACTS}
 # the panel control a user setting shows as (a list of free text / numbers has no panel control yet)
-SETTING_CONTROL = {"number": "number", "bool": "toggle", "time": "time", "point": "single", "list": "multi"}
+SETTING_CONTROL = {"number": "number", "bool": "toggle", "time": "time", "point": "single", "list": "multi", "item": "single"}
 
 
 def setting_of(c):

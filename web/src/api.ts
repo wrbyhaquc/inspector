@@ -380,6 +380,7 @@ export interface ScriptPoint { x?: number; y?: number; param?: string; button?: 
 export interface LibButton {
   id: string; label: string; x: number; y: number; find?: boolean; box?: number[]; search?: number; min_score?: number; updated?: number
   feature?: 'gray' | 'minch' | 'text'; group?: string; device?: string; list?: string
+  folder?: string                         // where it is filed in the library: "a/b"
 }
 export interface TemplateInfo { id: string; kind: 'script' | 'sub' | 'guard_rules'; name: string; description: string }
 export type ArgItem = ScriptPoint | number | string
@@ -388,16 +389,17 @@ export type ArgValue = ArgItem | ArgItem[] | { param: string } | { setting: stri
 export interface ListInfo { id: string; title: string; per_device: boolean; open_sub?: string | null; ready_text?: string | null }
 export interface SettingDecl {
   id: string; label: string; description?: string
-  type: 'number' | 'text' | 'bool' | 'time' | 'point' | 'list'; item?: 'point' | 'number' | 'text'
-  pick_from?: string                      // "list:<id>": the value must be one of that list's names (the device's if per device)
+  type: 'number' | 'text' | 'bool' | 'time' | 'point' | 'list' | 'item'; item?: 'point' | 'number' | 'text'
+  pick_from?: string                      // "list:<id>": the value must be one of that list's names (the device's if per device); "catalog:<id>": an item of it
   scope: 'device' | 'shared'; default?: unknown; device_default?: Record<string, unknown>
   min?: number; max?: number; min_items?: number; max_items?: number
 }
-export type Choice = { label: string; value: unknown }
+export type Choice = { label: string; value: unknown; folder?: string }
 export interface SettingsInfo {
   settings: SettingDecl[]; types: Record<string, string>; items: Record<string, string>; scopes: Record<string, string>
   used_by: Record<string, string[]>; current: Record<string, Record<string, unknown>>; chosen: Record<string, string[]>
   devices: string[]; choices: Record<string, Record<string, Choice[] | null>>; lists: ListInfo[]
+  catalogs: { id: string; name: string }[]
 }
 export interface ScriptAction {
   type: string; target?: ScriptPoint; text?: string; sub?: string; args?: Record<string, ArgValue>
@@ -422,7 +424,17 @@ export interface SubStep {
   list?: string; as?: string; as_label?: string; on_item_fail?: string; max_swipes?: NumVal; settle?: NumVal; package?: string
   output?: string; command?: string
   options?: { label: string; then: SubStep[] }[]; default?: number      // ask (問使用者)
+  catalog?: string; item?: string | { setting: string } | { param: string }   // call_item (照目錄項目做)
+  open?: ScriptPoint; close?: ScriptPoint; anchor?: ScriptPoint                // walk_to (走到地圖上的位置)
+  me?: { color: number[]; tol?: number; min_px?: number; box: number[] }
+  points?: { x: number; y: number; near?: number; label?: string }[]
+  stick?: { x: number; y: number; r: number; press?: string }
+  near?: NumVal; push_ms?: NumVal; max_moves?: NumVal; until?: ScriptCond[][]
 }
+/** a catalog (目錄): named items, each a sub-script call with its arguments, filed in folders */
+export interface CatalogCall { sub: string; args: Record<string, ArgValue> }
+export interface CatalogItem { id: string; name: string; folder?: string; calls: CatalogCall[]; here?: ScriptCond[][]; here_wait?: number; note?: string }
+export interface Catalog { id: string; name: string; description?: string; items: CatalogItem[] }
 export interface SourceRef { kind: string; what: string; text: string }
 export interface SourceNative {
   kind: string; kind_label: string; category_label?: string; match: string; detail: string; ok?: boolean; size: number[] | null; size_warn: string | null
@@ -478,6 +490,7 @@ export interface ScriptsInfo {
   cond_kinds: Record<string, string>; variables: VarDef[]; buttons: LibButton[]; templates: TemplateInfo[]
   var_modes: Record<string, string>; var_scopes: Record<string, string>; var_resets: Record<string, string>
   outputs: { id: string; name: string }[]
+  catalogs: Catalog[]
 }
 /** a bot channel that takes commands (notify/commands.py) */
 export interface BotInfo { state: { state: string; error: string | null; since: number } | null; allowed: { id: string; name?: string }[]; chat_name?: string; paired: boolean; invite: string | null }
@@ -790,6 +803,7 @@ export const api = {
   scriptsOrder: (order: string[]) => req<{ order: string[] }>('POST', '/api/scripts/order', { order }),
   variablesSave: (vars: VarDef[]) => req<{ vars: VarDef[] }>('POST', '/api/variables', { vars }),
   buttonSave: (button: LibButton, source: { snap?: string; frame?: string }) => req<LibButton>('POST', '/api/buttons', { button, ...source }),
+  buttonFolders: (moves: Record<string, string>) => req<{ changed: number }>('POST', '/api/buttons/folders', { moves }),
   buttonDelete: (id: string) => req<{ deleted: string }>('DELETE', `/api/buttons/${id}`),
   listCapture: (list: string, device: string) => req<{ new: string[]; known: string[] }>('POST', '/api/lists/capture', { list, device }),
   runSub: (b: { device: string; sub: string; args: Record<string, ArgValue> }) => req<{ queued: boolean }>('POST', '/api/shadow/run_sub', b),
@@ -817,6 +831,7 @@ export const api = {
   subSave: (sub: SubScript, note: string) => req<SubScript>('POST', '/api/subscripts', { sub, note }),
   subLayout: (layout: SubLayout) => req<SubLayout>('POST', '/api/subscripts/layout', layout),
   settings: () => req<SettingsInfo>('GET', '/api/settings'),
+  catalogsSave: (catalogs: Catalog[]) => req<{ catalogs: Catalog[] }>('POST', '/api/catalogs', { catalogs }),
   settingsSave: (settings: SettingDecl[]) => req<{ settings: SettingDecl[] }>('POST', '/api/settings', { settings }),
   settingValue: (id: string, device: string | null, value: unknown) => req<{ old: unknown; new: unknown }>('POST', '/api/settings/value', { id, device, value }),
   settingChoices: (pickFrom: string, device?: string) =>

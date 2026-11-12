@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { api, type Choice, type SettingDecl, type SettingsInfo } from '../api'
 import { Button, Card, Empty, ErrorText } from '../components/ui'
 import { dn } from '../lib/sources'
+import { TreePicker, splitFolder } from '../components/TreePicker'
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v))
 const input = 'border border-stone-300 rounded-md px-2 py-1 text-sm bg-white'
@@ -15,7 +16,7 @@ export function settingText(s: SettingDecl, v: unknown, choices?: Choice[] | nul
   const name = (x: unknown) => choices?.find(c => key(c.value) === key(x))?.label ?? (typeof x === 'object' ? JSON.stringify(x) : String(x))
   if (s.type === 'bool') return v ? t('開') : t('關')
   if (s.type === 'list') return Array.isArray(v) ? (v.length ? v.map(name).join(t('、')) : t('(一個都沒選)')) : String(v)
-  if (s.type === 'point') return name(v)
+  if (s.type === 'point' || s.type === 'item') return name(v)
   return String(v)
 }
 
@@ -29,6 +30,11 @@ export function SettingValueInput({ s, value, choices, onChange }: {
   if (s.type === 'time') return <input type="time" className={input} value={String(value ?? '')} onChange={e => onChange(e.target.value)} />
   if (s.type === 'text') return <input className={`${input} w-56`} value={String(value ?? '')} onChange={e => onChange(e.target.value)} />
   if (!choices) return <span className="text-xs text-stone-500">{choices === null ? t('沒有可選的項目') : t('讀取中…')}</span>
+  if (s.type === 'item') return (
+    <TreePicker value={value == null ? '' : key(value)} placeholder={t('(未選)')}
+      items={choices.map(c => ({ key: key(c.value), path: splitFolder(c.folder), label: c.label }))}
+      onChange={k => onChange(k ? JSON.parse(k) : null)} />
+  )
   if (s.type === 'point') return (
     <select className={input} value={value == null ? '' : key(value)} onChange={e => onChange(e.target.value ? JSON.parse(e.target.value) : null)}>
       <option value="">{t('(未選)')}</option>
@@ -156,6 +162,7 @@ function SettingCard({ s, info, isNew, open, onToggle, onChange, onDelete }: {
                 delete x.min; delete x.max; delete x.min_items; delete x.max_items; delete x.pick_from
                 if (x.type === 'list') x.item = 'point'; else delete x.item
                 if ((x.type === 'point' || x.type === 'list') && info.lists[0]) { x.pick_from = `list:${info.lists[0].id}`; if (info.lists[0].per_device) x.scope = 'device' }
+                if (x.type === 'item' && info.catalogs[0]) x.pick_from = `catalog:${info.catalogs[0].id}`
               })}>{Object.entries(info.types).map(([k, tx]) => <option key={k} value={k}>{tx}</option>)}</select></label>
             <label className="flex items-center gap-2"><span className="w-16 text-stone-600">{t('範圍')}</span>
               <select className={input} value={s.scope} onChange={e => onChange(x => { x.scope = e.target.value as SettingDecl['scope'] })}>
@@ -169,6 +176,13 @@ function SettingCard({ s, info, isNew, open, onToggle, onChange, onDelete }: {
                 })}>
                   {info.lists.map(l => <option key={l.id} value={`list:${l.id}`}>{t('清單:{title}', { title: l.title })}{l.per_device ? t('(每台各自)') : ''}</option>)}
                 </select></label>
+            )}
+            {s.type === 'item' && (
+              <label className="flex items-center gap-2 md:col-span-2"><span className="w-16 text-stone-600">{t('從哪裡選')}</span>
+                {info.catalogs.length ? <select className={input} value={s.pick_from ?? ''} onChange={e => onChange(x => { x.pick_from = e.target.value; delete x.default; x.device_default = {} })}>
+                  {!s.pick_from && <option value="">{t('(請選擇目錄)')}</option>}
+                  {info.catalogs.map(c => <option key={c.id} value={`catalog:${c.id}`}>{t('目錄:{name}', { name: c.name })}</option>)}
+                </select> : <span className="text-xs text-rose-700">{t('先到「素材庫 › 目錄」建立目錄')}</span>}</label>
             )}
             {s.type === 'list' && (
               <label className="flex items-center gap-2"><span className="w-16 text-stone-600">{t('每一項')}</span>

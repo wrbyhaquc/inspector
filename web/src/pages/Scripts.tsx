@@ -13,6 +13,7 @@ import { DropLine, DropTarget, Grip, moveInList } from '../lib/dnd'
 import { usePersistentState } from '../lib/persist'
 import { screen, words } from '../lib/project'
 import { useSchema } from '../lib/schema'
+import { TreePicker, labelPrefix, shortLabel, splitFolder, type PickItem } from '../components/TreePicker'
 import { dn, sourceIds } from '../lib/sources'
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v))
@@ -553,6 +554,7 @@ function stepText(st: SubStep, ctx: Ctx): string {
     case 'input_text': tx = t('輸入「{p1}」', { p1: st.text ?? '' }); break
     case 'launch_app': tx = t('啟動 App{p1}', { p1: st.package ? `「${st.package}」` : '' }); break
     case 'pick': tx = t('在清單中找到並點擊 {p1}', { p1: pointText(st.target, info, params) }); break
+    case 'walk_to': tx = (st.points ?? []).length > 1 ? t('走到地圖上的位置(經過 {n} 個點)', { n: (st.points ?? []).length }) : t('走到地圖上的位置'); break
     case 'capture_list': tx = t('擷取清單「{p1}」', { p1: info.lists.find(l => l.id === st.list)?.title ?? st.list }); break
     case 'wait': tx = t('等 {p1} 秒', { p1: v(st.seconds ?? 1) }); break
     case 'wait_until': {
@@ -566,6 +568,10 @@ function stepText(st: SubStep, ctx: Ctx): string {
     case 'call': {
       const p = { sub: info.subs.find(x => x.id === st.sub)?.name ?? st.sub ?? '' }
       tx = st.on_fail === 'continue' ? t('執行子腳本「{sub}」(失敗也繼續)', p) : st.on_fail === 'stop' ? t('執行子腳本「{sub}」(失敗就停下這台)', p) : t('執行子腳本「{sub}」', p); break
+    }
+    case 'call_item': {
+      const p = { cat: info.catalogs.find(c => c.id === st.catalog)?.name ?? st.catalog ?? '', item: itemText(st, info, params) }
+      tx = st.on_fail === 'continue' ? t('照目錄「{cat}」的 {item} 做(失敗也繼續)', p) : st.on_fail === 'stop' ? t('照目錄「{cat}」的 {item} 做(失敗就停下這台)', p) : t('照目錄「{cat}」的 {item} 做', p); break
     }
     case 'notify': tx = t('通知「{p1}」', { p1: st.text ?? '' }); break
     case 'ask': tx = t('問使用者「{p1}」({p2})', { p1: st.text ?? '', p2: (st.options ?? []).map(o => o.label).join(' / ') }); break
@@ -595,7 +601,7 @@ function doText(steps: SubStep[] | null | undefined, ctx: Ctx): string {
   return steps.map(st => stepText(st, ctx) + (st.type === 'if' || st.type === 'repeat_until' || st.type === 'retry' || st.type === 'for_each' || st.type === 'ask' ? ' …' : '')).join(' → ')
 }
 
-function defaultCond(states: StateDef[]): ScriptCond {
+export function defaultCond(states: StateDef[]): ScriptCond {
   const st = states[0]
   return { state: st?.id ?? '', op: 'is', value: st?.classes?.[0]?.value ?? 0, min_conf: 0.7 }
 }
@@ -889,7 +895,54 @@ export function ValueInput({ value, onChange, def = 0, w = 'w-16', step = 1, sca
   )
 }
 
-function CondGroups({ when, states, ops, onChange }: {
+/** walk_to (走到地圖上的位置): the map, "me" on it, the points (from the anchor), the direction control */
+function WalkToEditor({ st, params, states, ops, onChange }: {
+  st: SubStep; params: SubParam[]; states: StateDef[]; ops: Record<string, string>; onChange: (fn: (x: SubStep) => void) => void
+}) {
+  const me = st.me ?? { color: [210, 84, 50], box: [0, 120, 1280, 500] }
+  const stick = st.stick ?? { x: 190, y: 570, r: 60 }
+  const hex = '#' + me.color.map(c => Math.max(0, Math.min(255, c | 0)).toString(16).padStart(2, '0')).join('')
+  const num = (v: number | undefined, set: (n: number) => void, w = 'w-16') =>
+    <input type="number" className={`${input} ${w} num`} value={v ?? ''} onChange={e => set(Number(e.target.value))} />
+  return (
+    <div className="basis-full flex flex-col gap-1.5 text-xs pl-6">
+      <span className="flex flex-wrap items-center gap-1">{t('打開地圖:點')}<TargetEditor tx={st.open ?? {}} params={params} onChange={tx => onChange(x => { x.open = tx })} />
+        {t('關掉地圖:點')}<TargetEditor tx={st.close ?? {}} params={params} onChange={tx => onChange(x => { x.close = tx })} /></span>
+      <span className="flex flex-wrap items-center gap-1" title={t('地圖上一個固定的圖示(找圖的按鈕);下面的點都從它算起,所以地圖跟著自己移動也沒關係')}>
+        {t('地圖上的基準圖示')}<TargetEditor tx={st.anchor ?? {}} params={params} onChange={tx => onChange(x => { x.anchor = tx })} /></span>
+      <span className="flex flex-wrap items-center gap-1" title={t('地圖上代表「自己」的記號的顏色;在地圖範圍裡找最大的一塊這種顏色')}>
+        {t('「自己」的顏色')}<input type="color" value={hex} onChange={e => { const h = e.target.value; onChange(x => { x.me = { ...me, color: [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)) } }) }} />
+        {t('容許差')}{num(me.tol ?? 40, n => onChange(x => { x.me = { ...me, tol: n } }))}
+        {t('地圖範圍 x / y / 寬 / 高')}{[0, 1, 2, 3].map(i => <span key={i}>{num(me.box[i], n => onChange(x => { const b = [...me.box]; b[i] = n; x.me = { ...me, box: b } }))}</span>)}</span>
+      <div className="flex flex-col gap-1">
+        <span className="text-stone-600">{t('依序走到這些點(從基準圖示算起,往右 x、往下 y,地圖上的像素)')}</span>
+        {(st.points ?? []).map((p, k) => (
+          <span key={k} className="flex flex-wrap items-center gap-1">
+            <span className="num text-stone-500">{k + 1}.</span>x{num(p.x, n => onChange(x => { x.points![k].x = n }))}y{num(p.y, n => onChange(x => { x.points![k].y = n }))}
+            {t('多近算到')}{num(p.near, n => onChange(x => { x.points![k].near = n || undefined }))}
+            <input className={`${input} w-28`} placeholder={t('說明(可不填)')} value={p.label ?? ''} onChange={e => onChange(x => { x.points![k].label = e.target.value || undefined })} />
+            {(st.points ?? []).length > 1 && <button className="text-stone-500 hover:text-red-700" onClick={() => onChange(x => { x.points!.splice(k, 1) })}>{t('刪除')}</button>}
+          </span>
+        ))}
+        <button className="self-start text-stone-600 hover:text-stone-900" onClick={() => onChange(x => { x.points = [...(x.points ?? []), { x: 0, y: 0 }] })}>{t('+ 再加一個點')}</button>
+      </div>
+      <span className="flex flex-wrap items-center gap-1">{t('方向搖桿:中心 x / y')}{num(stick.x, n => onChange(x => { x.stick = { ...stick, x: n } }))}{num(stick.y, n => onChange(x => { x.stick = { ...stick, y: n } }))}
+        {t('推多遠')}{num(stick.r, n => onChange(x => { x.stick = { ...stick, r: n } }))}
+        <select className={input} value={stick.press ?? 'drag'} onChange={e => onChange(x => { x.stick = { ...stick, press: e.target.value } })}>
+          <option value="drag">{t('從中心滑出去')}</option><option value="edge">{t('直接按住邊緣(比較快)')}</option>
+        </select></span>
+      <span className="flex flex-wrap items-center gap-1">{t('多近算到')}<ValueInput value={st.near} def={10} onChange={v => onChange(x => { x.near = v })} />
+        {t('每次最多推')}<ValueInput value={st.push_ms} def={1500} w="w-20" onChange={v => onChange(x => { x.push_ms = v })} />{t('毫秒')}
+        {t('最多推')}<ValueInput value={st.max_moves} def={40} onChange={v => onChange(x => { x.max_moves = v })} />{t('次')}</span>
+      <label className="flex items-center gap-1"><input type="checkbox" checked={!!st.until} onChange={e => onChange(x => { x.until = e.target.checked ? [[defaultCond(states)]] : undefined })} />
+        {t('這個條件成立就算到了(例如看到某個地點名稱)')}</label>
+      {st.until && <CondGroups when={st.until} states={states} ops={ops} onChange={fn => onChange(x => fn(x.until!))} />}
+      <span className="text-stone-500">{t('每走一段就看一次地圖:往哪推、推多久會走多遠,都會邊走邊學,不用自己校正。')}</span>
+    </div>
+  )
+}
+
+export function CondGroups({ when, states, ops, onChange }: {
   when: ScriptCond[][]; states: StateDef[]; ops: Record<string, string>; onChange: (fn: (w: ScriptCond[][]) => void) => void
 }) {
   // one condition open for editing at a time ("group:index"); the others read as one sentence each
@@ -1079,11 +1132,9 @@ function CondRow({ c, states, first, open = true, onOpen, onChange, onReplace, o
       {kind === 'elapsed' && <>{opSel(['gt', 'gte', 'lt', 'lte'])}
         <ValueInput value={c.value as NumVal} def={600} scale={1 / 60} onChange={v => onChange(x => { x.value = v })} /><span className="text-xs">{isRef(c.value) ? t('秒') : t('分鐘')}</span></>}
       {kind === 'visible' && <>
-        <select className={input} value={c.target?.param != null ? `__p:${c.target.param}` : `__b:${c.target?.button ?? ''}`}
-          onChange={e => onChange(x => { const v = e.target.value; x.target = v.startsWith('__p:') ? { param: v.slice(4) } : { button: v.slice(4) } })}>
-          {params.filter(p => p.type === 'point').map(p => <option key={p.name} value={`__p:${p.name}`}>{t('參數「{p1}」', { p1: p.label || p.name })}</option>)}
-          {buttonGroups(env.info?.buttons.filter(b => b.find) ?? [], env.info?.lists ?? [])}
-        </select>
+        <TreePicker value={c.target?.param != null ? `__p:${c.target.param}` : `__b:${c.target?.button ?? ''}`} placeholder={t('(請選擇要找的按鈕)')}
+          items={[...paramItems(params), ...buttonItems(env.info?.buttons.filter(b => b.find) ?? [], env.info?.lists ?? [])]}
+          onChange={v => onChange(x => { x.target = v.startsWith('__p:') ? { param: v.slice(4) } : { button: v.slice(4) } })} />
       </>}
       {kind === 'time' && <>
         <input type="time" className={input} value={c.from ?? '00:00'} onChange={e => onChange(x => { x.from = e.target.value })} />~
@@ -1120,15 +1171,9 @@ function TargetEditor({ tx, params = [], device, noPerDevice, fromList, onChange
   return (
     <span className="flex flex-col gap-1">
       <span className="flex flex-wrap gap-1.5 items-center">
-        <select className={input} value={value} onChange={e => {
-          const v = e.target.value
-          onChange(v === '__xy' ? { x: Math.round(screen.w / 2), y: Math.round(screen.h / 2) } : v.startsWith('__p:') ? { param: v.slice(4) } : v.startsWith('__b:') ? { button: v.slice(4) } : {})
-        }}>
-          {value === '' && <option value="">{t('(請選擇要點的位置)')}</option>}
-          {params.filter(p => p.type === 'point').map(p => <option key={p.name} value={`__p:${p.name}`}>{t('參數「{p1}」', { p1: p.label || p.name })}</option>)}
-          {buttonGroups(lib, env.info?.lists ?? [], device, noPerDevice, tx.button)}
-          <option value="__xy">{t('自訂位置…')}</option>
-        </select>
+        <TreePicker value={value} placeholder={t('(請選擇要點的位置)')}
+          items={[...paramItems(params), ...buttonItems(lib, env.info?.lists ?? [], device, noPerDevice, tx.button), { key: '__xy', path: [], label: t('自訂位置…') }]}
+          onChange={v => onChange(v === '__xy' ? { x: Math.round(screen.w / 2), y: Math.round(screen.h / 2) } : v.startsWith('__p:') ? { param: v.slice(4) } : v.startsWith('__b:') ? { button: v.slice(4) } : {})} />
         {tx.x != null && tx.param == null && tx.button == null && (
           <span className="flex items-center gap-1 text-xs num">
             x <input type="number" className={`${input} w-16`} value={tx.x ?? 0} onChange={e => onChange({ x: Math.round(Number(e.target.value)), y: tx.y ?? 0 })} />
@@ -1142,23 +1187,50 @@ function TargetEditor({ tx, params = [], device, noPerDevice, fromList, onChange
   )
 }
 
-/** Button choices: the library, then each list's names (shared lists; per-device lists: only that device's when given). */
-function buttonGroups(lib: LibButton[], lists: ListInfo[], device?: string, noPerDevice?: boolean, current?: string) {
+/** which item a call_item step does: '__s:<setting>' | '__p:<param>' | '__i:<item id>' */
+const itemKey = (v: SubStep['item']) => v == null || v === '' ? '' : typeof v === 'string' ? `__i:${v}` : 'setting' in v ? `__s:${v.setting}` : `__p:${v.param}`
+
+/** a call_item step's choices: the user settings that pick from this catalog, the text parameters, then its items by folder */
+function itemChoices(info: ScriptsInfo, cid: string | undefined, params: SubParam[]): PickItem[] {
+  const cat = info.catalogs.find(c => c.id === cid)
+  return [
+    ...info.settings.filter(s => s.type === 'item' && s.pick_from === `catalog:${cid}`)
+      .map(s => ({ key: `__s:${s.id}`, path: [], label: t('使用者設定「{p1}」(使用者選的那一項)', { p1: s.label }) })),
+    ...params.filter(p => p.type === 'text').map(p => ({ key: `__p:${p.name}`, path: [], label: t('參數「{p1}」', { p1: p.label || p.name }) })),
+    ...(cat?.items ?? []).map(x => ({ key: `__i:${x.id}`, path: splitFolder(x.folder), label: x.name, hint: x.calls.map(c => info.subs.find(s => s.id === c.sub)?.name ?? c.sub).join(' → ') })),
+  ]
+}
+
+function itemText(st: SubStep, info: ScriptsInfo, params: SubParam[]) {
+  const it = itemChoices(info, st.catalog, params).find(x => x.key === itemKey(st.item))
+  return it ? `「${[...it.path, it.label].join(' › ')}」` : t('(還沒選)')
+}
+
+/** a sub-script's point parameters, first in a target's choices */
+const paramItems = (params: SubParam[]): PickItem[] =>
+  params.filter(p => p.type === 'point').map(p => ({ key: `__p:${p.name}`, path: [], label: t('參數「{p1}」', { p1: p.label || p.name }) }))
+
+/** Button choices, in folders: the library by its folders, then each list's names (shared lists; per-device lists:
+ *  only that device's when given). */
+function buttonItems(lib: LibButton[], lists: ListInfo[], device?: string, noPerDevice?: boolean, current?: string): PickItem[] {
   const per = new Set(lists.filter(l => l.per_device).map(l => l.id))
   const title = (id: string) => lists.find(l => l.id === id)?.title ?? id
-  const shared = lib.filter(b => !b.list)
-  const sharedLists = [...new Set(lib.filter(b => b.list && !per.has(b.list)).map(b => b.list!))].sort()
+  const img = (b: LibButton) => b.find ? buttonImageUrl(b.id, b.updated) : undefined
+  const out: PickItem[] = []
+  const cur = lib.find(b => b.id === current && b.list && per.has(b.list) && (noPerDevice || (device && b.device !== device)))
+  if (cur) out.push({ key: `__b:${cur.id}`, path: [], label: t('{label}({device} 的{p3})', { label: cur.label, device: cur.device, p3: title(cur.list!) }) })
+  for (const b of lib.filter(b => !b.list))
+    out.push({ key: `__b:${b.id}`, path: splitFolder(b.folder), label: b.label, hint: b.find ? t('找圖') : undefined, img: img(b) })
+  const byName = (x: LibButton, y: LibButton) => x.label.localeCompare(y.label, 'zh-Hant', { numeric: true })
+  for (const l of [...new Set(lib.filter(b => b.list && !per.has(b.list)).map(b => b.list!))].sort())
+    for (const b of lib.filter(b => b.list === l).sort(byName)) out.push({ key: `__b:${b.id}`, path: [t('清單:{p1}', { p1: title(l) })], label: b.label, img: img(b) })
   const devLists = noPerDevice ? [] : [...new Set(lib.filter(b => b.list && per.has(b.list)).map(b => `${b.device ?? ''}|${b.list}`))]
     .filter(k => !device || k.startsWith(`${device}|`)).sort()
-  const cur = lib.find(b => b.id === current && b.list && per.has(b.list) && (noPerDevice || (device && b.device !== device)))
-  return <>
-    {cur && <option value={`__b:${cur.id}`}>{t('{label}({device} 的{p3})', { label: cur.label, device: cur.device, p3: title(cur.list!) })}</option>}
-    {shared.length > 0 && <optgroup label={t('按鈕庫')}>{shared.map(b => <option key={b.id} value={`__b:${b.id}`}>{b.label}{b.find ? t('(找圖)') : ''}</option>)}</optgroup>}
-    {sharedLists.map(l => <optgroup key={l} label={t('清單:{p1}', { p1: title(l) })}>{lib.filter(b => b.list === l).sort((x, y) => x.label.localeCompare(y.label, 'zh-Hant', { numeric: true })).map(b =>
-      <option key={b.id} value={`__b:${b.id}`}>{b.label}</option>)}</optgroup>)}
-    {devLists.map(k => { const [d, l] = k.split('|'); return <optgroup key={k} label={t('{d} 的{p2}', { d, p2: title(l) })}>{lib.filter(b => b.list === l && (b.device ?? '') === d).map(b =>
-      <option key={b.id} value={`__b:${b.id}`}>{b.label}</option>)}</optgroup> })}
-  </>
+  for (const k of devLists) {
+    const [d, l] = k.split('|')
+    for (const b of lib.filter(b => b.list === l && (b.device ?? '') === d)) out.push({ key: `__b:${b.id}`, path: [t('{d} 的{p2}', { d, p2: title(l) })], label: b.label, img: img(b) })
+  }
+  return out
 }
 
 /** values for a called sub-script's parameters */
@@ -1354,6 +1426,8 @@ function newStep(type: string, ctx: Ctx): SubStep {
     case 'long_press': return { type, target: {}, ms: 800 }
     case 'pick': return { type, target: { param: ctx.params.find(p => p.type === 'point')?.name ?? '' }, max_swipes: 25 }
     case 'swipe': return { type, from: { x: 640, y: 500 }, to: { x: 640, y: 300 }, ms: 400 }
+    case 'walk_to': return { type, open: {}, close: {}, anchor: {}, me: { color: [210, 84, 50], tol: 45, min_px: 6, box: [0, 120, 1280, 500] },
+      points: [{ x: 100, y: 0 }], stick: { x: 190, y: 570, r: 60, press: 'drag' }, near: 10, push_ms: 1500, max_moves: 40 }
     case 'wait': return { type, seconds: 1 }
     case 'wait_until': return { type, when: cond(), timeout: 10, on_timeout: 'fail' }
     case 'if': return { type, when: cond(), then: [{ type: 'wait', seconds: 1 }], else: [] }
@@ -1361,6 +1435,7 @@ function newStep(type: string, ctx: Ctx): SubStep {
     case 'repeat_until': return { type, when: cond(), max_times: 10, max_seconds: 120, steps: [{ type: 'back' }] }
     case 'for_each': return { type, list: ctx.params.find(p => p.type === 'list')?.name, as: 'item', as_label: '', on_item_fail: 'fail', steps: [{ type: 'wait', seconds: 1 }] }
     case 'call': return { type, sub: ctx.info.subs.find(s => s.id !== ctx.selfId)?.id, args: {}, on_fail: 'fail' }
+    case 'call_item': { const c = ctx.info.catalogs[0]; return { type, catalog: c?.id, item: c?.items[0]?.id ?? '', on_fail: 'fail' } }
     case 'set_var': return { type, var: ctx.info.variables[0]?.name, mode: 'add', value: 1 }
     case 'output': return { type, output: ctx.info.outputs[0]?.id, command: '' }
     case 'input_text': return { type, text: '' }
@@ -1391,10 +1466,11 @@ function StepsRoot({ onRoot, children }: { onRoot: (fn: (root: Record<string, un
 /** a short help line for each kind of step (the step menu) */
 const STEP_HINT: Record<string, string> = {
   tap: t('點畫面上的按鈕或位置'), long_press: t('按住不放'), swipe: t('從一點滑到另一點'), back: t('按 Android 返回鍵'),
-  input_text: t('在輸入框打字'), pick: t('在會捲動的清單裡找到名字並點它'), launch_app: t('開啟 App(已開著就切到前面)'),
+  input_text: t('在輸入框打字'), pick: t('在會捲動的清單裡找到名字並點它'),
+  walk_to: t('看地圖上自己在哪,用方向搖桿一段一段走過去(可經過幾個點)'), launch_app: t('開啟 App(已開著就切到前面)'),
   capture_list: t('把清單從頭滑到尾,記下名字'), wait: t('等固定的秒數'), wait_until: t('等到畫面或數字符合條件'),
   if: t('依條件做不同的事'), repeat_until: t('重複做,直到條件成立'), for_each: t('清單裡每一個都做一次'), retry: t('裡面失敗了就重來'),
-  call: t('執行另一個子腳本'), succeed: t('到這裡就結束(算成功)'), fail: t('到這裡就結束(算失敗)'), stop: t('讓這台停下來,等你按「繼續」'),
+  call: t('執行另一個子腳本'), call_item: t('做目錄裡的一項(例如使用者選的地點),每一項有自己的做法'), succeed: t('到這裡就結束(算成功)'), fail: t('到這裡就結束(算失敗)'), stop: t('讓這台停下來,等你按「繼續」'),
   goto: t('主腳本換到另一個情境'), notify: t('傳一則通知給你'), ask: t('問你,等你回答再決定'), output: t('送指令到外部設備'),
   set_var: t('記下數字或時間,之後的條件可以用'), stay: t('什麼都不做,也不讓下面的規則做(等畫面變)'), hold: t('條件成立的期間,其他腳本都不動'),
 }
@@ -1557,7 +1633,7 @@ function AfterEditor({ st, ctx, onChange }: { st: SubStep; ctx: Ctx; onChange: (
 }
 
 /** steps that take a while or can fail: they may carry plain words for the people running it (say / say_fail) */
-const SAYABLE = new Set(['tap', 'long_press', 'pick', 'wait', 'wait_until', 'call', 'capture_list', 'repeat_until', 'ask', 'for_each'])
+const SAYABLE = new Set(['tap', 'long_press', 'pick', 'wait', 'wait_until', 'call', 'call_item', 'capture_list', 'repeat_until', 'ask', 'for_each'])
 
 function StepRow({ st, i, n, ctx, types, depth, allowed, no, path, onChange, onReplace, onMove, onDelete }: {
   st: SubStep; i: number; n: number; ctx: Ctx; types: [string, string][]; depth: number; allowed?: string[]; no: string; path: ListPath
@@ -1660,6 +1736,7 @@ function StepRow({ st, i, n, ctx, types, depth, allowed, no, path, onChange, onR
           <label className="flex items-center gap-1 text-xs" title={t('清單滑動後會慣性滑一下:看到名稱停在同一個位置這麼久,才點下去')}>{t('停穩')}<ValueInput value={st.settle} def={1} w="w-14" step={0.5} onChange={v => onChange(x => { x.settle = v })} />{t('秒才點')}</label>
           <label className="flex items-center gap-1 text-xs" title={t('清單沒看到這個名稱時,會自己往上或往下滑來找')}>{t('最多滑')}<ValueInput value={st.max_swipes} def={25} onChange={v => onChange(x => { x.max_swipes = v })} />{t('次')}</label>
         </>}
+        {st.type === 'walk_to' && <WalkToEditor st={st} params={params} states={states} ops={info.ops} onChange={onChange} />}
         {st.type === 'long_press' && <label className="flex items-center gap-1 text-xs">{t('按住')}<ValueInput value={st.ms} def={800} w="w-20" onChange={v => onChange(x => { x.ms = v })} />{t('毫秒')}</label>}
         {st.type === 'swipe' && <span className="flex flex-col gap-1 text-xs">
           <span className="flex items-center gap-1">{t('從')} <TargetEditor tx={st.from ?? {}} params={params} onChange={tx => onChange(x => { x.from = tx })} /></span>
@@ -1710,6 +1787,19 @@ function StepRow({ st, i, n, ctx, types, depth, allowed, no, path, onChange, onR
               <option value="">{t('(不切換)')}</option>
               {ctx.place.situations.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
             </select></label>}
+        </>}
+        {st.type === 'call_item' && <>
+          {!info.catalogs.length ? <span className="text-xs text-rose-700">{t('先到「素材庫 › 目錄」建立目錄')}</span> : <>
+            <select className={input} value={st.catalog ?? ''} onChange={e => onChange(x => { x.catalog = e.target.value; x.item = info.catalogs.find(c => c.id === e.target.value)?.items[0]?.id ?? '' })}>
+              {info.catalogs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <TreePicker value={itemKey(st.item)} placeholder={t('(請選擇哪一項)')} items={itemChoices(info, st.catalog, params)}
+              onChange={k => onChange(x => { x.item = k.startsWith('__s:') ? { setting: k.slice(4) } : k.startsWith('__p:') ? { param: k.slice(4) } : k.slice(4) })} />
+          </>}
+          <label className="flex items-center gap-1 text-xs">{t('它失敗時')}
+            <select className={input} value={st.on_fail ?? 'fail'} onChange={e => onChange(x => { x.on_fail = e.target.value })}>
+              {Object.entries(info.on_fail).map(([k, tx]) => <option key={k} value={k}>{tx}</option>)}
+            </select></label>
         </>}
         {st.type === 'goto' && (ctx.place?.situations.length
           ? <select className={input} value={st.situation ?? ''} onChange={e => onChange(x => { x.situation = e.target.value })}>
@@ -2117,35 +2207,104 @@ const BTN_NEW: LibButton = { id: '', label: '', x: 640, y: 360, find: false }
  *  for by their picture every time, so they still work when they move a little */
 export function ButtonsEditor({ info, devices, onSaved }: { info: ScriptsInfo; devices: string[]; onSaved: () => void }) {
   const [edit, setEdit] = useState<LibButton | null>(null)
+  const [q, setQ] = useState('')
+  const [sel, setSel] = useState<Set<string>>(new Set())
+  const [to, setTo] = useState('')
+  const [shut, setShut] = usePersistentState<string[]>('library.shutFolders', [])
   const del = useMutation({ mutationFn: (id: string) => api.buttonDelete(id), onSuccess: onSaved })
+  const move = useMutation({ mutationFn: (moves: Record<string, string>) => api.buttonFolders(moves), onSuccess: () => { setSel(new Set()); onSaved() } })
+  const all = info.buttons.filter(b => !perDeviceItem(info, b) && !b.list)
+  const folders = [...new Set(all.flatMap(b => splitFolder(b.folder).map((_, i, a) => a.slice(0, i + 1).join('/'))))].sort((x, y) => x.localeCompare(y, 'zh-Hant', { numeric: true }))
+  const w = q.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  const shown = w.length ? all.filter(b => { const s = `${b.folder ?? ''} ${b.label} ${b.id}`.toLowerCase(); return w.every(x => s.includes(x)) }) : all
+  // not filed yet, but named "前綴:…" the way names were sorted before folders
+  const guess: Record<string, string> = Object.fromEntries(all.filter(b => !b.folder && labelPrefix(b.label)).map(b => [b.id, labelPrefix(b.label)!]))
+  const guessFolders = [...new Set(Object.values(guess))]
+  const nGuess = Object.keys(guess).length
+  const within = (f: string, from: string) => f === from || f.startsWith(from + '/')
+  const rename = (from: string) => {
+    const nf = prompt(t('資料夾「{from}」改成(可以用 / 放進別的資料夾,例如「選單/設定」):', { from }), from)
+    if (nf == null || nf.trim() === from) return
+    const moves: Record<string, string> = {}
+    for (const b of all) { const f = b.folder ?? ''; if (within(f, from)) moves[b.id] = nf.trim() + f.slice(from.length) }
+    move.mutate(moves)
+  }
+  const unfile = (from: string) => {
+    if (!confirm(t('把「{from}」裡的按鈕都移出來(放回上一層)?按鈕本身不會刪除。', { from }))) return
+    const up = splitFolder(from).slice(0, -1).join('/'), moves: Record<string, string> = {}
+    for (const b of all) { const f = b.folder ?? ''; if (within(f, from)) moves[b.id] = splitFolder(up + f.slice(from.length)).join('/') }
+    move.mutate(moves)
+  }
+  const inside = (f: string) => shown.filter(b => within(b.folder ?? '', f)).length
+  const tree = (path: string[]): ReactNode => {
+    const here = path.join('/')
+    const subs = folders.filter(f => { const p = splitFolder(f); return p.length === path.length + 1 && p.slice(0, -1).join('/') === here })
+    const mine = shown.filter(b => splitFolder(b.folder).join('/') === here)
+    return <>
+      {subs.filter(f => inside(f) > 0).map(f => {
+        const open = w.length > 0 || !shut.includes(f)
+        return (
+          <div key={f} className="flex flex-col">
+            <div className="flex items-center gap-2 py-1.5 border-b border-stone-100 group" style={{ paddingLeft: path.length * 18 }}>
+              <button className="flex items-center gap-1.5 text-sm font-medium text-stone-700" onClick={() => setShut(s => s.includes(f) ? s.filter(x => x !== f) : [...s, f])}>
+                <span className="w-3 text-[10px] text-stone-400">{open ? '▼' : '▶'}</span>📁 {splitFolder(f).pop()}
+                <span className="text-xs text-stone-400 font-normal num">{inside(f)}</span></button>
+              <span className="flex-1" />
+              <button className="text-xs text-stone-500 hover:text-stone-900 opacity-0 group-hover:opacity-100" onClick={() => rename(f)}>{t('改名 / 搬移')}</button>
+              <button className="text-xs text-stone-500 hover:text-stone-900 opacity-0 group-hover:opacity-100" onClick={() => unfile(f)}>{t('解散')}</button>
+            </div>
+            {open && tree(splitFolder(f))}
+          </div>
+        )
+      })}
+      {mine.map(b => (
+        <div key={b.id} className="flex items-center gap-3 border-b border-stone-100 py-1.5" style={{ paddingLeft: path.length * 18 }}>
+          <input type="checkbox" checked={sel.has(b.id)} onChange={e => setSel(s => { const x = new Set(s); if (e.target.checked) x.add(b.id); else x.delete(b.id); return x })} />
+          {b.find ? <img src={buttonImageUrl(b.id, b.updated)} alt="" className="h-8 max-w-[80px] rounded border border-stone-200" loading="lazy" /> : <span className="w-8 text-center text-stone-300">·</span>}
+          <span className="font-medium min-w-0 truncate">{shortLabel(b.label, splitFolder(b.folder))}</span>
+          <span className="text-xs text-stone-500 num whitespace-nowrap">({b.x}, {b.y}){b.find ? t(' · 找圖,相似度 ≥ {p1}%', { p1: Math.round((b.min_score ?? 0.8) * 100) }) : ''}</span>
+          <span className="text-xs text-stone-400 font-mono hidden lg:inline">{b.id}</span>
+          <span className="flex-1" />
+          <Button variant="ghost" onClick={() => setEdit(clone(b))}>{t('修改')}</Button>
+          <Button variant="ghost" onClick={() => { if (confirm(t('刪除按鈕「{label}」?', { label: b.label }))) del.mutate(b.id) }}>{t('刪除')}</Button>
+        </div>
+      ))}
+    </>
+  }
   return (
     <div className="flex flex-col gap-4 min-w-0">
-      <Card title={t('按鈕庫({length})', { length: info.buttons.filter(b => !perDeviceItem(info, b)).length })} extra={<Button onClick={() => setEdit({ ...BTN_NEW, id: newId('btn_', info.buttons.map(b => b.id)) })}>{t('+ 新增按鈕')}</Button>}>
+      <Card title={t('按鈕庫({length})', { length: all.length })} extra={<Button onClick={() => setEdit({ ...BTN_NEW, id: newId('btn_', info.buttons.map(b => b.id)) })}>{t('+ 新增按鈕')}</Button>}>
         <div className="flex flex-col gap-2 text-sm">
-          <p className="text-xs text-stone-500">{t('在畫面上點一下、取個名字,之後所有腳本的點擊位置都可以選「按鈕庫」裡的名字。勾「找圖」的按鈕每次會先在畫面上找它的圖片再點,按鈕位置稍微變動也點得到;找不到就不點。')}</p>
-          <ErrorText error={del.error} />
-          {info.buttons.filter(b => !perDeviceItem(info, b)).length === 0 && <Empty>{t('還沒有按鈕')}</Empty>}
-          {info.buttons.filter(b => !perDeviceItem(info, b)).map(b => (
-            <div key={b.id} className="flex items-center gap-3 border-b border-stone-100 pb-2">
-              {b.find ? <img src={buttonImageUrl(b.id, b.updated)} alt="" className="h-10 rounded border border-stone-200" /> : <span className="w-10 text-center text-stone-300">·</span>}
-              <span className="font-medium">{b.label}</span>
-              <span className="text-xs text-stone-500 num">({b.x}, {b.y}){b.find ? t(' · 找圖,相似度 ≥ {p1}%', { p1: Math.round((b.min_score ?? 0.8) * 100) }) : ''}</span>
-              <span className="text-xs text-stone-400 font-mono">{b.id}</span>
-              <span className="flex-1" />
-              <Button variant="ghost" onClick={() => setEdit(clone(b))}>{t('修改')}</Button>
-              <Button variant="ghost" onClick={() => { if (confirm(t('刪除按鈕「{label}」?', { label: b.label }))) del.mutate(b.id) }}>{t('刪除')}</Button>
+          <p className="text-xs text-stone-500">{t('在畫面上點一下、取個名字,之後所有腳本的點擊位置都可以選「按鈕庫」裡的名字。勾「找圖」的按鈕每次會先在畫面上找它的圖片再點,按鈕位置稍微變動也點得到;找不到就不點。')} {t('按鈕可以放進資料夾(可以一層套一層),選按鈕時就照資料夾一層層找;資料夾只是整理,改了不影響腳本。')}</p>
+          <ErrorText error={del.error || move.error} />
+          {nGuess > 0 && (
+            <div className="flex flex-wrap items-center gap-2 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 text-xs text-amber-900">
+              {t('有 {n} 個按鈕還沒放進資料夾,但名字有前綴(例如「選單:設定」),可以照前綴自動放好:', { n: nGuess })}
+              <span className="text-amber-800">{guessFolders.slice(0, 12).join(t('、'))}{guessFolders.length > 12 ? '…' : ''}</span>
+              <Button disabled={move.isPending} onClick={() => { if (confirm(t('照名字前綴把 {n} 個按鈕放進 {m} 個資料夾?之後還可以改名或搬移。', { n: nGuess, m: guessFolders.length }))) move.mutate(guess) }}>{t('照前綴放進資料夾')}</Button>
             </div>
-          ))}
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <input className={`${input} w-56`} placeholder={t('搜尋名稱或資料夾…')} value={q} onChange={e => setQ(e.target.value)} />
+            {sel.size > 0 && <>
+              <span className="text-xs text-stone-600">{t('已選 {n} 個,搬到', { n: sel.size })}</span>
+              <input className={`${input} w-48`} list="btn-folders" placeholder={t('資料夾,例如 選單/設定')} value={to} onChange={e => setTo(e.target.value)} />
+              <Button variant="primary" disabled={move.isPending} onClick={() => move.mutate(Object.fromEntries([...sel].map(id => [id, to])))}>{to.trim() ? t('搬過去') : t('移出資料夾')}</Button>
+              <Button variant="ghost" onClick={() => setSel(new Set())}>{t('取消選取')}</Button>
+            </>}
+            <datalist id="btn-folders">{folders.map(f => <option key={f} value={f} />)}</datalist>
+          </div>
+          {all.length === 0 ? <Empty>{t('還沒有按鈕')}</Empty> : !shown.length ? <Empty>{t('找不到')}</Empty> : <div className="flex flex-col">{tree([])}</div>}
         </div>
       </Card>
-      {edit && <ButtonForm key={edit.id} b={edit} isNew={!info.buttons.some(x => x.id === edit.id)} devices={devices}
+      {edit && <ButtonForm key={edit.id} b={edit} isNew={!info.buttons.some(x => x.id === edit.id)} devices={devices} folders={folders}
         onDone={() => { setEdit(null); onSaved() }} onCancel={() => setEdit(null)} />}
     </div>
   )
 }
 
-function ButtonForm({ b: initial, isNew, devices, onDone, onCancel }: {
-  b: LibButton; isNew: boolean; devices: string[]; onDone: () => void; onCancel: () => void
+function ButtonForm({ b: initial, isNew, devices, folders = [], onDone, onCancel }: {
+  b: LibButton; isNew: boolean; devices: string[]; folders?: string[]; onDone: () => void; onCancel: () => void
 }) {
   const [b, setB] = useState<LibButton>(initial)
   const [src, setSrc] = useState<{ snap?: string; frame?: string; v: number } | null>(null)
@@ -2169,6 +2328,8 @@ function ButtonForm({ b: initial, isNew, devices, onDone, onCancel }: {
         <div className="flex flex-wrap items-center gap-2">
           <input className={`${input} w-40`} placeholder={t('名稱,例如「設定圖示」')} value={b.label} onChange={e => setB({ ...b, label: e.target.value })} />
           <input className={`${input} w-32 font-mono`} value={b.id} disabled={!isNew} onChange={e => setB({ ...b, id: e.target.value })} />
+          <input className={`${input} w-44`} list="btn-form-folders" placeholder={t('資料夾(可不填)')} title={t('放在哪個資料夾,例如「選單/設定」')} value={b.folder ?? ''} onChange={e => setB({ ...b, folder: e.target.value })} />
+          <datalist id="btn-form-folders">{folders.map(f => <option key={f} value={f} />)}</datalist>
           <label className="flex items-center gap-1 text-xs num">x <input type="number" className={`${input} w-16`} value={b.x} onChange={e => setB({ ...b, x: Math.round(Number(e.target.value)) })} />
             y <input type="number" className={`${input} w-16`} value={b.y} onChange={e => setB({ ...b, y: Math.round(Number(e.target.value)) })} /></label>
           <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!b.find} onChange={e => setB({ ...b, find: e.target.checked, box: e.target.checked ? box : undefined })} />

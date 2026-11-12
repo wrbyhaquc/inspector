@@ -12,6 +12,8 @@
                                              "max_color_diff": 0..255,      also the colours must be this close (mean
                                                  difference per channel): an enabled (gold) and a disabled (grey)
                                                  button have the same shape
+                                             "folder": "a/b",               where it is filed in the library (only for
+                                                 the people choosing it; scripts use the id)
                                              "list": list id, "device": d}]}   a name of a list (lists.py), of one device if the list is per device
 <data_root>/meta/buttons/<id>.png  the picture of a "find" button
 
@@ -124,6 +126,8 @@ def save(data_root, b, frame_img=None):
     for k in ("group", "device", "list"):
         if b.get(k):
             out[k] = str(b[k])
+    if norm_folder(b.get("folder")):
+        out["folder"] = norm_folder(b["folder"])
     if b.get("pos") is not None:
         out["pos"] = float(b["pos"])                    # where it is in its list (lists.py)
     if b.get("missing_since"):
@@ -158,7 +162,7 @@ def save(data_root, b, frame_img=None):
             shutil.copy2(image_path(data_root, out["id"]), img_path)
     bs = dict(load(data_root))
     bs[out["id"]] = {**bs.get(out["id"], {}), **out, "updated": time.time()}
-    for k in ("group", "device", "list", "pos", "missing_since", "feature", "scales", "min_score_scaled", "max_color_diff"):
+    for k in ("group", "folder", "device", "list", "pos", "missing_since", "feature", "scales", "min_score_scaled", "max_color_diff"):
         if k not in out:
             bs[out["id"]].pop(k, None)
     if not out["find"]:
@@ -172,6 +176,32 @@ def save(data_root, b, frame_img=None):
         _write(data_root, bs)
     _cache.pop(data_root, None)
     return bs[out["id"]]
+
+
+def norm_folder(f):
+    """"選單 / 設定/" -> "選單/設定"; "" or None = not filed"""
+    return "/".join(x.strip() for x in str(f or "").replace("\\", "/").split("/") if x.strip())[:200]
+
+
+def set_folders(data_root, moves):
+    """File buttons in folders at once: {id: "a/b" | "" (not filed)}. -> how many changed"""
+    if _here():
+        raise ValueError(_("執行版不能整理按鈕庫,要在 Studio 修改"))
+    bs = dict(load(data_root))
+    n = 0
+    for bid, f in (moves or {}).items():
+        if bid not in bs:
+            raise ValueError(_("找不到這個按鈕:{bid}", bid=bid))
+        f = norm_folder(f)
+        if (bs[bid].get("folder") or "") == f:
+            continue
+        b = {k: v for k, v in bs[bid].items() if k != "folder"}
+        bs[bid] = {**b, "folder": f} if f else b
+        n += 1
+    if n:
+        _write(data_root, bs)
+        _cache.pop(data_root, None)
+    return n
 
 
 def delete(data_root, bid, in_use=None):

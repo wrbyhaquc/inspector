@@ -1902,6 +1902,7 @@ def scripts_list():
     """Main scripts (in priority order), the sub-script library and everything the editor needs."""
     import automation
     from automation import buttons, conds, engine, lists, settings as user_settings, subs, templates
+    from automation import catalogs as catalogs_mod
     names = engine.names_from_schema(schema_mod.load(DATA_ROOT))
     scripts, lib = automation.load_all(DATA_ROOT), subs.load_all(DATA_ROOT)
     return {"scripts": scripts, "order": [s["id"] for s in scripts],
@@ -1917,7 +1918,22 @@ def scripts_list():
             "var_modes": tr(automation.VAR_MODES), "var_scopes": tr(automation.VAR_SCOPES, device=project.word("device")), "var_resets": tr(automation.VAR_RESETS),
             "step_types": tr(subs.STEP_TYPES), "param_types": tr(subs.PARAM_TYPES), "cleanup_steps": sorted(subs.CLEANUP_STEPS),
             "step_groups": [(_(g), ids) for g, ids in subs.STEP_GROUPS], "after_steps": sorted(subs.AFTER_STEPS), "on_fail": tr(subs.ON_FAIL),
-            "outputs": [{"id": o["id"], "name": o["name"]} for o in outputs_mod.load(DATA_ROOT).values()]}
+            "outputs": [{"id": o["id"], "name": o["name"]} for o in outputs_mod.load(DATA_ROOT).values()],
+            "catalogs": list(catalogs_mod.load(DATA_ROOT).values())}
+
+
+class CatalogsSave(BaseModel):
+    catalogs: list[dict]
+
+
+@app.post("/api/catalogs")
+def catalogs_save(req: CatalogsSave):
+    """Every catalog at once (automation/catalogs.py): named items, each a sub-script call."""
+    from automation import catalogs as catalogs_mod
+    try:
+        return {"catalogs": catalogs_mod.save(DATA_ROOT, req.catalogs)}
+    except ValueError as e:
+        _bad(e)
 
 
 # ---------------- button library ----------------
@@ -1930,6 +1946,8 @@ def _button_users(bid):
     out += [_("子腳本「{name}」", name=s['name']) for s in subs.load_all(DATA_ROOT).values() if needle in json.dumps(s, ensure_ascii=False)]
     from automation import schedules
     out += [_("排程「{name}」", name=s['name']) for s in schedules.load(DATA_ROOT) if needle in json.dumps(s, ensure_ascii=False)]
+    from automation import catalogs
+    out += catalogs.buttons_used(DATA_ROOT).get(bid) or []
     return out
 
 
@@ -1955,6 +1973,19 @@ def buttons_save(req: ButtonSave):
             _bad(_("讀不到這張畫面"))
     try:
         return buttons.save(DATA_ROOT, req.button, img)
+    except ValueError as e:
+        _bad(e)
+
+
+class ButtonFolders(BaseModel):
+    moves: dict[str, str]          # id -> "a/b" ("" = not filed)
+
+
+@app.post("/api/buttons/folders")
+def buttons_folders(req: ButtonFolders):
+    from automation import buttons
+    try:
+        return {"changed": buttons.set_folders(DATA_ROOT, req.moves)}
     except ValueError as e:
         _bad(e)
 
@@ -2754,7 +2785,8 @@ def settings_get():
     from automation import lists
     return {"settings": decls, "types": tr(us.TYPES), "items": tr(us.ITEMS), "scopes": tr(us.SCOPES), "used_by": us.used_by(DATA_ROOT),
             "current": cur, "chosen": {k: sorted(v) for k, v in chosen.items()}, "devices": devices, "choices": choices,
-            "lists": [{"id": x["id"], "title": x.get("title") or x["id"], "per_device": bool(x.get("per_device"))} for x in lists.load(DATA_ROOT).values()]}
+            "lists": [{"id": x["id"], "title": x.get("title") or x["id"], "per_device": bool(x.get("per_device"))} for x in lists.load(DATA_ROOT).values()],
+            "catalogs": [{"id": c["id"], "name": c["name"]} for c in __import__("automation.catalogs", fromlist=["load"]).load(DATA_ROOT).values()]}
 
 
 @app.get("/api/settings/choices")

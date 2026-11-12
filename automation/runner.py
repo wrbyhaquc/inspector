@@ -151,7 +151,7 @@ class SubRun:
         sub = self.lib.get(sub_id)
         if not sub:
             raise RuntimeError(_("找不到子腳本「{sub_id}」", sub_id=sub_id))
-        if len(self._calls()) >= MAX_DEPTH + 1:
+        if len([f for f in self._calls() if not f.sub["id"].startswith("@")]) >= MAX_DEPTH + 1:
             raise RuntimeError(_("呼叫層數超過 {MAX_DEPTH} 層", MAX_DEPTH=MAX_DEPTH))
         resolved = {}
         for p in sub.get("params") or []:
@@ -343,6 +343,13 @@ class SubRun:
         for d in snap["frames"]:
             if d["kind"] == "call":
                 sub = lib.get(d["sub"])
+                if not sub and str(d["sub"]).startswith("@"):        # a catalog item (call_item): made up again
+                    from . import catalogs
+                    cid, _s, iid = d["sub"][1:].partition("/")
+                    cat, it = catalogs.load().get(cid), catalogs.item(None, cid, iid)
+                    if cat and it:
+                        sub = catalogs.as_sub(cat, it)
+                        r.lib = lib = {**lib, sub["id"]: sub}
                 if not sub:
                     raise RuntimeError(_("找不到子腳本「{sub}」", sub=d['sub']))
                 f = _Frame("call", sub.get("steps"), now, sub=sub, args=d.get("args") or {}, on_fail=d.get("on_fail", "fail"),
@@ -525,6 +532,82 @@ class SubRun:
         ps["until"] = now + 1.3
         return False
 
+    def _walk(self, f, st, args, now, executor, names, log, params):
+        """walk_to (automation/mapnav.py): open the map, see where "me" is, close it, push the control; again."""
+        from . import mapnav
+        ws = getattr(f, "walk", None)
+        if not ws or ws["t0"] != f.step_t0:              # a new walk_to step
+            ws = f.walk = {"t0": f.step_t0, "phase": "open", "until": 0.0, "fut": None, "look_t": None,
+                           "plan": mapnav.Walk(st.get("points"), V.number(st.get("near", mapnav.NEAR), self._venv(args), mapnav.NEAR),
+                                               V.number(st.get("push_ms", mapnav.PUSH_MS), self._venv(args), mapnav.PUSH_MS),
+                                               V.integer(st.get("max_moves", mapnav.MAX_MOVES), self._venv(args), mapnav.MAX_MOVES))}
+            log(describe_step(st, names, self.lib, params), "step")
+        if ws["fut"] is not None:
+            if not ws["fut"].done():
+                return False
+            try:
+                ws["fut"].result()
+            except Exception as e:
+                self._fail(_("動作送不出去:{e}", e=e), now, log)
+                return True
+            ws["fut"] = None
+        if now < ws["until"]:
+            return False
+
+        def tap(target):
+            p = self._point(target, args)
+            if not p:
+                return False
+            ws["fut"] = executor.submit(self.device, "tap", x=p[0], y=p[1])
+            return True
+        if ws["phase"] == "open":
+            if st.get("until") and self._cond(f, st["until"], now) == engine.MATCH:   # already where it should be
+                log(_("走到了(推了 {n} 次)", n=ws["plan"].moves), "step")
+                self._next(f, now)
+                return True
+            if not tap(st.get("open")):
+                self._fail(_("{p1}:找不到打開地圖的地方", p1=describe_step(st, names, self.lib, params)), now, log)
+                return True
+            ws.update(phase="look", until=now + 1.0, look_t=now)
+            return False
+        if ws["phase"] == "look":
+            seen = self._env.map_me(self.device, st.get("anchor"), st.get("me")) if self._env is not None else None
+            if not seen:
+                if now - ws["look_t"] < 6:
+                    return False
+                self._fail(_("{p1}:地圖上看不到基準圖示或自己的位置", p1=describe_step(st, names, self.lib, params)), now, log)
+                return True
+            (ax, ay), (mx, my) = seen
+            plan = ws["plan"]
+            what = plan.step((mx - ax, my - ay))
+            if what[0] == "arrived":
+                log(_("走到了(推了 {n} 次)", n=plan.moves), "step")
+                p = self._point(st.get("close"), args)
+                if p:
+                    self.pending = executor.submit(self.device, "tap", x=p[0], y=p[1])   # done: the next step after it
+                else:
+                    self._next(f, now)
+                return True
+            if what[0] in ("stuck", "too_far"):
+                tap(st.get("close"))
+                self._fail(_("{p1}:卡住了,走不過去", p1=describe_step(st, names, self.lib, params)) if what[0] == "stuck" else
+                           _("{p1}:推了 {n} 次還沒走到", p1=describe_step(st, names, self.lib, params), n=plan.moves), now, log)
+                return True
+            ws["push"] = what[1:]
+            log(_("在 ({x}, {y}),往第 {k} 個點,推 {ms} 毫秒", x=round(mx - ax), y=round(my - ay), k=plan.idx + 1, ms=what[2]), "step")
+            tap(st.get("close"))
+            ws.update(phase="push", until=now + 0.8)
+            return False
+        if ws["phase"] == "push":
+            angle, ms = ws["push"]
+            stick = st.get("stick") or {}
+            end = mapnav.stick_end(stick, angle)
+            start = end if stick.get("press") == "edge" else [int(stick["x"]), int(stick["y"])]   # edge: hold it pushed all the time
+            ws["fut"] = executor.submit(self.device, "swipe", x1=start[0], y1=start[1], x2=end[0], y2=end[1], ms=int(ms))
+            ws.update(phase="open", until=now + 0.4)
+            return False
+        return False
+
     # ---------- one step ----------
     def _step(self, now, executor, names, log):
         """-> True to keep going this tick, False to come back next tick."""
@@ -602,6 +685,8 @@ class SubRun:
             return self._capture(f, st, now, names, log, params)
         if t == "pick":
             return self._pick(f, st, args, now, executor, names, log, params)
+        if t == "walk_to":
+            return self._walk(f, st, args, now, executor, names, log, params)
         if t == "wait":
             secs = V.number(st.get("seconds", 1), self._venv(args), None)
             if secs is None:
@@ -696,6 +781,26 @@ class SubRun:
                 self._fail(str(e), now, log)
                 return True
             log(_("呼叫子腳本「{name}」", name=self.stack[-1].sub['name']), "step")
+            return True
+        if t == "call_item":
+            from . import catalogs
+            v = st.get("item")
+            try:
+                if isinstance(v, dict) and set(v) == {"param"}:
+                    v = args.get(v["param"])
+                elif isinstance(v, dict) and set(v) == {"setting"}:
+                    v = SubRun.setting_lookup(self.device, v["setting"]) if SubRun.setting_lookup else None
+                cat = catalogs.load().get(st.get("catalog"))
+                it = catalogs.item(None, st.get("catalog"), catalogs.item_id(v)) if cat else None
+                if not it:
+                    raise RuntimeError(_("目錄「{cat}」裡沒有要做的這一項({v})", cat=(cat or {}).get("name") or st.get("catalog"), v=catalogs.item_id(v) or _("還沒選")))
+                sub = catalogs.as_sub(cat, it)
+                self.lib = {**self.lib, sub["id"]: sub}           # this run only (made up from the item)
+                self._push_call(sub["id"], {}, now, st.get("on_fail", "fail"), {})
+            except RuntimeError as e:
+                self._fail(str(e), now, log)
+                return True
+            log(_("照目錄「{cat}」:{item}", cat=cat["name"], item=catalogs.label(cat, it)), "step")
             return True
         if t == "notify":
             log(V.render(st.get("text"), self._venv(args)) or _("通知"), "notify")
