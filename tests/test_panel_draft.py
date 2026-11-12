@@ -46,3 +46,11 @@ def test_what_is_wrong_is_listed_with_its_block(root):
     got = {(x["level"], x.get("block")) for x in pd.problems(root, bad)}
     assert ("error", "w1") in got and ("warn", "b1") in got
     assert pd.problems(root, panel("P", [{"id": "w1", "title": "L", "items": [], "widget": {"kind": "log"}}])) == []
+
+
+def test_two_versions_in_the_same_millisecond_stay_apart(root, monkeypatch):
+    import time as _t
+    monkeypatch.setattr(_t, "time", lambda: 1794480000.123)              # a frozen clock: every keep at the same moment
+    pd.keep(panel("a"), "first")
+    pd.keep(panel("b"), "second")
+    assert [v["note"] for v in pd.versions()] == ["second", "first"]

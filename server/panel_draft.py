@@ -86,8 +86,16 @@ def keep(panel, note):
     if vs and _key(version(vs[0]["id"])["panel"]) == _key(panel):
         return
     os.makedirs(_vdir(), exist_ok=True)
-    vid = time.strftime("%Y%m%d-%H%M%S") + f"{int(time.time() * 1000) % 1000:03d}"
-    atomic.write_json(os.path.join(_vdir(), f"{vid}.json"), {"id": vid, "t": time.time(), "note": note, "panel": panel},
+    now = time.time()
+
+    def vid_at(t):                                  # one clock reading: date-time and its milliseconds
+        return time.strftime("%Y%m%d-%H%M%S", time.localtime(t)) + f"{int(t * 1000) % 1000:03d}"
+    vid = vid_at(now)
+    # two keeps in the same millisecond (a fast machine) must not share an id, and the new one sorts newest
+    while os.path.exists(os.path.join(_vdir(), f"{vid}.json")) or (vs and vid <= vs[0]["id"]):
+        now += 0.001
+        vid = vid_at(now)
+    atomic.write_json(os.path.join(_vdir(), f"{vid}.json"), {"id": vid, "t": now, "note": note, "panel": panel},
                       ensure_ascii=False, indent=1)
     for old in versions()[KEEP:]:
         os.remove(os.path.join(_vdir(), f"{old['id']}.json"))
