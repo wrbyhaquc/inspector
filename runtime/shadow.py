@@ -142,6 +142,8 @@ def _write_json(path, obj):
         pass
 
 
+WALK_EVERY = 0.25                  # s: how often a sub-script at quick steps is looked at between two ticks
+
 class Predictor:
     """The trained multi-head model: RGB frames (the coordinate space) -> {state id: {"value", "conf"}} per frame.
 
@@ -547,6 +549,13 @@ class Shadow:
             self._save_vars()
             self.alert(req.get("device") or "", _("變數「{p1}」改成 {value}(從網頁)", p1=d.get('label') or d['name'], value=req['value']), "info")
 
+    def button_seen(self, n, target):
+        """Is this find button on device n's screen now? None when it cannot tell (a button at a fixed place)."""
+        b = buttons_mod.load(self.data_root).get((target or {}).get("button"))
+        if not b or not b.get("find"):
+            return None
+        return self.resolve_point(n, target) is not None
+
     def resolve_point(self, n, target):
         """Where to tap a button target on device n now: a find button is looked for in this tick's frame.
         A user setting as the target: this device's choice (a button or a position)."""
@@ -625,6 +634,32 @@ class Shadow:
             job["done"] = True
         threading.Thread(target=work, daemon=True, name=f"capture {n}").start()
         return job
+
+    def _between(self, names):
+        """Between two ticks: a device whose sub-script is at quick steps (SubRun.quick: taps, plain waits, walk_to) gets
+        its window copied again and the sub-script goes on - a wait of 1 s no longer takes a whole tick, nor each look
+        at the map. No model, no rules (the next tick does those; a step that needs them waits for it).
+        -> True when some device has quick steps."""
+        any_ = False
+        for n in names:
+            run = self.procs.get(n)
+            if not run or n not in self.caps or self.hold_of(n) or not run.quick():
+                continue
+            any_ = True
+            try:
+                got = self.caps[n].grab()
+            except Exception:
+                got = None
+            if not got:
+                continue
+            now = self.clock()
+            self.cur_frames[n], self.cur_frame_t[n] = got[0], now
+            run.advance(self.last_states.get(n) or {}, now, self.exec, self.names,
+                        lambda text, level, n=n, run=run: self._run_event(n, run, text, level), env=self, between=True)
+            if run.done:
+                del self.procs[n]
+                self._run_ended(n, run)
+        return any_
 
     def latest_frame(self, n):
         """(time it was taken, picture) of device n's newest frame - walk_to waits for one taken after a push."""
@@ -2204,7 +2239,10 @@ class Shadow:
                              "device": {k: v for k, v in self.vars["device"].items() if k in names}},
                     "alerts": list(self.alerts), "incidents_open": self.incidents.status(), "schedules": self._schedule_status(names),
                     "blocked": [{"device": k[0], "script": k[1], "rule": k[2], "reason": v} for k, v in self.blocked.items()]})
-                time.sleep(max(0.0, self.interval - (time.time() - t0)))
+                end = t0 + self.interval
+                while time.time() < end - 0.05 and self._between(names):   # a sub-script with quick steps: look more often
+                    time.sleep(max(0.0, min(WALK_EVERY, end - time.time())))
+                time.sleep(max(0.0, end - time.time()))
         finally:
             self.incidents.close_all(time.time())
             self.quality.close(time.time())

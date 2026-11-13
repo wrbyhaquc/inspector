@@ -745,10 +745,55 @@
        },
        "near": {
         "type": "number"
+       },
+       "links": {
+        "type": "array",
+        "items": {
+         "type": "integer",
+         "minimum": 1
+        }
+       },
+       "end": {
+        "type": "boolean"
+       },
+       "check": {
+        "type": "boolean"
+       },
+       "moves": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "required": [
+          "to"
+         ],
+         "additionalProperties": false,
+         "properties": {
+          "to": {
+           "type": "integer",
+           "minimum": 1
+          },
+          "dir": {
+           "type": "integer",
+           "enum": [
+            1,
+            2,
+            3,
+            4,
+            6,
+            7,
+            8,
+            9
+           ]
+          },
+          "s": {
+           "type": "number"
+          }
+         }
+        }
        }
       }
      },
-     "description": "走到地圖上的位置:依序要走到的點(從基準圖示算起)"
+     "description": "走到地圖上的位置:依序要走到的點(從基準圖示算起);點有「連到」時是路線網,最後一點是目的地"
     },
     "stick": {
      "type": "object",
@@ -785,6 +830,14 @@
     },
     "max_moves": {
      "$ref": "#/$defs/num"
+    },
+    "turn": {
+     "$ref": "#/$defs/num",
+     "description": "走到地圖上的位置:地圖方向和搖桿方向差幾度(填了就不用學)"
+    },
+    "speed": {
+     "$ref": "#/$defs/num",
+     "description": "走到地圖上的位置:推一秒在地圖上走幾個像素(填了就從這個開始)"
     },
     "until": {
      "$ref": "#/$defs/when",

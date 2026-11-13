@@ -2718,5 +2718,20 @@
  "小地圖範圍 x / y / 寬 / 高": "Small map area x / y / width / height",
  "推完看小地圖捲了多少就知道走了多遠,大地圖只在一開始、每走幾段、快到時打開確認": "How far a push went is read from how the small map scrolled; the big map opens only at the start, every few pushes and near the end",
  "每推幾次開一次大地圖確認": "Check on the big map every",
- "用跟著自己的小地圖算走了多遠(少開大地圖)": "Use the small map that follows you to tell how far it went (fewer looks at the big map)"
+ "用跟著自己的小地圖算走了多遠(少開大地圖)": "Use the small map that follows you to tell how far it went (fewer looks at the big map)",
+ "(路線網 {n} 個點)": " (route network of {n} points)",
+ "例:2, 5": "e.g. 2, 5",
+ "連到": "links to",
+ "路線網:點填了「連到」(直走得到的點的編號,用逗號分開)時,這些點是一張路線網,最後一點是目的地;從最近的點出發,走最短的路,走不通的連線會換別條路": "Route network: when points have \"links to\" (the numbers of points reachable in a straight line, separated by commas), the points form a route network and the last point is the destination; it starts from the nearest point, takes the shortest way, and a link that turns out blocked is replaced by another way",
+ "到這裡也算到": "counts as there",
+ "路線網:走到這個點也算到了(例如每座橋接到同一個平台的地方)": "Route network: reaching this point also counts as arrived (e.g. where each bridge meets the same platform)",
+ "往這個點怎麼推:方向照數字鍵九宮格(6 右、9 右上、8 上…,是畫面上搖桿的方向),秒數;不填就照地圖和學到的方向、速度自動算": "How to push towards this point: the direction as on a number pad (6 right, 9 up right, 8 up… the control's direction on the screen) and seconds; left empty, worked out from the map and the learnt direction and speed",
+ "檢查點": "checkpoint",
+ "照路線直接走時,走到這裡打開地圖確認一次位置(沒勾的點中途不看地圖)": "When walking the route without looking, open the map here once to check the position (unticked points are passed without looking)",
+ "自動": "auto",
+ "像素/秒": "px/s",
+ "地圖和搖桿方向差": "map vs control direction",
+ "度": "°",
+ "知道的話可以直接填:地圖上的方向比搖桿轉了幾度(平面地圖通常是 0)、推一秒在地圖上走幾個像素;不填就邊走邊學": "If known, fill them in: how many degrees the map's directions are turned from the control's (a flat map is usually 0) and how many map pixels one second of pushing goes; left empty, they are learnt while walking",
+ "速度": "speed"
 }

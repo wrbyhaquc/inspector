@@ -289,6 +289,8 @@ def _describe_step(st, names, subs=None, params=None):
             {"continue": _("(失敗也繼續)"), "stop": _("(失敗就停下這台)")}.get(st.get("on_fail"), "")
     if t == "walk_to":
         n = len(st.get("points") or [])
+        if any(p.get("links") for p in st.get("points") or []):
+            return _("走到地圖上的位置") + _("(路線網 {n} 個點)", n=n)
         return _("走到地圖上的位置") + (_("(經過 {n} 個點)", n=n) if n > 1 else "")
     if t == "call_item":
         from . import catalogs

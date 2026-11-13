@@ -108,6 +108,8 @@ class _Frame:
         self.on_item_fail = kw.get("on_item_fail", "fail")
 
 
+QUICK_STEPS = {"tap", "long_press", "swipe", "back", "wait", "walk_to"}   # may go on between two ticks (SubRun.quick)
+
 class SubRun:
     """One sub-script running on one device (with whatever it calls). origin = the rule that started it."""
     setting_lookup = None                     # (device, setting id) -> value; set by the runtime (automation/settings.py)
@@ -416,10 +418,25 @@ class SubRun:
         if not self.cleanup:
             self.done = True
 
-    def advance(self, state, now, executor, names, log, env=None):
+    def quick(self):
+        """True while what is due now needs no new look by the model: an action being sent, a plain wait (seconds), a
+        tap / swipe / back, a walk_to under way (the runtime then goes on with it between its ticks)"""
+        if self.done or self.cleanup or not self.stack or self.paused_at is not None:
+            return False
+        if self.pending is not None:
+            return True
+        f = self.stack[-1]
+        if getattr(f, "after_t0", None) is not None:      # an "after": only plain seconds (a condition waits for a tick)
+            return not (f.steps[f.i].get("after") or {}).get("until") if f.i < len(f.steps) else False
+        if f.delay_until is not None or f.i >= len(f.steps):
+            return False
+        return f.steps[f.i].get("type") in QUICK_STEPS
+
+    def advance(self, state, now, executor, names, log, env=None, between=False):
         """Do what is due this tick. log(text, level) records what happens (level "notify" = tell the user).
         env (the runtime): .ctx(device) -> history / variables / other devices for conditions,
-                           .set_var(device, name, mode, value) for the "set_var" step."""
+                           .set_var(device, name, mode, value) for the "set_var" step.
+        between: between two ticks - only what is quick() goes on (it stops where a step needs the model's look)."""
         self._state = state or {}
         self._now = now
         self._env = env
@@ -438,6 +455,8 @@ class SubRun:
                     return
             if not self.stack:
                 self.done = True
+                return
+            if between and not self.quick():
                 return
             for c in self._calls():                       # a sub-script past its time limit fails as a whole
                 if now - c.t0 > float(c.sub.get("timeout", 300)):
@@ -544,7 +563,9 @@ class SubRun:
             ws = f.walk = {"t0": f.step_t0, "phase": "open", "until": 0.0, "fut": None, "look_t": None,
                            "plan": mapnav.Walk(st.get("points"), V.number(st.get("near", mapnav.NEAR), self._venv(args), mapnav.NEAR),
                                                V.number(st.get("push_ms", mapnav.PUSH_MS), self._venv(args), mapnav.PUSH_MS),
-                                               V.integer(st.get("max_moves", mapnav.MAX_MOVES), self._venv(args), mapnav.MAX_MOVES)),
+                                               V.integer(st.get("max_moves", mapnav.MAX_MOVES), self._venv(args), mapnav.MAX_MOVES),
+                                               turn=V.number(st.get("turn"), self._venv(args), None) if st.get("turn") is not None else None,
+                                               speed=V.number(st.get("speed"), self._venv(args), None) if st.get("speed") else None),
                            "est": None, "last_big": None, "acc": (0.0, 0.0), "k": None, "since_big": 0,
                            "mini_prev": None, "after": 0.0, "bigs": 0, "mini_off": None}
             log(describe_step(st, names, self.lib, params), "step")
@@ -563,12 +584,27 @@ class SubRun:
 
         def use_mini():
             """the small map is read for this stretch (not where it was found unreliable: until the next point)"""
-            return bool(mini) and ws.get("mini_off") != plan.idx
+            return bool(mini) and ws.get("mini_off") != getattr(plan, "leg", plan.idx)
 
         def mini_off(why):
-            if ws.get("mini_off") != plan.idx:
+            leg = getattr(plan, "leg", plan.idx)
+            if ws.get("mini_off") != leg:
                 log(_("小地圖在這一段靠不住({why}),到下一個點之前只看大地圖", why=why), "step")
-            ws["mini_off"] = plan.idx
+            ws["mini_off"] = leg
+
+        def notes():
+            """what the route network decided (the way, a link given up), for the log"""
+            for nt in getattr(plan, "notes", None) or []:
+                if nt[0] == "off":
+                    log(_("離「{b}」太遠(走偏了),從最近的點重新規劃", b=nt[1]), "step")
+                elif nt[0] == "route":
+                    log(_("路線:{way}", way=" → ".join(nt[1])), "step")
+                elif nt[1] is None:
+                    log(_("從這裡走不到「{b}」,換一條路", b=nt[2]), "step")
+                else:
+                    log(_("「{a}」到「{b}」走不通,換一條路", a=nt[1], b=nt[2]), "step")
+            if getattr(plan, "notes", None):
+                plan.notes = []
 
         def tap(target):
             p = self._point(target, args)
@@ -587,6 +623,7 @@ class SubRun:
 
         def fail(what):
             self._fail(_("{p1}:卡住了,走不過去", p1=describe_step(st, names, self.lib, params)) if what == "stuck" else
+                       _("{p1}:路線網裡已經沒有走得通的路", p1=describe_step(st, names, self.lib, params)) if what == "no_way" else
                        _("{p1}:推了 {n} 次還沒走到", p1=describe_step(st, names, self.lib, params), n=plan.moves), now, log)
             return True
 
@@ -595,6 +632,12 @@ class SubRun:
                 log(_("走到了(推了 {n} 次)", n=plan.moves), "step")
                 self._next(f, now)
                 return True
+            if not ws.get("open_checked"):                # the map already open (a step before opened it): look at once
+                ws["open_checked"] = True
+                got = self._env.latest_frame(self.device) if self._env is not None and hasattr(self._env, "latest_frame") else (None, None)
+                if got[0] is not None and got[0] >= f.step_t0 and                         self._env.map_me(self.device, st.get("anchor"), st.get("me")):
+                    ws.update(phase="look", look_t=now)
+                    return True
             if not tap(st.get("open")):
                 self._fail(_("{p1}:找不到打開地圖的地方", p1=describe_step(st, names, self.lib, params)), now, log)
                 return True
@@ -607,6 +650,13 @@ class SubRun:
                     return False
                 self._fail(_("{p1}:地圖上看不到基準圖示或自己的位置", p1=describe_step(st, names, self.lib, params)), now, log)
                 return True
+            got = self._env.latest_frame(self.device) if hasattr(self._env, "latest_frame") else (None, None)
+            if got[0] is not None:                        # the map may still be moving in: two pictures in a row agree
+                prev, ws["look_prev"] = ws.get("look_prev"), (got[0], seen)
+                if not prev or prev[0] == got[0] or max(abs(a - b) for a, b in zip(list(prev[1][0]) + list(prev[1][1]), list(seen[0]) + list(seen[1]))) > 2:
+                    if now - ws["look_t"] < 6:
+                        return False
+            ws["look_prev"] = None
             (ax, ay), (mx, my) = seen
             me = (mx - ax, my - ay)
             acc, last = ws["acc"], ws["last_big"]
@@ -626,6 +676,7 @@ class SubRun:
                     ws["k"] = k if ws["k"] is None else 0.5 * ws["k"] + 0.5 * k
             ws.update(est=me, last_big=me, acc=(0.0, 0.0), since_big=0, bigs=ws["bigs"] + 1)
             what = plan.step(me)
+            notes()
             if what[0] == "arrived":
                 log(_("走到了(推了 {n} 次,看了 {b} 次大地圖)", n=plan.moves, b=ws["bigs"]), "step")
                 p = self._point(st.get("close"), args)
@@ -634,13 +685,17 @@ class SubRun:
                 else:
                     self._next(f, now)
                 return True
-            if what[0] in ("stuck", "too_far"):
+            if what[0] in ("stuck", "too_far", "no_way"):
                 tap(st.get("close"))
                 return fail(what[0])
-            ws["push"] = what[1:]
-            log(_("在 ({x}, {y}),往第 {k} 個點,推 {ms} 毫秒", x=round(me[0]), y=round(me[1]), k=plan.idx + 1, ms=what[2]), "step")
+            ws["push"], ws["queue"] = what[1:3], list(what[3]) if len(what) > 3 else []
+            if getattr(plan, "blind", False):
+                log(_("在 ({x}, {y}),照路線直接走到第 {k} 個點({n} 段,共推 {ms} 毫秒,中途不看地圖)", x=round(me[0]), y=round(me[1]),
+                      k=plan.target_no(), n=1 + len(ws["queue"]), ms=what[2] + sum(q[1] for q in ws["queue"])), "step")
+            else:
+                log(_("在 ({x}, {y}),往第 {k} 個點,推 {ms} 毫秒", x=round(me[0]), y=round(me[1]), k=plan.target_no(), ms=what[2]), "step")
             tap(st.get("close"))
-            ws.update(phase="before" if use_mini() else "push", until=now + 0.8, after=now + 0.8)
+            ws.update(phase="before" if use_mini() and not getattr(plan, "blind", False) else "push", until=now + 0.8, after=now + 0.8)
             return False
         if ws["phase"] == "before":                       # the small map before the push (big map closed and settled)
             img = fresh_frame()
@@ -649,8 +704,20 @@ class SubRun:
             ws["mini_prev"] = mapnav.mini_crop(img, mini)
             ws["phase"] = "push"
         if ws["phase"] == "push":
+            close = st.get("close") or {}
+            if close.get("button") and self._env is not None and hasattr(self._env, "button_seen"):
+                img = fresh_frame()                       # the map must be closed first (a push on it moves nothing)
+                if img is None:
+                    return False
+                if self._env.button_seen(self.device, close):   # its close button still shows: the map is still open
+                    if now - ws.setdefault("close_t", now) >= 3:
+                        tap(close)                        # (the tap did not take: again)
+                        ws.update(close_t=now, after=now + 0.8)
+                    return False
+            ws.pop("close_t", None)
             angle, ms = ws["push"]
-            if use_mini():                                # a short push: the small map must still overlap after it
+            blind = getattr(plan, "blind", False)
+            if use_mini() and not blind:                  # a short push: the small map must still overlap after it
                 ms = min(ms, int(mini.get("push_ms", mapnav.MINI_MS)))
                 if plan.push:
                     plan.push = (plan.push[0], ms)        # what it learns the speed from
@@ -658,7 +725,11 @@ class SubRun:
             end = mapnav.stick_end(stick, angle)
             start = end if stick.get("press") == "edge" else [int(stick["x"]), int(stick["y"])]   # edge: hold it pushed all the time
             ws["fut"] = executor.submit(self.device, "swipe", x1=start[0], y1=start[1], x2=end[0], y2=end[1], ms=int(ms))
-            ws.update(phase="after" if use_mini() else "open", until=now + 0.4, after=now + ms / 1000 + 0.4)
+            if ws.get("queue"):                           # a stretch without looking: the next push right after this one
+                ws["push"] = ws["queue"].pop(0)
+                ws.update(phase="push", until=now)
+                return False
+            ws.update(phase="after" if use_mini() and not blind else "open", until=now + 0.4, after=now + ms / 1000 + 0.4)
             return False
         if ws["phase"] == "after":                        # how far the push went, from the small map
             img = fresh_frame()
@@ -682,14 +753,15 @@ class SubRun:
                 log(_("走到了(推了 {n} 次,看了 {b} 次大地圖)", n=plan.moves, b=ws["bigs"]), "step")
                 self._next(f, now)
                 return True
-            what = plan.step(est)
+            what = plan.step(est, chain=False)            # (a stretch without looking starts from a big-map look only)
+            notes()
             if what[0] != "push" or ws["since_big"] >= int((mini or {}).get("check_every", mapnav.CHECK_EVERY)):
                 ws["phase"] = "open"                      # arrived / stuck / too far / a while since: the big map says
                 if what[0] == "push":                     # (the push it planned is not made)
                     plan.moves -= 1
                 return True
-            ws["push"] = what[1:]
-            log(_("約在 ({x}, {y})(看小地圖),往第 {k} 個點,推 {ms} 毫秒", x=round(est[0]), y=round(est[1]), k=plan.idx + 1, ms=what[2]), "step")
+            ws["push"] = what[1:3]
+            log(_("約在 ({x}, {y})(看小地圖),往第 {k} 個點,推 {ms} 毫秒", x=round(est[0]), y=round(est[1]), k=plan.target_no(), ms=what[2]), "step")
             ws["phase"] = "push"
             return True
         return False

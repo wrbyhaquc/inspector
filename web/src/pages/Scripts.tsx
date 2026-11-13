@@ -556,7 +556,7 @@ function stepText(st: SubStep, ctx: Ctx): string {
     case 'input_text': tx = t('輸入「{p1}」', { p1: st.text ?? '' }); break
     case 'launch_app': tx = t('啟動 App{p1}', { p1: st.package ? `「${st.package}」` : '' }); break
     case 'pick': tx = t('在清單中找到並點擊 {p1}', { p1: pointText(st.target, info, params) }); break
-    case 'walk_to': tx = (st.points ?? []).length > 1 ? t('走到地圖上的位置(經過 {n} 個點)', { n: (st.points ?? []).length }) : t('走到地圖上的位置'); break
+    case 'walk_to': tx = (st.points ?? []).some(p => p.links?.length) ? t('走到地圖上的位置') + t('(路線網 {n} 個點)', { n: (st.points ?? []).length }) : (st.points ?? []).length > 1 ? t('走到地圖上的位置(經過 {n} 個點)', { n: (st.points ?? []).length }) : t('走到地圖上的位置'); break
     case 'capture_list': tx = t('擷取清單「{p1}」', { p1: info.lists.find(l => l.id === st.list)?.title ?? st.list }); break
     case 'wait': tx = t('等 {p1} 秒', { p1: v(st.seconds ?? 1) }); break
     case 'wait_until': {
@@ -897,6 +897,14 @@ export function ValueInput({ value, onChange, def = 0, w = 'w-16', step = 1, sca
   )
 }
 
+/** the numbers of the points a point links to ("2, 5"), typed freely and read when it loses the focus */
+function LinksInput({ links, onChange }: { links?: number[]; onChange: (l: number[] | undefined) => void }) {
+  const [text, setText] = useState((links ?? []).join(', '))
+  useEffect(() => { setText((links ?? []).join(', ')) }, [(links ?? []).join(',')])
+  return <input className={`${input} w-20 num`} placeholder={t('例:2, 5')} value={text} onChange={e => setText(e.target.value)}
+    onBlur={() => { const l = text.split(/[,\s、,]+/).map(Number).filter(n => Number.isInteger(n) && n > 0); onChange(l.length ? l : undefined) }} />
+}
+
 /** walk_to (走到地圖上的位置): the map, "me" on it, the points (from the anchor), the direction control */
 function WalkToEditor({ st, params, states, ops, onChange }: {
   st: SubStep; params: SubParam[]; states: StateDef[]; ops: Record<string, string>; onChange: (fn: (x: SubStep) => void) => void
@@ -918,12 +926,45 @@ function WalkToEditor({ st, params, states, ops, onChange }: {
         {t('地圖範圍 x / y / 寬 / 高')}{[0, 1, 2, 3].map(i => <span key={i}>{num(me.box[i], n => onChange(x => { const b = [...me.box]; b[i] = n; x.me = { ...me, box: b } }))}</span>)}</span>
       <div className="flex flex-col gap-1">
         <span className="text-stone-600">{t('依序走到這些點(從基準圖示算起,往右 x、往下 y,地圖上的像素)')}</span>
+        <span className="text-stone-500">{t('路線網:點填了「連到」(直走得到的點的編號,用逗號分開)時,這些點是一張路線網,最後一點是目的地;從最近的點出發,走最短的路,走不通的連線會換別條路')}</span>
         {(st.points ?? []).map((p, k) => (
           <span key={k} className="flex flex-wrap items-center gap-1">
             <span className="num text-stone-500">{k + 1}.</span>x{num(p.x, n => onChange(x => { x.points![k].x = n }))}y{num(p.y, n => onChange(x => { x.points![k].y = n }))}
             {t('多近算到')}{num(p.near, n => onChange(x => { x.points![k].near = n || undefined }))}
             <input className={`${input} w-28`} placeholder={t('說明(可不填)')} value={p.label ?? ''} onChange={e => onChange(x => { x.points![k].label = e.target.value || undefined })} />
-            {(st.points ?? []).length > 1 && <button className="text-stone-500 hover:text-red-700" onClick={() => onChange(x => { x.points!.splice(k, 1) })}>{t('刪除')}</button>}
+            {t('連到')}<LinksInput links={p.links} onChange={l => onChange(x => { x.points![k].links = l })} />
+            {k < (st.points ?? []).length - 1 && <label className="flex items-center gap-0.5" title={t('路線網:走到這個點也算到了(例如每座橋接到同一個平台的地方)')}>
+              <input type="checkbox" checked={!!p.end} onChange={e => onChange(x => { x.points![k].end = e.target.checked || undefined })} />{t('到這裡也算到')}</label>}
+            <label className="flex items-center gap-0.5" title={t('照路線直接走時,走到這裡打開地圖確認一次位置(沒勾的點中途不看地圖)')}>
+              <input type="checkbox" checked={!!p.check} onChange={e => onChange(x => { x.points![k].check = e.target.checked || undefined })} />{t('檢查點')}</label>
+            {(p.links ?? []).map(to => {
+              const mv = (p.moves ?? []).find(m => m.to === to)
+              const setMv = (f: (m: { to: number; dir?: number; s?: number }) => void) => onChange(x => {
+                const q = x.points![k]
+                const list = (q.moves ?? []).filter(m => m.to !== to)
+                const m = { ...(q.moves ?? []).find(m => m.to === to), to }
+                f(m)
+                if (m.dir || m.s) list.push(m)
+                q.moves = list.length ? list : undefined
+              })
+              return <span key={to} className="flex items-center gap-0.5 text-stone-500" title={t('往這個點怎麼推:方向照數字鍵九宮格(6 右、9 右上、8 上…,是畫面上搖桿的方向),秒數;不填就照地圖和學到的方向、速度自動算')}>
+                →{to}
+                <select className={input} value={mv?.dir ?? ''} onChange={e => setMv(m => { m.dir = Number(e.target.value) || undefined })}>
+                  <option value="">{t('自動')}</option>
+                  {[7, 8, 9, 4, 6, 1, 2, 3].map(d => <option key={d} value={d}>{d} {'↖↑↗←→↙↓↘'['78946123'.indexOf(String(d))]}</option>)}
+                </select>
+                {num(mv?.s, n => setMv(m => { m.s = n || undefined }), 'w-14')}{t('秒')}
+              </span>
+            })}
+            {(st.points ?? []).length > 1 && <button className="text-stone-500 hover:text-red-700" onClick={() => onChange(x => {
+              x.points!.splice(k, 1)                    // the links keep pointing at the same points
+              for (const q of x.points!) {
+                const l = (q.links ?? []).filter(n => n !== k + 1).map(n => n > k + 1 ? n - 1 : n)
+                q.links = l.length ? l : undefined
+                const m = (q.moves ?? []).filter(v => v.to !== k + 1).map(v => v.to > k + 1 ? { ...v, to: v.to - 1 } : v)
+                q.moves = m.length ? m : undefined
+              }
+            })}>{t('刪除')}</button>}
           </span>
         ))}
         <button className="self-start text-stone-600 hover:text-stone-900" onClick={() => onChange(x => { x.points = [...(x.points ?? []), { x: 0, y: 0 }] })}>{t('+ 再加一個點')}</button>
@@ -936,6 +977,11 @@ function WalkToEditor({ st, params, states, ops, onChange }: {
       <span className="flex flex-wrap items-center gap-1">{t('多近算到')}<ValueInput value={st.near} def={10} onChange={v => onChange(x => { x.near = v })} />
         {t('每次最多推')}<ValueInput value={st.push_ms} def={1500} w="w-20" onChange={v => onChange(x => { x.push_ms = v })} />{t('毫秒')}
         {t('最多推')}<ValueInput value={st.max_moves} def={40} onChange={v => onChange(x => { x.max_moves = v })} />{t('次')}</span>
+      <span className="flex flex-wrap items-center gap-1" title={t('知道的話可以直接填:地圖上的方向比搖桿轉了幾度(平面地圖通常是 0)、推一秒在地圖上走幾個像素;不填就邊走邊學')}>
+        {t('地圖和搖桿方向差')}<input type="number" className={`${input} w-16 num`} placeholder={t('自動')} value={typeof st.turn === 'number' ? st.turn : ''}
+          onChange={e => onChange(x => { x.turn = e.target.value === '' ? undefined : Number(e.target.value) })} />{t('度')}
+        {t('速度')}<input type="number" className={`${input} w-16 num`} placeholder={t('自動')} value={typeof st.speed === 'number' ? st.speed : ''}
+          onChange={e => onChange(x => { x.speed = e.target.value === '' ? undefined : Number(e.target.value) })} />{t('像素/秒')}</span>
       <label className="flex items-center gap-1" title={t('推完看小地圖捲了多少就知道走了多遠,大地圖只在一開始、每走幾段、快到時打開確認')}>
         <input type="checkbox" checked={!!st.mini} onChange={e => onChange(x => { x.mini = e.target.checked ? { box: [1078, 130, 166, 148], mask: 14, check_every: 5 } : undefined })} />
         {t('用跟著自己的小地圖算走了多遠(少開大地圖)')}</label>

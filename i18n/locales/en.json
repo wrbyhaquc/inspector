@@ -2030,7 +2030,6 @@
  "走到了(推了 {n} 次)": "Got there ({n} pushes)",
  "走到地圖上的位置": "Walk to a place on the map",
  "走到地圖上的位置:「自己」在地圖上的樣子(顏色)和地圖在畫面上的範圍": "Walk to a place on the map: what \"me\" looks like on the map (colour) and where the map is on the screen",
- "走到地圖上的位置:依序要走到的點(從基準圖示算起)": "Walk to a place on the map: the points in order (from the anchor sign)",
  "走到地圖上的位置:地圖上的基準圖示(找圖的按鈕)": "Walk to a place on the map: the anchor sign on the map (a find button)",
  "走到地圖上的位置:方向控制(搖桿)的中心和推多遠": "Walk to a place on the map: the direction control (joystick), its centre and how far to push",
  "走到地圖上的位置:這個條件成立就算到了(可不填)": "Walk to a place on the map: done as soon as this holds (optional)",
@@ -2046,5 +2045,15 @@
  "小地圖在這一段靠不住({why}),到下一個點之前只看大地圖": "The small map can't be trusted on this stretch ({why}); only the big map until the next point",
  "估的位置差了 {n}": "its guess was off by {n}",
  "大地圖上走了 {n},小地圖看不出來": "moved {n} on the big map, the small map didn't show it",
- "相似度 {r}": "similarity {r}"
+ "相似度 {r}": "similarity {r}",
+ "路線:{way}": "Route: {way}",
+ "從這裡走不到「{b}」,換一條路": "Cannot get to \"{b}\" from here, trying another way",
+ "「{a}」到「{b}」走不通,換一條路": "\"{a}\" to \"{b}\" is blocked, trying another way",
+ "{p1}:路線網裡已經沒有走得通的路": "{p1}: no way left in the route network",
+ "走到地圖上的位置:依序要走到的點(從基準圖示算起);點有「連到」時是路線網,最後一點是目的地": "Walk to a place on a map: the points to walk to in order (from the anchor sign); when points have \"links\" they form a route network and the last point is the destination",
+ "(路線網 {n} 個點)": " (route network of {n} points)",
+ "在 ({x}, {y}),照路線直接走到第 {k} 個點({n} 段,共推 {ms} 毫秒,中途不看地圖)": "At ({x}, {y}), walking the route straight to point {k} ({n} {n|stretch|stretches}, {ms} ms of pushing, no map on the way)",
+ "離「{b}」太遠(走偏了),從最近的點重新規劃": "Too far from \"{b}\" (off the way), planning again from the nearest point",
+ "走到地圖上的位置:地圖方向和搖桿方向差幾度(填了就不用學)": "Walk to a place on the map: how many degrees the map's directions are turned from the control's (set: not learnt)",
+ "走到地圖上的位置:推一秒在地圖上走幾個像素(填了就從這個開始)": "Walk to a place on the map: map pixels walked per second of pushing (set: starts from it)"
 }
