@@ -8,6 +8,7 @@ branch, a retry, a repeat). A failure unwinds the stack to the nearest retry tha
 starts again) or to a call with on_fail = continue; otherwise the whole run fails. Every sub-script that ends by
 failing or by being interrupted runs its cleanup steps first (innermost first)."""
 import json
+import math
 import re
 
 from . import engine
@@ -533,14 +534,19 @@ class SubRun:
         return False
 
     def _walk(self, f, st, args, now, executor, names, log, params):
-        """walk_to (automation/mapnav.py): open the map, see where "me" is, close it, push the control; again."""
+        """walk_to (automation/mapnav.py): look at the big map, push the control, again. With "mini" (the small map that
+        follows "me"): between two looks at the big map, how far each push went is read from how the small map scrolled,
+        so the big map opens only now and then (to learn the scale, every few pushes, near the end, when unsure)."""
         from . import mapnav
+        mini = st.get("mini") or None
         ws = getattr(f, "walk", None)
         if not ws or ws["t0"] != f.step_t0:              # a new walk_to step
             ws = f.walk = {"t0": f.step_t0, "phase": "open", "until": 0.0, "fut": None, "look_t": None,
                            "plan": mapnav.Walk(st.get("points"), V.number(st.get("near", mapnav.NEAR), self._venv(args), mapnav.NEAR),
                                                V.number(st.get("push_ms", mapnav.PUSH_MS), self._venv(args), mapnav.PUSH_MS),
-                                               V.integer(st.get("max_moves", mapnav.MAX_MOVES), self._venv(args), mapnav.MAX_MOVES))}
+                                               V.integer(st.get("max_moves", mapnav.MAX_MOVES), self._venv(args), mapnav.MAX_MOVES)),
+                           "est": None, "last_big": None, "acc": (0.0, 0.0), "k": None, "since_big": 0,
+                           "mini_prev": None, "after": 0.0, "bigs": 0, "mini_off": None}
             log(describe_step(st, names, self.lib, params), "step")
         if ws["fut"] is not None:
             if not ws["fut"].done():
@@ -553,6 +559,16 @@ class SubRun:
             ws["fut"] = None
         if now < ws["until"]:
             return False
+        plan = ws["plan"]
+
+        def use_mini():
+            """the small map is read for this stretch (not where it was found unreliable: until the next point)"""
+            return bool(mini) and ws.get("mini_off") != plan.idx
+
+        def mini_off(why):
+            if ws.get("mini_off") != plan.idx:
+                log(_("小地圖在這一段靠不住({why}),到下一個點之前只看大地圖", why=why), "step")
+            ws["mini_off"] = plan.idx
 
         def tap(target):
             p = self._point(target, args)
@@ -560,9 +576,23 @@ class SubRun:
                 return False
             ws["fut"] = executor.submit(self.device, "tap", x=p[0], y=p[1])
             return True
+
+        def done_until():
+            return bool(st.get("until")) and self._cond(f, st["until"], now) == engine.MATCH
+
+        def fresh_frame():
+            """the newest frame, if it was taken after ws["after"] (the screen has settled since the last action)"""
+            got = self._env.latest_frame(self.device) if self._env is not None and hasattr(self._env, "latest_frame") else (None, None)
+            return got[1] if got[0] is not None and got[0] >= ws["after"] else None
+
+        def fail(what):
+            self._fail(_("{p1}:卡住了,走不過去", p1=describe_step(st, names, self.lib, params)) if what == "stuck" else
+                       _("{p1}:推了 {n} 次還沒走到", p1=describe_step(st, names, self.lib, params), n=plan.moves), now, log)
+            return True
+
         if ws["phase"] == "open":
-            if st.get("until") and self._cond(f, st["until"], now) == engine.MATCH:   # already where it should be
-                log(_("走到了(推了 {n} 次)", n=ws["plan"].moves), "step")
+            if done_until():                              # already where it should be
+                log(_("走到了(推了 {n} 次)", n=plan.moves), "step")
                 self._next(f, now)
                 return True
             if not tap(st.get("open")):
@@ -578,10 +608,26 @@ class SubRun:
                 self._fail(_("{p1}:地圖上看不到基準圖示或自己的位置", p1=describe_step(st, names, self.lib, params)), now, log)
                 return True
             (ax, ay), (mx, my) = seen
-            plan = ws["plan"]
-            what = plan.step((mx - ax, my - ay))
+            me = (mx - ax, my - ay)
+            acc, last = ws["acc"], ws["last_big"]
+            if mini and last is not None and ws.get("mini_read"):            # how good the small map's guess was
+                big = math.hypot(me[0] - last[0], me[1] - last[1])
+                err = math.hypot(me[0] - ws["est"][0], me[1] - ws["est"][1]) if ws["since_big"] else None
+                if err is not None and err > max(mapnav.MINI_ERR, 0.4 * big):
+                    mini_off(_("估的位置差了 {n}", n=round(err)))
+                    acc = (0.0, 0.0)                      # not learnt from either
+                elif big >= mapnav.MINI_ERR and math.hypot(*acc) < 1:
+                    mini_off(_("大地圖上走了 {n},小地圖看不出來", n=round(big)))
+            ws["mini_read"] = False
+            if last is not None and math.hypot(*acc) >= 3:         # small map vs big map: learn the scale
+                big = math.hypot(me[0] - last[0], me[1] - last[1])
+                if big >= 3:
+                    k = big / math.hypot(*acc)
+                    ws["k"] = k if ws["k"] is None else 0.5 * ws["k"] + 0.5 * k
+            ws.update(est=me, last_big=me, acc=(0.0, 0.0), since_big=0, bigs=ws["bigs"] + 1)
+            what = plan.step(me)
             if what[0] == "arrived":
-                log(_("走到了(推了 {n} 次)", n=plan.moves), "step")
+                log(_("走到了(推了 {n} 次,看了 {b} 次大地圖)", n=plan.moves, b=ws["bigs"]), "step")
                 p = self._point(st.get("close"), args)
                 if p:
                     self.pending = executor.submit(self.device, "tap", x=p[0], y=p[1])   # done: the next step after it
@@ -590,22 +636,62 @@ class SubRun:
                 return True
             if what[0] in ("stuck", "too_far"):
                 tap(st.get("close"))
-                self._fail(_("{p1}:卡住了,走不過去", p1=describe_step(st, names, self.lib, params)) if what[0] == "stuck" else
-                           _("{p1}:推了 {n} 次還沒走到", p1=describe_step(st, names, self.lib, params), n=plan.moves), now, log)
-                return True
+                return fail(what[0])
             ws["push"] = what[1:]
-            log(_("在 ({x}, {y}),往第 {k} 個點,推 {ms} 毫秒", x=round(mx - ax), y=round(my - ay), k=plan.idx + 1, ms=what[2]), "step")
+            log(_("在 ({x}, {y}),往第 {k} 個點,推 {ms} 毫秒", x=round(me[0]), y=round(me[1]), k=plan.idx + 1, ms=what[2]), "step")
             tap(st.get("close"))
-            ws.update(phase="push", until=now + 0.8)
+            ws.update(phase="before" if use_mini() else "push", until=now + 0.8, after=now + 0.8)
             return False
+        if ws["phase"] == "before":                       # the small map before the push (big map closed and settled)
+            img = fresh_frame()
+            if img is None:
+                return False
+            ws["mini_prev"] = mapnav.mini_crop(img, mini)
+            ws["phase"] = "push"
         if ws["phase"] == "push":
             angle, ms = ws["push"]
+            if use_mini():                                # a short push: the small map must still overlap after it
+                ms = min(ms, int(mini.get("push_ms", mapnav.MINI_MS)))
+                if plan.push:
+                    plan.push = (plan.push[0], ms)        # what it learns the speed from
             stick = st.get("stick") or {}
             end = mapnav.stick_end(stick, angle)
             start = end if stick.get("press") == "edge" else [int(stick["x"]), int(stick["y"])]   # edge: hold it pushed all the time
             ws["fut"] = executor.submit(self.device, "swipe", x1=start[0], y1=start[1], x2=end[0], y2=end[1], ms=int(ms))
-            ws.update(phase="open", until=now + 0.4)
+            ws.update(phase="after" if use_mini() else "open", until=now + 0.4, after=now + ms / 1000 + 0.4)
             return False
+        if ws["phase"] == "after":                        # how far the push went, from the small map
+            img = fresh_frame()
+            if img is None:
+                return False
+            cur = mapnav.mini_crop(img, mini)
+            d = mapnav.mini_moved(ws["mini_prev"], cur, mini)
+            ws["mini_read"] = True
+            ws["mini_prev"] = cur
+            if d is None:
+                mini_off(_("相似度 {r}", r=getattr(mapnav.mini_moved, "last", None)))
+            if d is None or ws["k"] is None:              # unsure / the scale not learnt yet: look at the big map
+                if d is not None:
+                    ws["acc"] = (ws["acc"][0] + d[0], ws["acc"][1] + d[1])
+                ws["phase"] = "open"
+                return True
+            ws["acc"] = (ws["acc"][0] + d[0], ws["acc"][1] + d[1])
+            est = (ws["est"][0] + d[0] * ws["k"], ws["est"][1] + d[1] * ws["k"])
+            ws.update(est=est, since_big=ws["since_big"] + 1)
+            if done_until():
+                log(_("走到了(推了 {n} 次,看了 {b} 次大地圖)", n=plan.moves, b=ws["bigs"]), "step")
+                self._next(f, now)
+                return True
+            what = plan.step(est)
+            if what[0] != "push" or ws["since_big"] >= int((mini or {}).get("check_every", mapnav.CHECK_EVERY)):
+                ws["phase"] = "open"                      # arrived / stuck / too far / a while since: the big map says
+                if what[0] == "push":                     # (the push it planned is not made)
+                    plan.moves -= 1
+                return True
+            ws["push"] = what[1:]
+            log(_("約在 ({x}, {y})(看小地圖),往第 {k} 個點,推 {ms} 毫秒", x=round(est[0]), y=round(est[1]), k=plan.idx + 1, ms=what[2]), "step")
+            ws["phase"] = "push"
+            return True
         return False
 
     # ---------- one step ----------

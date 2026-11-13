@@ -22,8 +22,19 @@ step: {"type": "walk_to",
        "near": 10,                             close enough (pixels of the map)
        "push_ms": 1500,                        the longest push
        "max_moves": 40,                        give up after this many pushes
-       "until": when}                          optional: done as soon as this holds (checked before each look at the
+       "until": when,                          optional: done as soon as this holds (checked before each look at the
                                                map), e.g. "the place name says I am out of the safe area"
+       "mini": {"box": [x, y, w, h], "mask": 14, "check_every": 5, "min_resp": 0.15}}
+                                               optional: the small map that follows "me" (me in its middle). Between two
+                                               looks at the big map, how far a push went is read from how the small map
+                                               scrolled (the scale to the big map is learnt), so the big map opens only
+                                               to learn the scale, every check_every pushes, near the end, or when the
+                                               small map cannot tell. Where it cannot tell (plain ground: a bridge, a
+                                               floor) or its guess turns out wrong at a look, it is not used again
+                                               until the next point (full pushes, the big map after each)
+
+A push that went well off the way it was pushed (sliding along a wall or a rail) is not learnt from, and a push that
+brings "me" no nearer counts towards "stuck" (it then tries to the side, and gives up after STUCK of them).
 """
 import math
 
@@ -35,6 +46,10 @@ except ImportError:
     cv2 = None
 
 NEAR, PUSH_MS, MIN_MS, MAX_MOVES = 10, 1500, 250, 40
+CHECK_EVERY, MIN_RESP, MASK, MINI_MS = 5, 0.15, 14, 2500   # MINI_MS: the longest push read on the small map
+TURN_OK = math.radians(40)       # a push that went further off than this slid along something: not learnt from
+FLAT = 3.0                       # a small map whose gray spread is below this has nothing to follow
+MINI_ERR = 10                    # map px: the small map's guess further off than this (at a look) -> not trusted here
 STUCK = 5                       # pushes in a row that hardly moved: stuck (a wall)
 SIDE = [0.6, -0.6, 1.2, -1.2]
 STUCK_MS = 1500                 # how long a push is while feeling the way round something   # when a push hardly moved: try this much to the side (radians), in turn
@@ -66,6 +81,33 @@ def find_me(frame, box, color, tol=40, min_px=6, exclude=()):
         return None
     cx, cy = cent[best]
     return [int(round(cx)) + x0, int(round(cy)) + y0]
+
+
+def mini_crop(frame, mini):
+    """The small map as gray, its middle ("me", which never moves on it) flattened."""
+    x, y, w, h = (int(v) for v in mini["box"])
+    g = cv2.cvtColor(np.asarray(frame)[y:y + h, x:x + w, :3], cv2.COLOR_RGB2GRAY).astype(np.float32)
+    m = int(mini.get("mask", MASK))
+    if m:
+        cy, cx = h // 2, w // 2
+        g[max(0, cy - m):cy + m, max(0, cx - m):cx + m] = g.mean()
+    return g
+
+
+def mini_moved(before, after, mini):
+    """How far "me" went between two small-map crops, in small-map pixels (the map scrolls the other way), or None
+    when the two do not match well enough to tell (something covers it, a jump to another place)."""
+    if before is None or after is None or before.shape != after.shape:
+        return None
+    if float(before.std()) < FLAT or float(after.std()) < FLAT:     # nothing on it to follow
+        mini_moved.last = 0.0
+        return None
+    win = cv2.createHanningWindow(before.shape[::-1], cv2.CV_32F)
+    (dx, dy), resp = cv2.phaseCorrelate(before, after, win)
+    mini_moved.last = round(float(resp), 3)                  # how sure (for the log)
+    if resp < float(mini.get("min_resp", MIN_RESP)):
+        return None
+    return (-dx, -dy)
 
 
 def _wrap(a):
@@ -103,13 +145,21 @@ class Walk:
         if self.last is not None and self.push is not None:      # learn from the last push
             dx, dy = me[0] - self.last[0], me[1] - self.last[1]
             moved = math.hypot(dx, dy)
+            target = self.points[self.idx] if self.idx < len(self.points) else None
+            gained = math.dist(self.last, target) - math.dist(me, target) if target else moved
             if moved >= 2:
                 t = _wrap(math.atan2(dy, dx) - self.push[0])
-                self.turn = t if self.turn is None else _wrap(self.turn + 0.5 * _wrap(t - self.turn))
-                sp = moved / max(self.push[1], 1)
-                self.speed = sp if self.speed is None else 0.5 * self.speed + 0.5 * sp
+                odd = getattr(self, "odd", None)
+                ok = (gained >= 0.3 * moved if self.turn is None else abs(_wrap(t - self.turn)) <= TURN_OK) or \
+                    (odd is not None and abs(_wrap(t - odd)) <= TURN_OK)          # off twice the same way: the turn it is
+                self.odd = None if ok else t
+                if ok:          # went about where it was pushed (not sliding along a wall): learn the turn and the speed
+                    self.turn = t if self.turn is None else _wrap(self.turn + 0.5 * _wrap(t - self.turn))
+                    sp = moved / max(self.push[1], 1)
+                    self.speed = sp if self.speed is None else 0.5 * self.speed + 0.5 * sp
+            if moved >= 2 and gained >= 2:
                 self.stuck = 0
-            else:
+            else:                                                 # hardly moved, or moved but no nearer
                 self.stuck += 1
         nears = getattr(self, "nears", None) or [self.near] * len(self.points)
         while self.idx < len(self.points) and math.dist(me, self.points[self.idx]) <= nears[self.idx]:

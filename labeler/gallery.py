@@ -11,7 +11,14 @@ How the row is cut is a cut method (params.cut):
   <name>  a method a plugin of the project registers (kind "gallery_cut"): fn(img, box, params) -> (x0, x1) or None
 Other params: match_min (similarity needed to accept a name, 0.85), width_tol (px, 5; the same name renders with the
 same width), skip_flags (frames with one of these rule flags are matched but never offered for naming, e.g. a panel
-covering the screen)."""
+covering the screen).
+
+While scripts run (runtime/shadow.py) a gallery state is read with live(): the state setting "live" {"align": "right" |
+"left" | "cut", "min": 0.75, "picture": "live" | "sharp"} - "sharp": read on the device's own sharper picture (adb,
+every few seconds in the background; the gallery's pictures should come from the same kind of picture. Note: some emulators keep a little memory for every screencap, so "sharp" for hours can use up a lot of memory) - "right" / "left" slide every gallery picture along the right / left end of the region
+(a name that always ends / starts at the same place), no cut needed, so it holds up on a blurrier live picture;
+"cut" (default) cuts as above. An index entry may say which kind of picture it was cut from ("picture": "live" |
+"sharp"); live() then only compares it on that kind (entries without it are used on both)."""
 import atomic
 import hashlib
 import json
@@ -23,6 +30,11 @@ from PIL import Image
 from i18n import N_, _
 
 NOT_A_NAME = "__none__"      # entries the user marked as "not a name" (e.g. icons under open panels)
+LIVE_MIN = 0.75              # live(): similarity needed (pictures from labelled frames vs a blurrier live picture)
+SLIDE = 16                   # live(): px the name's end may move
+CHAR_MIN = 0.5              # live(): every character-sized window of the name must fit at least this well
+CHAR_W = 0.6                # ... a window this many row heights wide (a character is about as wide as the row is high)
+CLOSE = 0.05               # live(): names scoring this close to the best are told apart on the columns where they differ
 MATCH_MIN = 0.85
 WIDTH_TOL = 5
 CUTS = {"box": N_("整個範圍")}
@@ -55,6 +67,46 @@ def validate(s):
         raise ValueError(_("{id}:名稱庫要設定一個範圍(名稱所在的那一列)", id=s['id']))
     if not cut_fn(s["source"].get("params", {}).get("cut")):
         raise ValueError(_("{id}:沒有「{cut}」這種切割方式", id=s['id'], cut=s['source']['params']['cut']))
+
+
+def _z(a):
+    a = a - a.mean()
+    s = a.std()
+    return a / s if s > 0 else a
+
+
+def _tell_apart(cands, align):
+    """Names that scored about the same ({name: (gallery picture, matched part of the frame)}) -> the one whose picture
+    fits best on the columns where the pictures differ (the characters that tell them apart), counted from the end
+    the names are aligned at."""
+    h = min(t.shape[0] for t, _p in cands.values())
+    n = min(t.shape[1] for t, _p in cands.values())
+    cut = (lambda a: a[:h, -n:]) if align == "right" else (lambda a: a[:h, :n])
+    z = {k: _z(cut(t)) for k, (t, _p) in cands.items()}
+    diff = np.zeros(n, np.float32)
+    keys = list(z)
+    for i, a in enumerate(keys):
+        for b in keys[i + 1:]:
+            diff = np.maximum(diff, np.abs(z[a] - z[b]).mean(axis=0))
+    if diff.max() <= 0:
+        return keys[0]
+    cols = diff >= 0.5 * diff.max()
+    cols = cols | np.roll(cols, 1) | np.roll(cols, -1)
+    return max(keys, key=lambda k: _ncc(cut(cands[k][1])[:, cols], cut(cands[k][0])[:, cols]))
+
+
+def _worst_char(tpl, part):
+    """The worst fit of a gallery picture on the matched part of the frame, one character-sized window at a time
+    (CHAR_W of the row's height wide): a name that differs in one character fits everywhere else."""
+    h, w = tpl.shape
+    cw = max(4, round(h * CHAR_W))
+    step = max(2, cw // 4)
+    worst = 1.0
+    for x0 in sorted(set(range(0, max(1, w - cw + 1), step)) | {max(0, w - cw)}):
+        a, b = tpl[:, x0:x0 + cw], part[:, x0:x0 + cw]
+        if a.std() > 1 and b.std() > 1:
+            worst = min(worst, _ncc(a, b))
+    return worst
 
 
 def _ncc(a, b):
@@ -117,6 +169,45 @@ class Matcher:
                 if s > best:
                     best, best_name = s, self.index[f]["name"]
         return (best_name, round(best, 3)) if best >= self.match_min else (None, round(best, 3))
+
+    def live(self, img, how=None):
+        """While scripts run -> (name, score): the best gallery entry, or (None, best score) below "min"."""
+        how = how or {}
+        align, lo = how.get("align", "cut"), float(how.get("min", LIVE_MIN))
+        if align not in ("right", "left"):
+            a = self.answer(img)
+            return (a["name"], a["score"]) if a["name"] and a["score"] is not None and a["score"] >= lo else (None, a["score"])
+        import cv2
+        x, y, w, h = self.box
+        y0 = max(0, y - 2)
+        feat = img[y0:y + h + 2, :].min(axis=2).astype(np.float32)
+        pic = how.get("picture") or "live"
+        own = any(e.get("picture") == pic for e in self.index.values())    # entries cut for this kind of picture: only those
+        per = {}                                          # name -> (score, its picture, the part of the frame it matched)
+        for f, tpl in self.tpl.items():
+            e = self.index.get(f, {})
+            if e.get("name") in (None, NOT_A_NAME) or e.get("picture", None if own else pic) != pic:
+                continue
+            th, tw = tpl.shape
+            x0 = max(0, x + w - SLIDE - tw) if align == "right" else max(0, x - 2)
+            x1 = x + w if align == "right" else min(feat.shape[1], x + SLIDE + tw)
+            strip = feat[:, x0:x1]
+            if strip.shape[0] < th or strip.shape[1] < tw:
+                continue
+            _lo, s, _l, (lx, ly) = cv2.minMaxLoc(cv2.matchTemplate(strip, tpl, cv2.TM_CCOEFF_NORMED))
+            if e["name"] not in per or s > per[e["name"]][0]:
+                per[e["name"]] = (float(s), tpl, strip[ly:ly + th, lx:lx + tw])
+        if not per:
+            return None, -1.0
+        best_name = max(per, key=lambda n: per[n][0])
+        best = per[best_name][0]
+        close = [n for n in per if per[n][0] >= best - CLOSE]
+        if best >= lo and len(close) > 1:                 # names that differ in a character or two (floor 2 / 3)
+            best_name = _tell_apart({n: per[n][1:] for n in close}, align)
+            best = per[best_name][0]
+        if best >= lo and _worst_char(*per[best_name][1:]) < float(how.get("char_min", CHAR_MIN)):
+            return None, round(best, 3)                   # one character does not fit: a name not in the gallery
+        return (best_name, round(best, 3)) if best >= lo else (None, round(best, 3))
 
     def answer(self, img):
         """One frame -> {"ext", "name", "score"}."""

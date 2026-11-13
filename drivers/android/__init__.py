@@ -113,6 +113,19 @@ class Capture:
         self.last_src = src
         return img, src, size
 
+    def grab_sharp(self):
+        """The device's own picture (adb screencap, ~0.2 s), at the project's size: sharper than a small window's
+        picture - for reading small text now and then (a name gallery). None if there is no adb."""
+        import project
+        serial = self.drv.serial(self.name)
+        img = screen.grab(self.drv.adb, serial) if serial else None
+        if img is None:
+            return None
+        want = project.screen()
+        if (img.shape[1], img.shape[0]) != want:
+            img = np.asarray(Image.fromarray(img).resize(want, Image.BICUBIC))
+        return img
+
 
 class Android:
     label = LABEL

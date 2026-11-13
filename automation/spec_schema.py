@@ -116,7 +116,11 @@ DEFS = {
                   "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "r": {"type": "number"},
                                  "press": {"enum": ["drag", "edge"]}}},
         "near": {"$ref": "#/$defs/num"}, "push_ms": {"$ref": "#/$defs/num"}, "max_moves": {"$ref": "#/$defs/num"},
-        "until": {"$ref": "#/$defs/when", "description": N_("走到地圖上的位置:這個條件成立就算到了(可不填)")}}},
+        "until": {"$ref": "#/$defs/when", "description": N_("走到地圖上的位置:這個條件成立就算到了(可不填)")},
+        "mini": {"type": "object", "additionalProperties": False, "required": ["box"],
+                 "description": N_("走到地圖上的位置:跟著自己的小地圖(推完看它捲了多少,大地圖只偶爾打開)"),
+                 "properties": {"box": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
+                                "mask": {"type": "number"}, "check_every": {"type": "number"}, "min_resp": {"type": "number"}}}}},
     "steps": {"type": "array", "items": {"$ref": "#/$defs/step"}},
     "param": {"type": "object", "required": ["name", "type"], "additionalProperties": False, "properties": {
         "name": {"type": "string", "pattern": ID}, "label": {"type": "string"},

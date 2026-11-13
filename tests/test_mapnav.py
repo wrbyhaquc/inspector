@@ -50,7 +50,7 @@ class Exec:
     def submit(self, device, kind, **kw):
         self.log.append(kind)
         if kind == "swipe":
-            a = math.atan2(kw["y2"] - kw["y1"], kw["x2"] - kw["x1"])
+            a = math.atan2(kw["y2"] - self.stick["y"], kw["x2"] - self.stick["x"])   # from the control's centre
             self.w.pos[0] += self.w.speed * kw["ms"] * math.cos(a + self.w.turn)
             self.w.pos[1] += self.w.speed * kw["ms"] * math.sin(a + self.w.turn)
         fu = Future()
@@ -104,3 +104,107 @@ def test_until_ends_the_walk_early():
         run.advance({}, t, ex, {}, lambda text, level="": None, EnvOut(w))
         t += 0.5
     assert run.result == "success" and 50 < w.pos[0] < 200
+
+
+class MiniEnv(Env):
+    """The small map: a textured world around "me", 1 small-map px = 1.85 big-map px; frames carry the time."""
+    SCALE = 1.85
+
+    def __init__(self, world):
+        super().__init__(world)
+        rng = np.random.default_rng(3)
+        tex = rng.integers(0, 255, (900, 900)).astype(np.uint8)
+        import cv2
+        self.tex = cv2.GaussianBlur(tex, (0, 0), 3)
+        self.t = 0.0
+
+    def latest_frame(self, n):
+        f = np.zeros((720, 1280, 3), np.uint8)
+        cx, cy = 450 + int(round(self.w.pos[0] / self.SCALE)), 450 + int(round(self.w.pos[1] / self.SCALE))
+        crop = self.tex[cy - 74:cy + 74, cx - 83:cx + 83]
+        f[130:278, 1078:1244] = crop[:, :, None]
+        return self.t, f
+
+
+def test_with_the_small_map_the_big_map_opens_only_now_and_then():
+    w = World(turn=0.3, speed=0.02)
+    st = {"type": "walk_to", "open": {"x": 1160, "y": 200}, "close": {"x": 1236, "y": 44}, "anchor": {"button": "sign"},
+          "me": {"color": [210, 84, 50], "box": [300, 120, 900, 500]}, "points": [{"x": 150, "y": 0}, {"x": 300, "y": -100}],
+          "stick": {"x": 192, "y": 570, "r": 60, "press": "edge"}, "near": 10, "push_ms": 1500,
+          "mini": {"box": [1078, 130, 166, 148], "check_every": 6}}
+    lib = {"go": {"id": "go", "name": "GO", "params": [], "steps": [st]}}
+    run, ex, env, logs = SubRun("A", "go", {}, lib, 0.0), Exec(w, st["stick"]), MiniEnv(w), []
+    t = 0.0
+    while not run.done and t < 900:
+        env.t = t
+        run.advance({}, t, ex, {}, lambda text, level="": logs.append(text), env)
+        t += 0.5
+    assert run.result == "success", logs[-6:]
+    assert math.dist(w.pos, (300, -100)) <= 10
+    opens = sum(1 for k in ex.log if k == "tap") // 2
+    pushes = ex.log.count("swipe")
+    assert pushes >= 6 and opens < pushes / 2, (opens, pushes)
+    assert any("看小地圖" in x for x in logs)
+
+
+class FlatEnv(MiniEnv):
+    """A small map with nothing on it (a plain bridge): it cannot tell how far a push went."""
+    def latest_frame(self, n):
+        f = np.full((720, 1280, 3), 90, np.uint8)
+        return self.t, f
+
+
+class SwipeLog(Exec):
+    def __init__(self, world, stick):
+        super().__init__(world, stick)
+        self.ms = []
+
+    def submit(self, device, kind, **kw):
+        if kind == "swipe":
+            self.ms.append(kw["ms"])
+        return super().submit(device, kind, **kw)
+
+
+def test_where_the_small_map_cannot_tell_it_walks_on_the_big_map_with_full_pushes():
+    w = World(turn=0.0, speed=0.01)
+    st = {"type": "walk_to", "open": {"x": 1160, "y": 200}, "close": {"x": 1236, "y": 44}, "anchor": {"button": "sign"},
+          "me": {"color": [210, 84, 50], "box": [300, 120, 900, 500]}, "points": [{"x": 300, "y": 0}],
+          "stick": {"x": 192, "y": 570, "r": 60, "press": "edge"}, "near": 10, "push_ms": 5000,
+          "mini": {"box": [1078, 130, 166, 148]}}
+    lib = {"go": {"id": "go", "name": "GO", "params": [], "steps": [st]}}
+    run, ex, env, logs = SubRun("A", "go", {}, lib, 0.0), SwipeLog(w, st["stick"]), FlatEnv(w), []
+    t = 0.0
+    while not run.done and t < 900:
+        env.t = t
+        run.advance({}, t, ex, {}, lambda text, level="": logs.append(text), env)
+        t += 0.5
+    assert run.result == "success", logs[-6:]
+    assert ex.ms[0] <= mapnav.MINI_MS and max(ex.ms[1:]) > mapnav.MINI_MS, ex.ms     # one short try, then full pushes
+    assert sum("靠不住" in x for x in logs) == 1
+
+
+class Rail(World):
+    """A bridge: whatever the push, "me" only moves along the x axis (slides along the rails)."""
+
+
+class RailExec(Exec):
+    def submit(self, device, kind, **kw):
+        if kind == "swipe":
+            a = math.atan2(kw["y2"] - self.stick["y"], kw["x2"] - self.stick["x"])
+            self.w.pos[0] += self.w.speed * kw["ms"] * math.cos(a)
+        return super().submit(device, "tap" if kind == "swipe" else kind, **kw)
+
+
+def test_sliding_along_a_rail_is_not_learnt_as_a_turn():
+    """The point is off the rail: it must give up (stuck), not swing back and forth learning a wrong turn."""
+    w = Rail(turn=0.0, speed=0.01)
+    plan = mapnav.Walk([{"x": 10, "y": 60}], near=8, push_ms=3000, max_moves=40)
+    seen = []
+    for _ in range(40):
+        what = plan.step(w.pos)
+        if what[0] != "push":
+            break
+        w.pos[0] += w.speed * what[2] * math.cos(what[1])
+        seen.append(round(w.pos[0]))
+    assert what == ("stuck",), (what, seen)
+    assert plan.moves <= 10 and abs(plan.turn or 0.0) < mapnav.TURN_OK

@@ -692,7 +692,6 @@
  "名稱庫「{name}」:已命名 {p2} 張,未命名 {p3} 張,分成 {p4} 群": "Name library \"{name}\": {p2} named, {p3} unnamed, in {p4} {p4|group|groups}",
  "名稱庫切割方式": "Name library cut",
  "名稱庫比對不用模型": "Name library matching does not use the model",
- "名稱庫比對目前不在腳本執行時判斷": "Name library matching is not judged while scripts run for now",
  "名稱要 1~40 個字": "The name must be 1–40 characters",
  "名稱過濾(這些字都要有)": "Name filter (all of these words must appear)",
  "否": "No",
@@ -2036,5 +2035,16 @@
  "走到地圖上的位置:方向控制(搖桿)的中心和推多遠": "Walk to a place on the map: the direction control (joystick), its centre and how far to push",
  "走到地圖上的位置:這個條件成立就算到了(可不填)": "Walk to a place on the map: done as soon as this holds (optional)",
  "走到地圖上的位置:點哪裡打開地圖": "Walk to a place on the map: where to tap to open the map",
- "走到地圖上的位置:點哪裡關掉地圖": "Walk to a place on the map: where to tap to close the map"
+ "走到地圖上的位置:點哪裡關掉地圖": "Walk to a place on the map: where to tap to close the map",
+ "(不認得)": "(not recognised)",
+ "{where}:「{state}」請選一個名稱(是 / 不是)": "{where}: choose one of \"{state}\"'s names (is / is not)",
+ "名稱庫「{name}」不能用:{e}": "Name gallery \"{name}\" cannot be used: {e}",
+ "跟名稱庫比對(每幾秒看一次);不在名稱庫裡的名稱是「不認得」": "Matched with the name gallery (every few seconds); a name not in the gallery is \"not recognised\"",
+ "約在 ({x}, {y})(看小地圖),往第 {k} 個點,推 {ms} 毫秒": "About ({x}, {y}) (small map), to point {k}, push {ms} ms",
+ "走到了(推了 {n} 次,看了 {b} 次大地圖)": "Got there ({n} pushes, {b} looks at the big map)",
+ "走到地圖上的位置:跟著自己的小地圖(推完看它捲了多少,大地圖只偶爾打開)": "Walk to a place on the map: the small map that follows you (how far a push went is read from it; the big map opens only now and then)",
+ "小地圖在這一段靠不住({why}),到下一個點之前只看大地圖": "The small map can't be trusted on this stretch ({why}); only the big map until the next point",
+ "估的位置差了 {n}": "its guess was off by {n}",
+ "大地圖上走了 {n},小地圖看不出來": "moved {n} on the big map, the small map didn't show it",
+ "相似度 {r}": "similarity {r}"
 }

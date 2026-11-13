@@ -33,7 +33,9 @@ export default function Scripts() {
   const qc = useQueryClient()
   const q = useQuery({ queryKey: ['scripts'], queryFn: api.scripts })
   const sch = useSchema()
-  const states = (sch.data?.schema.states ?? []).filter(s => s.type === 'class' || s.type === 'ratio' || s.type === 'number')
+  // a name gallery (e.g. the place a device is in) reads like a choice: its options are the gallery's names
+  const states = (sch.data?.schema.states ?? []).filter(s => s.type === 'class' || s.type === 'ratio' || s.type === 'number' || s.type === 'gallery')
+    .map(s => s.type === 'gallery' ? { ...s, type: 'class' as const, classes: (sch.data?.gallery_names?.[s.id] ?? []).map(n => ({ value: n, name: n, color: 'stone' })) } : s)
   const [sel, setSel] = useState<Sel>(null)
   const [newScript, setNewScript] = useState<Script | null>(null)
   const [newSub, setNewSub] = useState<SubScript | null>(null)
@@ -934,6 +936,12 @@ function WalkToEditor({ st, params, states, ops, onChange }: {
       <span className="flex flex-wrap items-center gap-1">{t('多近算到')}<ValueInput value={st.near} def={10} onChange={v => onChange(x => { x.near = v })} />
         {t('每次最多推')}<ValueInput value={st.push_ms} def={1500} w="w-20" onChange={v => onChange(x => { x.push_ms = v })} />{t('毫秒')}
         {t('最多推')}<ValueInput value={st.max_moves} def={40} onChange={v => onChange(x => { x.max_moves = v })} />{t('次')}</span>
+      <label className="flex items-center gap-1" title={t('推完看小地圖捲了多少就知道走了多遠,大地圖只在一開始、每走幾段、快到時打開確認')}>
+        <input type="checkbox" checked={!!st.mini} onChange={e => onChange(x => { x.mini = e.target.checked ? { box: [1078, 130, 166, 148], mask: 14, check_every: 5 } : undefined })} />
+        {t('用跟著自己的小地圖算走了多遠(少開大地圖)')}</label>
+      {st.mini && <span className="flex flex-wrap items-center gap-1 pl-5">{t('小地圖範圍 x / y / 寬 / 高')}
+        {[0, 1, 2, 3].map(i => <span key={i}>{num(st.mini!.box[i], n => onChange(x => { const b = [...x.mini!.box]; b[i] = n; x.mini = { ...x.mini!, box: b } }))}</span>)}
+        {t('每推幾次開一次大地圖確認')}{num(st.mini.check_every ?? 5, n => onChange(x => { x.mini = { ...x.mini!, check_every: n } }))}</span>}
       <label className="flex items-center gap-1"><input type="checkbox" checked={!!st.until} onChange={e => onChange(x => { x.until = e.target.checked ? [[defaultCond(states)]] : undefined })} />
         {t('這個條件成立就算到了(例如看到某個地點名稱)')}</label>
       {st.until && <CondGroups when={st.until} states={states} ops={ops} onChange={fn => onChange(x => fn(x.until!))} />}

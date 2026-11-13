@@ -1029,7 +1029,18 @@ def _state_ids():
 
 @app.get("/api/states")
 def states_current():
-    return {"schema": schema_mod.load(DATA_ROOT), "history": schema_mod.history(DATA_ROOT)}
+    """The states, and each name gallery's names (a condition on a gallery state chooses one of them)."""
+    sch = schema_mod.load(DATA_ROOT)
+    names = {}
+    for s in sch.get("states") or []:
+        if s.get("source", {}).get("kind") == "gallery":
+            try:
+                from labeler import gallery
+                m = gallery.Matcher(DATA_ROOT, s)
+                names[s["id"]] = sorted({e["name"] for e in m.index.values() if e["name"] != gallery.NOT_A_NAME})
+            except Exception:
+                names[s["id"]] = []
+    return {"schema": sch, "history": schema_mod.history(DATA_ROOT), "gallery_names": names}
 
 
 @app.get("/api/states/judge")
@@ -3642,6 +3653,8 @@ def _state_text(s, v):
         return f"{txt} {s['unit']}" if s.get("unit") else txt
     if s["type"] == "class":
         return next((c.get("name") or str(c["value"]) for c in s.get("classes") or [] if c["value"] == v), str(v))
+    if s["type"] == "gallery" and v == "":
+        return _("(不認得)")
     return str(v)
 
 
@@ -4098,7 +4111,7 @@ def panel_definition():
             "settings": list(us.load(DATA_ROOT).values()),
             "variables": [{"name": v["name"], "label": v.get("label") or v["name"], "scope": v.get("scope")} for v in automation.variables(DATA_ROOT)],
             "states": [{"id": s["id"], "name": s["name"], "type": s["type"]} for s in __import__("schema").load(DATA_ROOT)["states"]
-                       if s["type"] in ("number", "ratio", "class")],
+                       if s["type"] in ("number", "ratio", "class", "gallery")],
             "widgets": tr(pm.WIDGETS), "widget_defaults": pm.WIDGET_DEFAULTS, "modes": tr(automation.MODES),
             "source_kinds": [{"kind": k, "label": v.get("label", k), "category": v.get("category"), "category_label": v.get("category_label")}
                              for k, v in __import__("drivers").describe().items()],

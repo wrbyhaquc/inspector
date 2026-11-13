@@ -140,7 +140,7 @@ def check_widget(data_root, w):
             raise ValueError(_("「部署開關」請選擇使用者可以切換的模式"))
     if kind == "devices" and w.get("states"):
         import schema as schema_mod
-        have = {s["id"] for s in schema_mod.load(data_root)["states"] if s["type"] in ("number", "ratio", "class")}
+        have = {s["id"] for s in schema_mod.load(data_root)["states"] if s["type"] in ("number", "ratio", "class", "gallery")}
         if any(s not in have for s in w["states"]):
             raise ValueError(_("「裝置狀態」選的狀態已經不存在"))
     if kind == "list":

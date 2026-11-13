@@ -273,6 +273,8 @@ def check(c, states, variables, where, params=None):
         if st["type"] == "class" and c.get("op", "is") in ("is", "is_not") and \
                 c.get("value") not in [x["value"] for x in st.get("classes", [])]:
             raise ValueError(_("{where}:「{state}」沒有這個選項", where=where, state=st["name"]))
+        if st["type"] == "gallery" and (c.get("op", "is") not in ("is", "is_not") or not isinstance(c.get("value"), str)):
+            raise ValueError(_("{where}:「{state}」請選一個名稱(是 / 不是)", where=where, state=st["name"]))
         if st["type"] in ("ratio", "number") and kind in ("state", "device"):
             if c.get("value") is None:
                 raise ValueError(_("{where}:「{state}」要填數字", where=where, state=st["name"]))

@@ -51,7 +51,7 @@ def history(data_root):
 
 
 # not the design (what the labels and the model depend on): changing only these saves no new version
-SETTINGS = ("states[].name", "states[].description", "states[].review", "states[].judge", "states[].sources",
+SETTINGS = ("states[].name", "states[].description", "states[].review", "states[].judge", "states[].sources", "states[].live",
             "states[].classes[].name",
             "states[].classes[].color", "states[].classes[].key", "states[].rois[].name")
 

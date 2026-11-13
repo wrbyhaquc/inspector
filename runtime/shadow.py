@@ -295,6 +295,7 @@ class Shadow:
         self.ctrl, self.unblocked_at = dict(CONTROL_DEFAULT), 0.0
         self.resumed_at = time.time()                         # resume requests older than this start are done
         self.rule_states, self.rule_tpls, self.scoped = [], {}, []
+        self.galleries, self.gallery_seen = {}, {}         # name galleries judged live: sid -> Matcher; (n, sid) -> (t, entry)
         self.check_states, self.check_tpls = [], {}           # model-judged states that also have a screen rule
         self.model_only = set()                               # states set to 只用模型
         self.touch = {}                                       # device -> the driver's touch watcher (manual operation)
@@ -625,6 +626,10 @@ class Shadow:
         threading.Thread(target=work, daemon=True, name=f"capture {n}").start()
         return job
 
+    def latest_frame(self, n):
+        """(time it was taken, picture) of device n's newest frame - walk_to waits for one taken after a push."""
+        return self.cur_frame_t.get(n), self.cur_frames.get(n)
+
     def map_me(self, n, anchor, me):
         """walk_to (automation/mapnav.py): ((anchor x, y), (me x, y)) on device n's screen now, or None."""
         from automation import mapnav
@@ -724,6 +729,7 @@ class Shadow:
         self.rule_names = {s["id"]: s["source"].get("rule") for s in sch["states"] if s.get("source", {}).get("kind") == "rule"}
         self._trust_refresh(sch, force=True)
         self.rule_states = [s for s in sch["states"] if (src.get(s["id"]) or {}).get("source") == "rule"]
+        self._load_galleries(sch)
         self.rule_tpls = {s["id"]: generic.load_templates(self.data_root, s) for s in self.rule_states
                           if generic.is_generic(s) and s["source"]["rule"] in ("template", "digits")}
         if self.rule_states:
@@ -756,6 +762,75 @@ class Shadow:
                 self._trust_job = None
         self._trust_job = threading.Thread(target=build, daemon=True)
         self._trust_job.start()
+
+    # ---------- name galleries (名稱庫: the place a device is in, a pen's label ...) ----------
+    GALLERY_EVERY = 3.0          # seconds between two looks (a place name does not change every tick)
+    GALLERY_KEEP = 10.0          # a name not read for a moment (a menu over it) stays this long
+    SHARP_EVERY = 6.0            # "sharp" galleries: seconds between two sharp pictures of one device (adb, background)
+
+    def _sharp_loop(self):
+        """Background: a sharp picture of each device in turn (only while a gallery wants one)."""
+        while True:
+            names = [n for n in list(self.cur_frames) if hasattr(self.caps.get(n), "grab_sharp")]
+            if not names or not any((h or {}).get("picture") == "sharp" for h in self.gallery_how.values()):
+                time.sleep(2)
+                continue
+            for n in names:
+                t0 = time.time()
+                try:
+                    img = self.caps[n].grab_sharp()
+                except Exception:
+                    img = None
+                if img is not None:
+                    self.sharp[n] = (time.time(), img)
+                time.sleep(max(0.05, self.SHARP_EVERY / max(1, len(names)) - (time.time() - t0)))
+
+    def _load_galleries(self, sch):
+        from labeler import gallery
+        self.galleries, self.gallery_seen, self.gallery_how, self.gallery_last = {}, {}, {}, {}
+        if not hasattr(self, "sharp"):
+            self.sharp = {}                                 # device -> (time, sharp picture)
+            threading.Thread(target=self._sharp_loop, daemon=True).start()
+        for s in gallery.states(sch):
+            try:
+                self.galleries[s["id"]] = gallery.Matcher(self.data_root, s)
+                self.gallery_how[s["id"]] = s.get("live") or {}
+            except Exception as e:                          # a cut a plugin no longer provides, a broken gallery
+                print(_("名稱庫「{name}」不能用:{e}", name=s.get("name", s["id"]), e=e), flush=True)
+
+    def _gallery_values(self, n, frame, now):
+        """sid -> {"value", "conf", "source": "gallery", "score"} for device n: the name read (a gallery entry); a name
+        not read now (a menu over it) stays GALLERY_KEEP seconds; after that "" = not one of the gallery's names."""
+        out = {}
+        for sid, m in self.galleries.items():
+            how = self.gallery_how.get(sid) or {}
+            seen = self.gallery_seen.get((n, sid))
+            pic = frame
+            if how.get("picture") == "sharp" and hasattr(self.caps.get(n), "grab_sharp"):
+                sh = getattr(self, "sharp", {}).get(n)
+                if not sh or now - sh[0] > 3 * self.SHARP_EVERY:      # none yet / stale: keep what was read
+                    if seen:
+                        out[sid] = dict(seen[1])
+                    continue
+                if seen and seen[2] == sh[0]:                          # this picture was read already
+                    out[sid] = dict(seen[1])
+                    continue
+                pic = sh[1]
+            elif seen and now - seen[0] < self.GALLERY_EVERY:
+                out[sid] = dict(seen[1])
+                continue
+            try:
+                name, score = m.live(pic, how)
+            except Exception:
+                name, score = None, None
+            if name:
+                self.gallery_last[(n, sid)] = (now, name)
+            last = self.gallery_last.get((n, sid))
+            v = name or (last[1] if last and now - last[0] <= self.GALLERY_KEEP else "")
+            stamp = self.sharp[n][0] if pic is not frame else None
+            seen = self.gallery_seen[(n, sid)] = (now, {"value": v, "conf": 1.0, "source": "gallery", "score": score}, stamp)
+            out[sid] = dict(seen[1])
+        return out
 
     # ---------- one tick ----------
     def tick(self, names):
@@ -833,6 +908,9 @@ class Shadow:
                 self._maybe_save(n, frames[n], st, t0, rule_vals)   # (the model's own answers: unsure / disagreeing = a question)
                 self.quality.add(t0, n, st, rule_vals)
                 st.update(fb)
+                for sid, g in self._gallery_values(n, frames[n], t0).items():
+                    if sid not in off:
+                        st[sid] = g
                 self._remember(n, st, t0)
                 self.last_states[n] = st
                 self.cur_frames[n] = frames[n]

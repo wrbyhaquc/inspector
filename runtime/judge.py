@@ -180,7 +180,7 @@ def sources(schema, run_dir, provided=None):
         elif s["source"].get("kind") == "manual":
             out[sid] = {**info, "source": "none", "reason": note + _("人工標註的狀態只進測試集,腳本執行時不判斷")}
         elif s["type"] == "gallery":
-            out[sid] = {**info, "source": "none", "reason": note + _("名稱庫比對目前不在腳本執行時判斷")}
+            out[sid] = {**info, "source": "gallery", "reason": note + _("跟名稱庫比對(每幾秒看一次);不在名稱庫裡的名稱是「不認得」")}
         else:
             out[sid] = {**info, "source": "none",
                         "reason": note + _("模型還沒學過,這種規則在腳本執行時也還不能判斷;學習後才能用")}

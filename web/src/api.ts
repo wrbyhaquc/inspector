@@ -430,6 +430,7 @@ export interface SubStep {
   points?: { x: number; y: number; near?: number; label?: string }[]
   stick?: { x: number; y: number; r: number; press?: string }
   near?: NumVal; push_ms?: NumVal; max_moves?: NumVal; until?: ScriptCond[][]
+  mini?: { box: number[]; mask?: number; check_every?: number; min_resp?: number }
 }
 /** a catalog (目錄): named items, each a sub-script call with its arguments, filed in folders */
 export interface CatalogCall { sub: string; args: Record<string, ArgValue> }
@@ -701,7 +702,7 @@ export const api = {
   reviewAddQuestions: (state: string, n = 30, session?: string, device?: string) => req<{ added: number; by_answer: Record<string, number>; available: Record<string, number> }>('POST', '/api/review/add_questions', { state, n, session, device }),
   statesProgress: () => req<ProgressInfo>('GET', '/api/states/progress'),
   reviewStats: () => req<ReviewStats>('GET', '/api/review/stats'),
-  states: () => req<{ schema: Schema; history: SchemaHistory[] }>('GET', '/api/states'),
+  states: () => req<{ schema: Schema; history: SchemaHistory[]; gallery_names?: Record<string, string[]> }>('GET', '/api/states'),
   statesVersion: (v: number) => req<Schema>('GET', `/api/states/v/${v}`),
   statesSave: (states: StateDef[], note: string) => req<Schema>('POST', '/api/states', { states, note }),
   schedules: () => req<{ items: Schedule[]; status: Record<string, Record<string, { code: string; text: string; online?: boolean; run?: string | null }>>; running: boolean; day_start: string; overrides: Record<string, ScheduleOverride> }>('GET', '/api/schedules'),

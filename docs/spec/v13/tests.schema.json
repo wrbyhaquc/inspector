@@ -789,6 +789,33 @@
     "until": {
      "$ref": "#/$defs/when",
      "description": "走到地圖上的位置:這個條件成立就算到了(可不填)"
+    },
+    "mini": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "box"
+     ],
+     "description": "走到地圖上的位置:跟著自己的小地圖(推完看它捲了多少,大地圖只偶爾打開)",
+     "properties": {
+      "box": {
+       "type": "array",
+       "items": {
+        "type": "number"
+       },
+       "minItems": 4,
+       "maxItems": 4
+      },
+      "mask": {
+       "type": "number"
+      },
+      "check_every": {
+       "type": "number"
+      },
+      "min_resp": {
+       "type": "number"
+      }
+     }
     }
    }
   },
