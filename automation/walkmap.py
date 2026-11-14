@@ -86,17 +86,22 @@ def save(data_root, wid, free, origin, label="", marks=None):
 
 
 def proven(wm, way):
-    """the way ([start, point, ...]) runs along ways walked through before (all but a short first stretch): nothing
-    fixed is in its way"""
+    """the whole way runs along ways walked through before"""
+    return proven_upto(wm, way) == len(way) - 1
+
+
+def proven_upto(wm, way):
+    """how many of the way's stretches (from its start) run along ways walked through before (all but a short first
+    stretch): those are walked in one go, nothing fixed being in the way"""
     ways = [w for w in (wm or {}).get("proven") or [] if len(w) >= 2]
     if not ways or len(way) < 2:
-        return False
+        return 0
     segs = [(a, b) for w in ways for a, b in zip(w, w[1:])]
 
     def near(p):
         return any(_seg_dist(p, a, b) <= PROVEN_R for a, b in segs)
     gone, off_from = 0.0, None
-    for a, b in zip(way, way[1:]):
+    for i, (a, b) in enumerate(zip(way, way[1:])):
         n = max(1, int(math.dist(a, b) // 5))
         for k in range(n + 1):
             p = (a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n)
@@ -106,9 +111,9 @@ def proven(wm, way):
             elif off_from is None:
                 off_from = at
             elif at - off_from > PROVEN_GAP:
-                return False
+                return i
         gone += math.dist(a, b)
-    return True
+    return len(way) - 1
 
 
 def _seg_dist(p, a, b):
@@ -116,6 +121,21 @@ def _seg_dist(p, a, b):
     dx, dy = bx - ax, by - ay
     t = 0.0 if dx == dy == 0 else max(0.0, min(1.0, ((p[0] - ax) * dx + (p[1] - ay) * dy) / (dx * dx + dy * dy)))
     return math.hypot(p[0] - ax - t * dx, p[1] - ay - t * dy)
+
+
+def set_view(data_root, wid, view):
+    """the game's view scale learnt walking (map px per view px, along x and y): kept for the next walk"""
+    base = os.path.join(_dir(data_root), wid)
+    try:
+        with open(base + ".json", encoding="utf-8") as f:
+            meta = json.load(f)
+    except (OSError, ValueError):
+        return False
+    meta.update(view=[round(float(v), 5) for v in view], updated=time.time())
+    with open(base + ".json", "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=1)
+        f.write("\n")
+    return True
 
 
 def add_walk(data_root, wid, track, speed=None):

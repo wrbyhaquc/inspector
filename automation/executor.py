@@ -14,7 +14,9 @@ class Executor:
 
     def submit(self, name, kind, **p):
         """kind: tap (x, y) | long_press (x, y, ms) | swipe (x1, y1, x2, y2, ms) | back | launch (package: start the
-        app, or bring it to the front if it is running) | text (text: typed into the focused text box).
+        app, or bring it to the front if it is running) | text (text: typed into the focused text box) | hold (action:
+        "down" / "move" / "up", x, y: a finger kept on the screen and moved - a control pushed and turned without letting
+        go).
         Returns a Future (fails when the driver cannot do it)."""
         if kind not in drivers.CAPS or kind in ("screen", "touch_watch"):
             raise ValueError(kind)

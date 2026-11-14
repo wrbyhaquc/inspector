@@ -22,6 +22,15 @@ def buttons_root():
     return buttons.DATA_ROOT
 
 
+DRIVE_PX = 900         # walk_to on a walk map, the control held: a look after this far (map px, reckoned) ...
+DRIVE_S = 70           # ... or this long
+DRIVE_MIN = 60         # ... only when the way left is at least this long
+DRIVE_BLOCKED = 10     # ... stopped having gone less than this (map px): blocked right ahead (marked at once)
+DRIVE_PASS = 12        # ... a point of the way this near (reckoned): on to the next
+DRIVE_TURN = 4         # ... the control turned when the way to go differs this much (degrees)
+MOVE_CHUNK_MS = 3000   # walk_to on a walk map: a long push is sent in parts this long (dropped when stopped)
+STILL_S = 1.0          # ... the view standing still this long while pushing: stopped by something
+
 UNSURE_WAIT = 5        # seconds an "if" may wait for the model to become sure before failing
 
 
@@ -577,8 +586,97 @@ class SubRun:
                            "est": None, "last_big": None, "acc": (0.0, 0.0), "k": None, "since_big": 0,
                            "mini_prev": None, "after": 0.0, "bigs": 0, "mini_off": None}
             log(describe_step(st, names, self.lib, params), "step")
+        plan = ws["plan"]
+
+        def watch_move(now):
+            """while a push goes on: the view around "me" scrolls; standing still for STILL_S (after the push got
+            going) = stopped by something: the pushes after this one are dropped and the map looked at at once"""
+            w = ws["watch"]
+            got = self._env.latest_frame(self.device) if self._env is not None and hasattr(self._env, "latest_frame") else (None, None)
+            if got[0] is None or got[0] == w.get("t") or now < w["from"]:
+                return
+            v = mapnav.view_shift(w.get("img"), got[1])
+            w.update(t=got[0], img=got[1])
+            if v is None:
+                return
+            vs = ws.setdefault("vsum", [0.0, 0.0])           # how far the view went: learns its scale (drive)
+            vs[0], vs[1] = vs[0] + v[0], vs[1] + v[1]
+            d = math.hypot(*v)
+            if d >= mapnav.STILL_PX:
+                w["still"] = None
+            elif w.get("still") is None:
+                w["still"] = now
+            elif now - w["still"] >= STILL_S and not w.get("stopped"):
+                w["stopped"] = True
+                if ws.get("queue"):
+                    ws["queue"] = []
+                    log(_("畫面停住了(被擋住):不再往下推,先看地圖"), "step")
+
+        def drive(now):
+            """the finger on the control: where "me" is, from how the view went since the last look; turned toward
+            the next point of the way; let go (and the map looked at) near the goal, when the view stands still
+            (stopped by something) or after DRIVE_PX / DRIVE_S (to see how far off the reckoning got)"""
+            d, stick = ws["drive"], st.get("stick") or {}
+            hf = ws.get("hold_fut")
+            if hf is not None and hf.done() and hf.exception() is not None:
+                ws["no_hold"] = True                      # this device cannot: pushes as before
+                log(_("這台不能按住搖桿({e}),改回推一下看一下", e=hf.exception()), "step")
+                ws.update(phase="open", until=now, after=now)
+                return False
+            got = self._env.latest_frame(self.device)
+            why = None
+            if got[0] is not None and got[0] != d["t"]:
+                v = mapnav.view_shift(d["img"], got[1]) if d["img"] is not None else None
+                d["img"], d["t"] = got[1], got[0]
+                if v is not None:
+                    k = plan.view
+                    dm = (v[0] * k[0], v[1] * k[1])
+                    d["est"][0] += dm[0]
+                    d["est"][1] += dm[1]
+                    d["dist"] += math.hypot(*dm)
+                    vs = ws.setdefault("vsum", [0.0, 0.0])
+                    vs[0], vs[1] = vs[0] + v[0], vs[1] + v[1]
+                    if math.hypot(*v) >= mapnav.STILL_PX or now < d["t0"] + mapnav.PUSH_LAG / 1000 + 0.3:
+                        d["still"] = None
+                    elif d["still"] is None:
+                        d["still"] = now
+                    elif now - d["still"] >= STILL_S:
+                        why = _("畫面停住了(被擋住)")
+            est, pts = d["est"], d["pts"]
+            to_goal = math.dist(est, d["goal"])
+            d["closest"] = min(d.get("closest", to_goal), to_goal)
+            if to_goal <= 0.5 * d["near"] or (d["closest"] <= 1.5 * d["near"] and to_goal > d["closest"] + 3):
+                why = why or _("快到了")                  # (or past the goal's nearest: no circling round it)
+            elif d["dist"] >= DRIVE_PX or now - d["t0"] >= DRIVE_S:
+                why = why or _("看一下地圖校正")
+            if why:
+                if d["still"] is not None and why == _("畫面停住了(被擋住)") and d["dist"] < DRIVE_BLOCKED:
+                    plan.force_stuck = True               # hardly moved: blocked right ahead - marked, a way round
+                executor.submit(self.device, "hold", action="up")
+                log(_("放開搖桿:{why}(按住 {s} 秒,推算走了 {d} 像素,在 ({x}, {y}) 附近)", why=why, s=round(now - d["t0"], 1),
+                      d=round(d["dist"]), x=round(est[0]), y=round(est[1])), "step")
+                ws.update(phase="open", until=now + 0.3, after=now + 0.3)
+                return False
+            while d["k"] < len(pts) - 1 and math.dist(est, pts[d["k"]]) <= DRIVE_PASS:
+                d["k"] += 1                               # past this point: the next one
+            tx, ty = pts[d["k"]]
+            angle = mapnav._wrap(math.atan2(ty - est[1], tx - est[0]) - (plan.turn or 0.0))
+            if d["angle"] is None or abs(mapnav._wrap(angle - d["angle"])) >= math.radians(DRIVE_TURN):
+                e = mapnav.stick_end(stick, angle)
+                if d["angle"] is None:                    # from the middle out (a control wants a drag)
+                    m = mapnav.stick_end({**stick, "r": float(stick.get("r", 60)) / 2}, angle)
+                    executor.submit(self.device, "hold", action="move", x=m[0], y=m[1])
+                ws["hold_fut"] = executor.submit(self.device, "hold", action="move", x=e[0], y=e[1])
+                d["angle"], d["keep"] = angle, now
+            elif now - d["keep"] >= 0.8:                  # still held (the device lets go by itself otherwise)
+                executor.submit(self.device, "hold", action="keep")
+                d["keep"] = now
+            return False
+
         if ws["fut"] is not None:
             if not ws["fut"].done():
+                if ws.get("phase") in ("push", "open") and ws.get("watch"):
+                    watch_move(now)                       # pushing: stopped by something? (the screen stands still)
                 return False
             try:
                 ws["fut"].result()
@@ -588,7 +686,6 @@ class SubRun:
             ws["fut"] = None
         if now < ws["until"]:
             return False
-        plan = ws["plan"]
 
         def use_mini():
             """the small map is read for this stretch (not where it was found unreliable: until the next point)"""
@@ -608,6 +705,8 @@ class SubRun:
                         (_(";這條路走通過,一口氣走完再看") if len(nt) > 3 and nt[3] else ""), "step")
                 elif nt[0] == "proven":
                     log(_("接下來的路走通過,一口氣走完再看"), "step")
+                elif nt[0] == "squeeze":
+                    log(_("在 ({x}, {y}) 卡住了,但那是唯一的路:從旁邊再試著過去", x=nt[1][0], y=nt[1][1]), "step")
                 elif nt[0] == "mark":
                     log(_("在 ({x}, {y}) 卡住了,把那裡記成走不過去,重新找路", x=nt[1][0], y=nt[1][1]), "step")
                 elif nt[0] == "back":
@@ -664,6 +763,8 @@ class SubRun:
                 n = walkmap.add_marks(*plan.area, plan.marks) if getattr(plan, "marks", None) else 0
                 if arrived:
                     walkmap.add_walk(*plan.area, getattr(plan, "track", None), plan.speed * 1000 if plan.speed else None)
+                if plan.view_ok():
+                    walkmap.set_view(*plan.area, plan.view)
             except OSError:
                 n = 0
             if n:
@@ -717,6 +818,11 @@ class SubRun:
             ws["look_prev"] = None
             (ax, ay), (mx, my) = seen
             me = (mx - ax + off[0], my - ay + off[1])
+            if st.get("area"):                            # the view's scale: how far it went vs how far "me" went
+                vs, vf = ws.get("vsum"), ws.get("vsum_from")
+                if vf is not None and vs and math.hypot(*vs) >= 30:
+                    plan.learn_view(vs, (me[0] - vf[0], me[1] - vf[1]))
+                ws["vsum"], ws["vsum_from"] = [0.0, 0.0], me
             acc, last = ws["acc"], ws["last_big"]
             if mini and last is not None and ws.get("mini_read"):            # how good the small map's guess was
                 big = math.hypot(me[0] - last[0], me[1] - last[1])
@@ -747,6 +853,19 @@ class SubRun:
             if what[0] in ("stuck", "too_far", "no_way"):
                 tap(st.get("close"))
                 return fail(what[0])
+            if st.get("area") and plan.view_ok() and not ws.get("no_hold") and self._env is not None \
+                    and hasattr(self._env, "latest_frame") and (getattr(plan, "left", 0) or 0) >= DRIVE_MIN:
+                # hold the control and steer by the view: no look on the way (the last bit: a push and a look)
+                plan.push = plan.expect = plan.sent = None    # (nothing learnt from pushes here)
+                plan.blind = False
+                ws["drive"] = {"start": me, "est": list(me), "pts": list(plan.points), "k": 0, "dist": 0.0,
+                               "goal": plan.goal, "near": plan.goal_near, "angle": None, "still": None, "img": None,
+                               "t": None, "t0": None, "keep": 0.0}
+                log(_("在 ({x}, {y}),按住搖桿邊走邊看畫面(約 {d} 像素)", x=round(me[0]), y=round(me[1]),
+                      d=round(getattr(plan, "left", 0) or 0)), "step")
+                tap(st.get("close"))
+                ws.update(phase="drive_start", until=now + 0.5, after=now + 0.5)
+                return False
             ws["push"], ws["queue"] = what[1:3], list(what[3]) if len(what) > 3 else []
             if getattr(plan, "blind", False):
                 log(_("在 ({x}, {y}),照路線直接走到第 {k} 個點({n} 段,共推 {ms} 毫秒,中途不看地圖)", x=round(me[0]), y=round(me[1]),
@@ -762,6 +881,26 @@ class SubRun:
                 return False
             ws["mini_prev"] = mapnav.mini_crop(img, mini)
             ws["phase"] = "push"
+        if ws["phase"] == "drive_start":                  # the map closed: put the finger on the control
+            close = st.get("close") or {}
+            if close.get("button") and self._env is not None and hasattr(self._env, "button_seen"):
+                img = fresh_frame()
+                if img is None:
+                    return False
+                if self._env.button_seen(self.device, close):
+                    if now - ws.setdefault("close_t", now) >= 3:
+                        tap(close)
+                        ws.update(close_t=now, after=now + 0.8)
+                    return False
+            ws.pop("close_t", None)
+            stick = st.get("stick") or {}
+            ws["hold_fut"] = executor.submit(self.device, "hold", action="down", x=float(stick["x"]), y=float(stick["y"]))
+            ws["drive"]["t0"] = now
+            ws["phase"] = "drive"
+            ws["vsum"] = [0.0, 0.0]
+            return drive(now)
+        if ws["phase"] == "drive":
+            return drive(now)
         if ws["phase"] == "push":
             close = st.get("close") or {}
             if close.get("button") and self._env is not None and hasattr(self._env, "button_seen"):
@@ -783,6 +922,20 @@ class SubRun:
             stick = st.get("stick") or {}
             end = mapnav.stick_end(stick, angle)
             start = end if stick.get("press") == "edge" else [int(stick["x"]), int(stick["y"])]   # edge: hold it pushed all the time
+            if st.get("area") and ms > MOVE_CHUNK_MS and self._env is not None and hasattr(self._env, "latest_frame"):
+                ws["queue"] = [(angle, ms - MOVE_CHUNK_MS + mapnav.PUSH_LAG)] + list(ws.get("queue") or [])
+                ms = MOVE_CHUNK_MS                        # a long push in parts: stopped by something = the rest dropped
+            if st.get("area"):
+                w = ws.get("watch") or {}
+                if not ws.get("in_stretch"):              # a new stretch: watched afresh
+                    w = {"still": None, "stopped": False}
+                w["from"] = now + mapnav.PUSH_LAG / 1000 + 0.3
+                ws["watch"], ws["in_stretch"] = w, bool(ws.get("queue"))
+                if w.get("stopped"):                      # stopped in the part before: no more of this stretch
+                    ws["queue"] = []
+                    ws.update(phase="open", until=now, after=now)
+                    ws["in_stretch"] = False
+                    return False
             ws["fut"] = executor.submit(self.device, "swipe", x1=start[0], y1=start[1], x2=end[0], y2=end[1], ms=int(ms))
             if ws.get("queue"):                           # a stretch without looking: the next push right after this one
                 ws["push"] = ws["queue"].pop(0)

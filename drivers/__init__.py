@@ -27,7 +27,8 @@ from dataclasses import dataclass, field
 from i18n import N_, _, tr
 
 CAPS = {"screen": N_("取得畫面"), "tap": N_("點擊"), "long_press": N_("長按"), "swipe": N_("滑動"), "back": N_("返回鍵"),
-        "launch": N_("啟動 App"), "text": N_("輸入文字"), "touch_watch": N_("偵測有人操作")}
+        "launch": N_("啟動 App"), "text": N_("輸入文字"), "touch_watch": N_("偵測有人操作"),
+        "hold": N_("按住並移動")}
 
 
 @dataclass

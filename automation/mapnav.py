@@ -81,12 +81,17 @@ MINI_ERR = 10                    # map px: the small map's guess further off tha
 STUCK = 5                       # pushes in a row that hardly moved: stuck (a wall)
 SIDE = [0.6, -0.6, 1.2, -1.2]
 REPLANS = 3                     # a route network: how many times a stuck link is given up for another way
-AREA_PUSH_MS = 3500             # a walk map: the longest push before the next look (a long one drifts off the way)
-SURE_MS = 12000                 # a walk map, a way walked through: at most this long without a look
+AREA_PUSH_MS = 8000             # a walk map: the longest push before the next look (being stopped by something shows
+SURE_MS = 12000                 # on the screen at once - see moving() - so a long one is no risk); a way walked
+                                # through: at most this long without a look
+VIEW_MIN = 60                   # view px: a walk map's view scale along an axis is learnt from at least this much
+MOVE_REGION = (240, 140, 800, 400)   # the screen around "me" (the game's view follows it): it scrolls while walking
+STILL_PX = 1.5                  # ... it moved less than this (screen px, about) between two pictures: standing
 SURE_SHORT = 0.85               # ... the last push of such a stretch this much of what it seems to need (short of
                                 # the point rather than past it: the speed varies; what is left is pushed after a look)
 MERGE_DEG = 10                  # ... stretches this near the same way pushed as one (a new push starts slow)
 CAREFUL = 3                     # ... after such a stretch went off the way: this many looks a push at a time
+TRIES_APART = 60                # map px: stuck this far from where it was stuck last = another place (tries anew)
 AREA_STUCK = 3                  # a walk map: pushes in a row that got no nearer: stuck there (marked, walked round)
 AREA_REPLANS = 3                # a walk map: how many times stuck (each walked round) before giving up
 MARK_AHEAD = 8                  # map px: a spot found blocked is marked this far ahead of where it got stuck
@@ -151,6 +156,46 @@ def _find_one(frame, box, color, tol, min_px, exclude, own=()):
         return None
     cx, cy = cent[best]
     return [int(round(cx)) + x0, int(round(cy)) + y0]
+
+
+def view_shift(before, after, region=MOVE_REGION):
+    """how the game's view moved between two pictures: (dx, dy) screen px "me" went (the view's content went the other
+    way), from the part around "me" - it follows "me"; None when it cannot tell"""
+    if before is None or after is None or cv2 is None:
+        return None
+    a, b = _view_small(before, region), _view_small(after, region)
+    if a is None or b is None or a.shape != b.shape:
+        return None
+    win = _hann(a.shape)
+    (dx, dy), _r = cv2.phaseCorrelate(a, b, win)
+    return (-4.0 * dx, -4.0 * dy)
+
+
+def _view_small(img, region):
+    x, y, w, h = region
+    a = np.asarray(img)[y:y + h, x:x + w]
+    if a.size == 0:
+        return None
+    a = cv2.cvtColor(np.ascontiguousarray(a[:, :, :3]), cv2.COLOR_RGB2GRAY) if a.ndim == 3 else a
+    return cv2.resize(a, (a.shape[1] // 4, a.shape[0] // 4), interpolation=cv2.INTER_AREA).astype(np.float32)
+
+
+_hanns = {}
+
+
+def _hann(shape):
+    if shape not in _hanns:
+        _hanns[shape] = cv2.createHanningWindow((shape[1], shape[0]), cv2.CV_32F)
+    return _hanns[shape]
+
+
+def moving(before, after, region=MOVE_REGION):
+    """how far the game's view scrolled between two pictures (screen px), from the part around "me" - it follows
+    "me", so it stands still when "me" is stopped by something (whatever moves on it: monsters, effects)"""
+    if before is None or after is None or cv2 is None:
+        return None
+    v = view_shift(before, after, region)
+    return None if v is None else math.hypot(*v)
 
 
 def mini_crop(frame, mini):
@@ -411,6 +456,22 @@ class Walk:
             self.idx, self.stretch = j - 1, stretch
         return legs
 
+    def learn_view(self, s, d):
+        """the game's view moved s (screen px, summed) while "me" went d on the map (between two looks): how many map
+        px a view px is, along each axis (the view looks at the map from the side: the two differ)"""
+        st = getattr(self, "view_st", None) or [0.0, 0.0, 0.0, 0.0]
+        st = [st[0] + s[0] * s[0], st[1] + s[0] * d[0], st[2] + s[1] * s[1], st[3] + s[1] * d[1]]
+        self.view_st = st
+        k = list(getattr(self, "view", None) or [None, None])
+        for i, (ss, sd) in enumerate(((st[0], st[1]), (st[2], st[3]))):
+            if ss >= VIEW_MIN ** 2 and sd > 0:
+                k[i] = sd / ss
+        self.view = k
+
+    def view_ok(self):
+        v = getattr(self, "view", None)
+        return bool(v) and all(x for x in v)
+
     def _area_way(self, wm, me):
         """the shortest way to any of the goals (the last point, and any point marked as an end); that goal is
         self.goal from now on"""
@@ -438,6 +499,8 @@ class Walk:
         wm = walkmap.load(*self.area)
         if not wm:
             return ("no_way",)
+        if not self.view_ok() and wm.get("view") and not getattr(self, "view_st", None):
+            self.view = list(wm["view"])                          # learnt on earlier walks
         if any(math.dist(me, g) <= near for g, near, _l in getattr(self, "goals", None) or [(self.goal, self.goal_near, 0)]):
             return ("arrived",)
         pts = self._area_way(wm, me)
@@ -460,7 +523,11 @@ class Walk:
             self.best_left, self.stuck = left, 0
         else:
             self.stuck += 1
+        if getattr(self, "force_stuck", False):              # stopped at once, hardly moved: the thing is right
+            self.stuck, self.force_stuck = max(self.stuck, AREA_STUCK), False   # ahead - no trying it again
         if self.stuck >= AREA_STUCK:
+            if self.marks and math.dist(me, self.marks[-1][:2]) > TRIES_APART:   # got on since the last one: a new
+                self.replans = 0                                  # place, its own tries
             if self.replans >= getattr(self, "tries", AREA_REPLANS):
                 return ("stuck",)
             tx, ty = pts[0]
@@ -470,6 +537,12 @@ class Walk:
             self.notes.append(("mark", (round(me[0]), round(me[1]))))
             self.replans, self.stuck, self.best_left = self.replans + 1, 0, None
             pts = self._area_way(wm, me)
+            if not pts:                                           # that was the only way: not blocked for good -
+                self.marks.pop()                                  # someone in it, maybe; feel round it again
+                self.notes.pop()
+                self.notes.append(("squeeze", (round(me[0]), round(me[1]))))
+                pts = self._area_way(wm, me)
+                self.stuck = 1                                    # (pushes to the side)
             if not pts:
                 return ("no_way",)
             left = sum(math.dist(a, b) for a, b in zip([me] + pts, pts))
@@ -480,7 +553,8 @@ class Walk:
         self.labels = [_ptlabel(i + 1) for i in range(n - 1)] + [self.goal_label]
         self.route, self.idx = list(range(n)), 0
         was = getattr(self, "proven", None)
-        self.proven = walkmap.proven(wm, [me] + self.points)
+        self.proven_k = walkmap.proven_upto(wm, [me] + self.points)   # how far along the way was walked through
+        self.proven = self.proven_k > 0
         if was is None:
             self.notes.append(("area", n, round(left), self.proven))
         elif self.proven and not was:
@@ -491,6 +565,8 @@ class Walk:
         legs, pos, total = [], me, 0.0
         last = len(self.points) - 1
         for k, p in enumerate(self.points):
+            if sure and legs and k >= self.proven_k:              # past the way walked through: a look first
+                break
             if sure and k == last and legs:                       # the goal: not in one go with the rest (the speed
                 break                                             # varies - a look first, then up to it)
             angle = _wrap(math.atan2(p[1] - pos[1], p[0] - pos[0]) - (self.turn or 0.0))

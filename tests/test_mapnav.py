@@ -583,3 +583,133 @@ def test_a_walk_map_with_several_ends_goes_to_the_nearest(tmp_path):
                        turn=0, speed=50, area=area)
     w = Bridges((0, -10))
     assert walk(plan, w)[0] == "arrived" and math.dist(w.pos, (350, -10)) <= 6      # the bottom one: nearer
+
+
+def test_the_view_scrolling_tells_moving_from_standing():
+    rng = np.random.default_rng(1)
+    world = (rng.random((900, 1500, 3)) * 255).astype(np.uint8)
+    a = world[100:820, 100:1380]
+    b = world[100:820, 112:1392]                           # the view followed "me" 12 px to the right
+    assert mapnav.moving(a, b) >= 8
+    assert mapnav.moving(a, a.copy()) < mapnav.STILL_PX
+
+
+class Slow:
+    """a Future that is done only after a few looks (an adb swipe takes as long as it pushes)"""
+    def __init__(self, n):
+        self.n = n
+
+    def done(self):
+        self.n -= 1
+        return self.n < 0
+
+    def result(self):
+        return None
+
+
+class AreaExec:
+    """pushes the control on a Bridges world: the push takes a few looks to finish"""
+    def __init__(self, world, stick):
+        self.w, self.stick, self.log = world, stick, []
+
+    def submit(self, device, kind, **kw):
+        self.log.append(kind)
+        if kind == "swipe":
+            a = math.atan2(kw["y2"] - self.stick["y"], kw["x2"] - self.stick["x"])
+            self.w.push(a, kw["ms"])
+            return Slow(4)
+        fu = Future()
+        fu.set_result(None)
+        return fu
+
+
+class AreaEnv:
+    """the map read at once; the game's view: a picture that scrolls with "me" (stands still when "me" does)"""
+    def __init__(self, world, root):
+        self.w, self.data_root, self.t = world, root, 0.0
+        self.view = (np.random.default_rng(3).random((1400, 2200, 3)) * 255).astype(np.uint8)
+
+    def ctx(self, device):
+        return {}
+
+    def map_me(self, n, anchor, me, others=()):
+        return (400, 300), (400 + self.w.pos[0], 300 + self.w.pos[1])
+
+    def latest_frame(self, n):
+        self.t += 0.25
+        x, y = int(300 + 2 * self.w.pos[0]), int(400 + 2 * self.w.pos[1])
+        return self.t, self.view[y:y + 720, x:x + 1280]
+
+
+def test_the_runner_walks_a_walk_map_and_sees_being_stopped_on_the_screen(tmp_path):
+    root, wid = _bridge_map(tmp_path, wall=False)
+    w = BlockedBelow((0, -10))                            # a wall on the bottom bridge the map does not show
+    st = {"type": "walk_to", "open": {"x": 1160, "y": 200}, "close": {"x": 1236, "y": 44}, "anchor": {"button": "sign"},
+          "me": {"color": [210, 84, 50], "box": [300, 120, 900, 500]}, "points": [{"x": 350, "y": -50, "near": 8}],
+          "stick": {"x": 192, "y": 570, "r": 60}, "near": 6, "turn": 0, "speed": 50, "area": wid, "max_moves": 80}
+    lib = {"go": {"id": "go", "name": "GO", "params": [], "steps": [st, {"type": "wait", "seconds": 0.01}]}}
+    run, logs, ex = SubRun("A", "go", {}, lib, 0.0), [], AreaExec(w, st["stick"])
+    env = AreaEnv(w, root)
+    run._env = env
+    t = 0.0
+    while not run.done and t < 900:
+        run.advance({}, t, ex, {}, lambda text, level="": logs.append(text), env)
+        t += 0.25
+    assert run.result == "success", logs[-8:]
+    assert math.dist(w.pos, (350, -50)) <= 8
+
+
+class HoldExec(AreaExec):
+    """the control can also be held (and turned without letting go): "me" walks while it is held"""
+    def __init__(self, world, stick):
+        super().__init__(world, stick)
+        self.angle = None
+
+    def submit(self, device, kind, **kw):
+        if kind == "hold":
+            self.log.append("hold:" + kw["action"])
+            if kw["action"] == "up":
+                self.angle = None
+            elif kw["action"] == "move":
+                self.angle = math.atan2(kw["y"] - self.stick["y"], kw["x"] - self.stick["x"])
+            fu = Future()
+            fu.set_result(True)
+            return fu
+        return super().submit(device, kind, **kw)
+
+
+class HoldEnv(AreaEnv):
+    def __init__(self, world, root, ex):
+        super().__init__(world, root)
+        self.ex, self.looks = ex, 0
+
+    def map_me(self, n, anchor, me, others=()):
+        self.looks += 1
+        return super().map_me(n, anchor, me, others)
+
+    def latest_frame(self, n):
+        if self.ex.angle is not None:                    # held: 0.25 s of walking
+            self.w.push(self.ex.angle, 250 + mapnav.PUSH_LAG)
+        return super().latest_frame(n)
+
+
+def test_holding_the_control_it_steers_by_the_view_and_looks_seldom(tmp_path):
+    from automation import walkmap
+    root, wid = _bridge_map(tmp_path, wall=False)
+    walkmap.set_view(root, wid, [0.5, 0.5])               # the view goes 2 px for a map px (learnt before)
+    w = Bridges((-50, -110))
+    st = {"type": "walk_to", "open": {"x": 1160, "y": 200}, "close": {"x": 1236, "y": 44}, "anchor": {"button": "sign"},
+          "me": {"color": [210, 84, 50], "box": [300, 120, 900, 500]}, "points": [{"x": 350, "y": -50, "near": 10}],
+          "stick": {"x": 192, "y": 570, "r": 60}, "near": 6, "turn": 0, "speed": 50, "area": wid, "max_moves": 80}
+    lib = {"go": {"id": "go", "name": "GO", "params": [], "steps": [st, {"type": "wait", "seconds": 0.01}]}}
+    run, logs, ex = SubRun("A", "go", {}, lib, 0.0), [], None
+    ex = HoldExec(w, st["stick"])
+    env = HoldEnv(w, root, ex)
+    run._env = env
+    t = 0.0
+    while not run.done and t < 900:
+        run.advance({}, t, ex, {}, lambda text, level="": logs.append(text), env)
+        t += 0.25
+    assert run.result == "success", logs[-8:]
+    assert math.dist(w.pos, (350, -50)) <= 10
+    assert "hold:down" in ex.log and ex.log.count("swipe") == 0 and env.looks <= 8, (env.looks, logs[-6:])

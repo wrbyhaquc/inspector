@@ -92,6 +92,9 @@ class _Touch:
         self.path = []; self.last_path_t = -1
 
 
+OWN_IDS = range(61000, 65000)   # touch tracking ids of a finger the program holds itself (drivers/android hold)
+
+
 class TouchRecorder:
     def __init__(self, serial, on_gesture, name, adb):
         self.serial, self.on_gesture, self.name, self.adb = serial, on_gesture, name, adb
@@ -156,8 +159,9 @@ class TouchRecorder:
         m = LINE.search(s)
         if not m:
             return
-        self.last_event = host_now
         kt, path, typ, code, val = float(m.group(1)), m.group(2), m.group(3), m.group(4), m.group(5)
+        if not self._own(path, typ, code, val):           # a finger the program itself holds (hold) is no person
+            self.last_event = host_now
         off = host_now - kt
         if self.offset is None or off < self.offset:
             self.offset = off
@@ -205,6 +209,38 @@ class TouchRecorder:
             d["dirty"].clear()
             if d["st"] and d["st_xy"][0] is not None and d["st"].x0 is None:
                 d["st"].x0, d["st"].y0 = d["st_xy"]
+
+    def _own(self, path, typ, code, val):
+        """this event is the program's own held finger (a tracking id from OWN_IDS), or says nothing of a person
+        (the slot chosen; a sync / touch key while only its own finger is down)"""
+        d = self.dev.setdefault(path, {"slot": 0, "touches": {}, "dirty": set(), "st": None, "st_xy": [None, None]})
+        own = d.setdefault("own", set())
+        if typ == "EV_ABS" and code == "ABS_MT_SLOT":
+            return True
+        if typ == "EV_ABS" and code == "ABS_MT_TRACKING_ID" and d is not None:
+            v = int(val, 16)
+            if v == 0xFFFFFFFF:
+                if d["slot"] in own:
+                    own.discard(d["slot"])
+                    d["touches"].pop(d["slot"], None)      # not a gesture of a person
+                    d["own_tail"] = True                   # (its touch key and sync after it too)
+                    return True
+                d["own_tail"] = False
+                return False
+            if v in OWN_IDS:
+                own.add(d["slot"])
+                return True
+            own.discard(d["slot"])
+            d["own_tail"] = False
+            return False
+        if typ == "EV_ABS" and d is not None and d["slot"] in own:
+            return True
+        if typ in ("EV_SYN", "EV_KEY") and d is not None and ((own and set(d["touches"]) <= own)
+                                                               or (d.get("own_tail") and not d["touches"])):
+            return True
+        if d is not None:
+            d["own_tail"] = False
+        return False
 
     def _emit(self, t_up, path, slot, tch, fingers):
         if tch.x0 is None:

@@ -21,7 +21,7 @@ from PIL import Image
 
 from .. import Device
 from . import ldconsole, paths, screen
-from .touch import TouchRecorder
+from .touch import OWN_IDS, TouchRecorder
 from i18n import N_, _
 
 LABEL = N_("Android 裝置")
@@ -127,6 +127,9 @@ class Capture:
         return img
 
 
+HOLD_IDLE = 2          # s: a held finger is lifted by the device itself when no word came for this long
+
+
 class Android:
     label = LABEL
     capture_modes = CAPTURE
@@ -137,10 +140,11 @@ class Android:
         self.adb = paths.adb(self.p)
         self.serials, self.extra, self.last_scan = {}, {}, 0.0
         self.skip = set()                 # adb serials a preset that knows them better already has (sources.py)
+        self.holds = {}                   # serial -> a finger kept on the screen (hold): its shell, touch device, scale
 
     @property
     def caps(self):
-        c = {"screen", "tap", "long_press", "swipe", "back", "launch", "text"}
+        c = {"screen", "tap", "long_press", "swipe", "back", "launch", "text", "hold"}
         return c | ({"touch_watch"} if self.p["touch_watch"] else set())
 
     def _run(self, args, timeout=10):
@@ -218,7 +222,63 @@ class Android:
     def capture(self, name, prefer="window", fallback=True):
         return Capture(self, name, prefer if self.p["capture"] == "window" else "adb", fallback)
 
+    def _hold(self, name, action, x=0, y=0):
+        """hold: a finger kept on the screen and moved, as raw touch events through one shell that stays open (each
+        move is quick; a swipe could not turn without letting go). Needs the shell to be allowed to write the touch
+        device (emulators are)."""
+        s = self.serial(name)
+        if not s:
+            raise RuntimeError(_("{name} 沒有 adb 連線", name=name))
+        h = self.holds.get(s)
+        if h is None or h["proc"].poll() is not None:
+            out = self._run(["-s", s, "shell", "getevent", "-pl"], timeout=10)
+            dev, mx, my = None, None, None
+            for line in out.splitlines():
+                if line.startswith("add device"):
+                    cur = line.split(":")[-1].strip()
+                elif "ABS_MT_POSITION_X" in line and "max" in line:
+                    dev, mx = cur, int(line.split("max")[1].split(",")[0])
+                elif "ABS_MT_POSITION_Y" in line and "max" in line and dev == cur:
+                    my = int(line.split("max")[1].split(",")[0])
+            if not dev or not mx or not my:
+                raise RuntimeError(_("找不到觸控裝置,不能按住"))
+            size = (self._run(["-s", s, "shell", "wm", "size"]).split() or [""])[-1]
+            try:
+                sw, sh = (int(v) for v in size.split("x"))
+            except ValueError:
+                sw, sh = mx + 1, my + 1
+            if (mx + 1 < my + 1) != (sw < sh):                     # the touch device is not turned with the screen
+                sw, sh = sh, sw
+            lift = ";".join(f"sendevent {dev} {a}" for a in ("3 47 0", "3 57 4294967295", "1 330 0", "0 0 0"))
+            # one line at a time; nothing for HOLD_IDLE s (the walk stopped, the program gone) = the finger lifted
+            loop = f'{lift}; while read -t {HOLD_IDLE} c; do eval "$c"; done; {lift}'
+            proc = subprocess.Popen([self.adb, "-s", s, "shell", loop], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL)
+            h = self.holds[s] = {"proc": proc, "dev": dev, "kx": (mx + 1) / sw, "ky": (my + 1) / sh, "id": 0}
+        ev = lambda *a: f"sendevent {h['dev']} " + " ".join(str(int(v)) for v in a)   # noqa: E731
+        at = lambda: [ev(3, 53, x * h["kx"]), ev(3, 54, y * h["ky"]), ev(0, 0, 0)]       # noqa: E731
+        if action == "down":
+            h["id"] = (h["id"] + 1) % len(OWN_IDS)             # ids of its own: the touch watcher knows them
+            cmds = [ev(3, 47, 0), ev(3, 57, OWN_IDS[h["id"]]), ev(1, 330, 1), ev(3, 58, 1)] + at()
+        elif action == "move":
+            cmds = at()
+        elif action == "up":
+            cmds = [ev(3, 47, 0), ev(3, 57, 4294967295), ev(1, 330, 0), ev(0, 0, 0)]
+        elif action == "keep":                                   # still held: the shell does not lift it
+            cmds = [":"]
+        else:
+            raise ValueError(action)
+        try:
+            h["proc"].stdin.write((";".join(cmds) + "\n").encode())
+            h["proc"].stdin.flush()
+        except OSError:
+            self.holds.pop(s, None)
+            raise RuntimeError(_("adb 失敗"))
+        return True
+
     def input(self, name, kind, **p):
+        if kind == "hold":
+            return self._hold(name, p.get("action"), float(p.get("x", 0)), float(p.get("y", 0)))
         if kind == "tap":
             args = ["input", "tap", int(p["x"]), int(p["y"])]
         elif kind == "long_press":

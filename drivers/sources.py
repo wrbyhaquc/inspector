@@ -36,7 +36,7 @@ import time
 from i18n import N_, _
 
 FILE = "sources.json"
-INPUT = ("tap", "long_press", "swipe", "back", "launch", "text")       # what a hand does (drivers.CAPS)
+INPUT = ("tap", "long_press", "swipe", "back", "launch", "text", "hold")   # what a hand does (drivers.CAPS)
 EYE = ("screen", "touch_watch")
 HANDS = {"self": N_("同一台"), "source": N_("另一個來源"), "output": N_("輸出"), "none": N_("不動作(只看)")}
 _lock = threading.RLock()
