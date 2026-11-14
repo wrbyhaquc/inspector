@@ -35,7 +35,7 @@ CAPS = {"screen": N_("取得畫面"), "tap": N_("點擊"), "long_press": N_("長
 class Device:
     name: str
     ok: bool = True              # can be captured / controlled now
-    detail: str = ""             # shown on the pages, e.g. "adb emulator-5562"
+    detail: str = ""             # shown on the pages, e.g. "adb emulator-5554"
     pid: int = None              # the process behind it on this computer (lets a recorder find its connections)
     size: tuple = None           # native screen size
     info: dict = field(default_factory=dict)

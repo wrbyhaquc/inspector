@@ -24,6 +24,7 @@ def buttons_root():
 
 DRIVE_PX = 900         # walk_to on a walk map, the control held: a look after this far (map px, reckoned) ...
 DRIVE_S = 70           # ... or this long
+DRIVE_COAST_MS = 400   # ... let go this early before the goal (ms of walking): "me" stops only a moment later
 DRIVE_MIN = 60         # ... only when the way left is at least this long
 DRIVE_BLOCKED = 10     # ... stopped having gone less than this (map px): blocked right ahead (marked at once)
 DRIVE_PASS = 12        # ... a point of the way this near (reckoned): on to the next
@@ -645,7 +646,8 @@ class SubRun:
             est, pts = d["est"], d["pts"]
             to_goal = math.dist(est, d["goal"])
             d["closest"] = min(d.get("closest", to_goal), to_goal)
-            if to_goal <= 0.5 * d["near"] or (d["closest"] <= 1.5 * d["near"] and to_goal > d["closest"] + 3):
+            coast = (plan.speed or 0.0) * DRIVE_COAST_MS          # how far "me" goes on after letting go
+            if to_goal <= 0.5 * d["near"] + coast or (d["closest"] <= 1.5 * d["near"] + coast and to_goal > d["closest"] + 3):
                 why = why or _("快到了")                  # (or past the goal's nearest: no circling round it)
             elif d["dist"] >= DRIVE_PX or now - d["t0"] >= DRIVE_S:
                 why = why or _("看一下地圖校正")
