@@ -12,6 +12,8 @@ slow walker need no setting up.
 step: {"type": "walk_to",
        "open": target, "close": target,        tap to open / close the map
        "anchor": {"button": id},               a find button on the map (the positions are relative to it)
+       "anchors": [{"button": id, "x", "y"}],  optional: other signs and where they are (from the anchor): used when
+                                               the anchor is not on the screen (a map that follows "me" far from it)
        "me": {"color": [r, g, b], "tol": 40, "min_px": 6, "box": [x, y, w, h]},   the marker: pixels this close to
                                                the colour, inside box (the map on the screen); the biggest patch
        "points": [{"x": dx, "y": dy, "near"}, ...],   where to go, in order (screen pixels of the map, from the
@@ -51,7 +53,9 @@ look: a little off (bumped into someone) -> pushes with a look after each to the
 the way is planned again from the nearest point.
 
 A push that went well off the way it was pushed (sliding along a wall or a rail) is not learnt from, and a push that
-brings "me" no nearer counts towards "stuck" (it then tries to the side, and gives up after STUCK of them).
+brings "me" no nearer counts towards "stuck" (it then tries to the side; after STUCK of them, off
+the way, it first goes back to the point it came from and tries that leg again with a look after each push; then it
+gives up the leg).
 """
 import math
 
@@ -77,12 +81,46 @@ MINI_ERR = 10                    # map px: the small map's guess further off tha
 STUCK = 5                       # pushes in a row that hardly moved: stuck (a wall)
 SIDE = [0.6, -0.6, 1.2, -1.2]
 REPLANS = 3                     # a route network: how many times a stuck link is given up for another way
+AREA_PUSH_MS = 3500             # a walk map: the longest push before the next look (a long one drifts off the way)
+SURE_MS = 12000                 # a walk map, a way walked through: at most this long without a look
+SURE_SHORT = 0.85               # ... the last push of such a stretch this much of what it seems to need (short of
+                                # the point rather than past it: the speed varies; what is left is pushed after a look)
+MERGE_DEG = 10                  # ... stretches this near the same way pushed as one (a new push starts slow)
+CAREFUL = 3                     # ... after such a stretch went off the way: this many looks a push at a time
+AREA_STUCK = 3                  # a walk map: pushes in a row that got no nearer: stuck there (marked, walked round)
+AREA_REPLANS = 3                # a walk map: how many times stuck (each walked round) before giving up
+MARK_AHEAD = 8                  # map px: a spot found blocked is marked this far ahead of where it got stuck
+MARK_R = 7                      # map px: its size
 STUCK_MS = 1500                 # how long a push is while feeling the way round something   # when a push hardly moved: try this much to the side (radians), in turn
 
 
-def find_me(frame, box, color, tol=40, min_px=6, exclude=()):
+def find_me(frame, box, color, tol=40, min_px=6, exclude=(), more=(), own=()):
     """(x, y) of the biggest patch of pixels within tol of color inside box (screen coordinates), or None.
-    exclude: boxes [x, y, w, h] to leave out (a sign of the same colour, e.g. the anchor itself)."""
+    exclude: boxes [x, y, w, h] to leave out (a sign of the same colour, e.g. the anchor itself).
+    more: other colours "me" may have (the map drawn another way at times, e.g. at night): tried after color.
+    own: [(x, y, mask)] pixels to leave out - a sign's own pixels where it is (mask True), so "me" standing on the
+    sign still shows."""
+    for c in [color] + list(more or ()):
+        got = _find_one(frame, box, c, tol, min_px, exclude, own)
+        if got:
+            return got
+    return None
+
+
+def sign_pixels(frame, pic, at, tol=40):
+    """where a sign's picture (same colour order as frame) shows unchanged on frame with its top-left at at:
+    (x, y, mask) for find_me's own (what differs from the picture - "me" on it - is not left out)"""
+    x, y = int(at[0]), int(at[1])
+    h, w = pic.shape[:2]
+    a = np.asarray(frame)
+    x0, y0, x1, y1 = max(0, x), max(0, y), min(a.shape[1], x + w), min(a.shape[0], y + h)
+    if x1 <= x0 or y1 <= y0:
+        return None
+    d = np.abs(a[y0:y1, x0:x1, :3].astype(np.int16) - pic[y0 - y:y1 - y, x0 - x:x1 - x, :3].astype(np.int16)).max(axis=2)
+    return (x0, y0, d <= tol)
+
+
+def _find_one(frame, box, color, tol, min_px, exclude, own=()):
     if frame is None or not box or color is None:
         return None
     x0, y0, w, h = (int(v) for v in box)
@@ -93,6 +131,13 @@ def find_me(frame, box, color, tol=40, min_px=6, exclude=()):
     for ex in exclude or ():
         ex0, ey0, ew, eh = (int(v) for v in ex)
         m[max(0, ey0 - y0):max(0, ey0 - y0 + eh), max(0, ex0 - x0):max(0, ex0 - x0 + ew)] = 0
+    for ox, oy, om in own or ():
+        hh, ww = om.shape
+        sy, sx = oy - y0, ox - x0
+        ty0, tx0 = max(0, sy), max(0, sx)
+        ty1, tx1 = min(m.shape[0], sy + hh), min(m.shape[1], sx + ww)
+        if ty1 > ty0 and tx1 > tx0:
+            m[ty0:ty1, tx0:tx1][om[ty0 - sy:ty1 - sy, tx0 - sx:tx1 - sx]] = 0
     if int(m.sum()) < int(min_px):
         return None
     if cv2 is None:
@@ -150,7 +195,8 @@ def _wrap(a):
 class Walk:
     """The plan of one walk_to: where to push next, from where "me" is now (relative to the anchor)."""
 
-    def __init__(self, points, near=NEAR, push_ms=PUSH_MS, max_moves=MAX_MOVES, turn=None, speed=None):
+    def __init__(self, points, near=NEAR, push_ms=PUSH_MS, max_moves=MAX_MOVES, turn=None, speed=None, area=None,
+                 tries=None):
         self.near, self.push_ms, self.max_moves = float(near), float(push_ms), int(max_moves)
         self.nodes = [(float(p["x"]), float(p["y"])) for p in points or []]
         self.node_nears = [float(p.get("near") or near) for p in points or []]
@@ -178,6 +224,13 @@ class Walk:
         self.turn_set = turn is not None
         self.speed = None if not speed else float(speed) / 1000           # map pixels per ms of push (learnt; set: a start)
         self.last, self.push = None, None
+        self.area = area                          # (data root, walk map id): find the way on it to the last point
+        if area:
+            self.goal, self.goal_near, self.goal_label = self.nodes[-1], self.node_nears[-1], self.labels[-1]
+            self.goals = [(self.nodes[i], self.node_nears[i], self.labels[i]) for i in self.ends]   # any of them will do
+            self.route, self.marks = None, []     # planned at the first look; spots found blocked by walking
+            self.tries = int(tries) if tries else AREA_REPLANS
+            self.track, self.proven = [], False   # where it was at each look; the way planned was walked through before
 
     def to_dict(self):
         return dict(self.__dict__)
@@ -199,15 +252,19 @@ class Walk:
         | ("push", angle, ms, [(angle, ms), ...]) (a stretch without looking: these pushes right after it)
         | ("stuck",) | ("too_far",) | ("no_way",) (a network with no way left)."""
         me = (float(me[0]), float(me[1]))
-        if getattr(self, "route", 0) is None:                     # a network: plan the way at the first look
+        if getattr(self, "route", 0) is None and not getattr(self, "area", None):   # a network: plan at the first look
             if not self.plan_from(me):
                 return ("no_way",)
+        if getattr(self, "area", None):
+            self.track = list(getattr(self, "track", [])) + [[round(me[0], 1), round(me[1], 1)]]
+            self.careful = max(0, getattr(self, "careful", 0) - 1)
         if self.last is not None and self.push is not None:      # learn from the last push
             dx, dy = me[0] - self.last[0], me[1] - self.last[1]
             moved = math.hypot(dx, dy)
-            target = self.points[self.idx] if self.idx < len(self.points) else None
+            target = self.points[self.idx] if self.idx < len(self.points or []) else None
             gained = math.dist(self.last, target) - math.dist(me, target) if target else moved
-            if moved >= 2 and not getattr(self, "blind", False):     # (a stretch walked without looking: not learnt from)
+            one = getattr(self, "blind", False) and len(getattr(self, "stretch", None) or []) == 1 and getattr(self, "area", None)
+            if moved >= 2 and (not getattr(self, "blind", False) or one):   # (a stretch of turns without looking: not learnt from)
                 t = _wrap(math.atan2(dy, dx) - self.push[0])
                 odd = getattr(self, "odd", None)
                 ok = (gained >= 0.3 * moved if self.turn is None else abs(_wrap(t - self.turn)) <= TURN_OK) or \
@@ -225,12 +282,16 @@ class Walk:
                 self.best, self.stuck = d, 0
             else:                                                 # no nearer (a wall, swaying to and fro): stuck
                 self.stuck += 1
+        if getattr(self, "area", None):
+            return self._step_area(me)
         if getattr(self, "blind", False):                        # a checkpoint after a stretch walked without looking
             self.blind = False
             if self.idx < len(self.points) and math.dist(me, self.points[self.idx]) > self.nears[self.idx]:
                 self.no_blind = list(getattr(self, "no_blind", [])) + list(self.stretch)   # not without looking again
             if self.idx < len(self.points) and getattr(self, "links", None) and                     math.dist(me, self.points[self.idx]) > max(OFF, 3 * self.nears[self.idx]):
                 self.notes.append(("off", self.labels[self.route[self.idx]]))
+                if getattr(self, "area", None):                   # someone in the way: a push at a time past it
+                    self.careful = CAREFUL + 1
                 if not self.plan_from(me):                        # far off the way: from the nearest point again
                     return ("no_way",)
                 self.stuck = 0
@@ -240,6 +301,26 @@ class Walk:
             self.leg = getattr(self, "leg", 0) + 1
         if self.idx >= len(self.points):
             return ("arrived",)
+        if self.stuck >= AREA_STUCK and getattr(self, "area", None):   # a walk map: that spot is blocked, round it
+            if self.replans >= getattr(self, "tries", AREA_REPLANS):
+                return ("stuck",)
+            tx, ty = self.points[self.idx]
+            d = math.dist(me, (tx, ty)) or 1.0
+            k = min(MARK_AHEAD, d) / d
+            self.marks.append([round(me[0] + (tx - me[0]) * k, 1), round(me[1] + (ty - me[1]) * k, 1), MARK_R])
+            self.notes.append(("mark", (round(me[0]), round(me[1]))))
+            if not self.plan_from(me):
+                return ("no_way",)
+            self.stuck, self.replans = 0, self.replans + 1
+        if self.stuck >= STUCK and self.idx > 0 and math.dist(me, self.points[self.idx - 1]) > self.nears[self.idx - 1]                 and f"{self.route[self.idx - 1]}>{self.route[self.idx]}" not in (getattr(self, "backed", None) or []):
+            back = self.route[self.idx - 1]                       # off the way in a pocket: first back to the point
+            self.backed = list(getattr(self, "backed", None) or []) + [f"{back}>{self.route[self.idx]}"]   # before (it
+            self.route.insert(self.idx, back)                     # was reached), then this leg again, a look each push
+            self.points.insert(self.idx, self.nodes[back])
+            self.nears.insert(self.idx, self.node_nears[back])
+            self.notes.append(("back", self.labels[back]))
+            self.stuck, self.leg = 0, getattr(self, "leg", 0) + 1
+            self.no_blind = list(getattr(self, "no_blind", None) or []) + [f"{back}>{self.route[self.idx + 1]}"]
         if self.stuck >= STUCK:
             if not getattr(self, "links", None) or self.replans >= REPLANS:
                 return ("stuck",)
@@ -254,6 +335,11 @@ class Walk:
                 return ("arrived",)
         if self.moves >= self.max_moves:
             return ("too_far",)
+        if getattr(self, "area", None) and not getattr(self, "proven", False) and self.idx < len(self.points):
+            from . import walkmap                                 # the rest of the way from here walked through before?
+            self.proven = walkmap.proven(walkmap.load(*self.area), [me] + list(self.points[self.idx:]))
+            if self.proven:
+                self.notes.append(("proven",))
         chain = self._chain(me) if chain and not self.stuck else []
         if chain:                                                 # at a point: the next links without looking
             self.last, self.push, self.blind = me, (chain[0][0], sum(c[1] for c in chain)), True
@@ -266,6 +352,10 @@ class Walk:
         if self.stuck:                                            # hardly moved: try to the side
             angle = _wrap(angle + SIDE[(self.stuck - 1) % len(SIDE)])
         ms = min(self.push_ms, FIRST_MS) if not self.speed else max(MIN_MS, min(self.push_ms, dist / self.speed + PUSH_LAG))
+        if getattr(self, "area", None):                           # a walk map: look again before it drifts far
+            ms = min(ms, SURE_MS if self.sure() else AREA_PUSH_MS)
+            if self.sure() and self.speed:
+                ms = max(MIN_MS, PUSH_LAG + (ms - PUSH_LAG) * SURE_SHORT)
         if self.stuck:                                            # feeling the way round: short pushes
             ms = min(ms, STUCK_MS)
         self.last, self.push = me, (angle, ms)
@@ -280,6 +370,7 @@ class Walk:
         if self.idx == 0 or math.dist(me, self.points[self.idx - 1]) > self.nears[self.idx - 1]:
             return []
         legs, pos, j, r = [], me, self.idx, self.route
+        sure = self.sure()
         moves = getattr(self, "leg_moves", None) or {}
         stretch = []
         while j < len(self.points):
@@ -301,17 +392,157 @@ class Walk:
             else:
                 break
             ms = max(MIN_MS, min(ms, BLIND_MS))
+            if sure and legs and sum(m for _a, m in legs) + ms > SURE_MS:   # a look now and then even so
+                break
+            if getattr(self, "area", None) and ms > AREA_PUSH_MS and not sure:   # a walk map: a long stretch with looks
+                break
             while ms > SWIPE_MS:                                   # one push is at most SWIPE_MS: the rest after it
                 legs.append((_wrap(angle), SWIPE_MS))
                 ms -= SWIPE_MS - PUSH_LAG
             legs.append((_wrap(angle), ms))
             stretch.append(f"{a}>{b}")
             pos, j = (tx, ty), j + 1
-            if b in (getattr(self, "checks", None) or []) or b in (getattr(self, "ends", None) or []):
+            if (b in (getattr(self, "checks", None) or []) and not sure) or b in (getattr(self, "ends", None) or []):
                 break
         if legs:
+            if sure:
+                a, m = legs[-1]
+                legs[-1] = (a, max(MIN_MS, PUSH_LAG + (m - PUSH_LAG) * SURE_SHORT))
             self.idx, self.stretch = j - 1, stretch
         return legs
+
+    def _area_way(self, wm, me):
+        """the shortest way to any of the goals (the last point, and any point marked as an end); that goal is
+        self.goal from now on"""
+        from . import walkmap
+        best = None
+        for marks_too in (True, False):                           # spots found blocked before (a crowd of monsters,
+            w = wm if marks_too else {**wm, "marks": []}          # maybe): without them when there is no way else
+            for g, near, label in getattr(self, "goals", None) or [(self.goal, self.goal_near, self.goal_label)]:
+                pts = walkmap.plan(w, me, g, self.marks)
+                if pts:
+                    d = sum(math.dist(a, b) for a, b in zip([me] + pts, pts))
+                    if best is None or d < best[0]:
+                        best = (d, pts, g, near, label)
+            if best or not wm.get("marks"):
+                break
+        if not best:
+            return None
+        _d, pts, self.goal, self.goal_near, self.goal_label = best
+        return pts
+
+    def _step_area(self, me):
+        """a walk map: the way planned again from where "me" is at every look (no going back to a point it missed);
+        stuck = the way left got no shorter for AREA_STUCK pushes: that spot is marked blocked and walked round"""
+        from . import walkmap
+        wm = walkmap.load(*self.area)
+        if not wm:
+            return ("no_way",)
+        if any(math.dist(me, g) <= near for g, near, _l in getattr(self, "goals", None) or [(self.goal, self.goal_near, 0)]):
+            return ("arrived",)
+        pts = self._area_way(wm, me)
+        if not pts:
+            return ("no_way",)
+        left = sum(math.dist(a, b) for a, b in zip([me] + pts, pts))
+        expect = getattr(self, "expect", None)                    # a stretch in one go that got far less far than
+        gone = self.left - left if expect and getattr(self, "left", None) is not None else None
+        if gone is not None and gone < 0.5 * expect:              # meant: someone in the way - a push at a time past it
+            self.careful = CAREFUL
+            self.notes.append(("off", self.labels[-1] if self.labels else ""))
+        elif gone is not None and getattr(self, "sent", None):    # how fast it really goes, turns and all: learnt
+            ms, n = self.sent
+            if ms - n * PUSH_LAG > 500:
+                sp = gone / (ms - n * PUSH_LAG)
+                self.speed = sp if not self.speed else 0.5 * self.speed + 0.5 * sp
+        self.expect, self.sent = None, None
+        best = getattr(self, "best_left", None)
+        if best is None or left < best - 3:
+            self.best_left, self.stuck = left, 0
+        else:
+            self.stuck += 1
+        if self.stuck >= AREA_STUCK:
+            if self.replans >= getattr(self, "tries", AREA_REPLANS):
+                return ("stuck",)
+            tx, ty = pts[0]
+            d = math.dist(me, (tx, ty)) or 1.0
+            k = min(MARK_AHEAD, d) / d
+            self.marks.append([round(me[0] + (tx - me[0]) * k, 1), round(me[1] + (ty - me[1]) * k, 1), MARK_R])
+            self.notes.append(("mark", (round(me[0]), round(me[1]))))
+            self.replans, self.stuck, self.best_left = self.replans + 1, 0, None
+            pts = self._area_way(wm, me)
+            if not pts:
+                return ("no_way",)
+            left = sum(math.dist(a, b) for a, b in zip([me] + pts, pts))
+        self.left = left
+        n = len(pts)
+        self.nodes = self.points = [tuple(p) for p in pts]
+        self.node_nears = self.nears = [self.near] * (n - 1) + [self.goal_near]
+        self.labels = [_ptlabel(i + 1) for i in range(n - 1)] + [self.goal_label]
+        self.route, self.idx = list(range(n)), 0
+        was = getattr(self, "proven", None)
+        self.proven = walkmap.proven(wm, [me] + self.points)
+        if was is None:
+            self.notes.append(("area", n, round(left), self.proven))
+        elif self.proven and not was:
+            self.notes.append(("proven",))
+        if self.moves >= self.max_moves:
+            return ("too_far",)
+        sure = self.sure()
+        legs, pos, total = [], me, 0.0
+        last = len(self.points) - 1
+        for k, p in enumerate(self.points):
+            if sure and k == last and legs:                       # the goal: not in one go with the rest (the speed
+                break                                             # varies - a look first, then up to it)
+            angle = _wrap(math.atan2(p[1] - pos[1], p[0] - pos[0]) - (self.turn or 0.0))
+            go = math.dist(pos, p)
+            if k == last:                                         # into the goal: only to its near side (it is there
+                go = max(go - 0.5 * self.goal_near, 0.5 * go)     # once within goal_near)
+            ms = go / self.speed + PUSH_LAG if self.speed else FIRST_MS
+            if not sure:
+                if self.stuck:                                    # no shorter: try to the side, short pushes
+                    angle = _wrap(angle + SIDE[(self.stuck - 1) % len(SIDE)])
+                    ms = min(ms, STUCK_MS)
+                legs = [(angle, max(MIN_MS, min(ms, AREA_PUSH_MS, self.push_ms)))]
+                break
+            if legs and total + ms > SURE_MS:
+                break
+            if legs and abs(_wrap(angle - legs[-1][0])) < math.radians(MERGE_DEG):   # about the same way: one push
+                legs[-1] = (legs[-1][0], legs[-1][1] + ms - PUSH_LAG)            # (no new start between them)
+            else:
+                legs.append((angle, max(MIN_MS, min(ms, SURE_MS))))
+            total += ms
+            pos = p
+        if sure:
+            a, m = legs[-1]
+            legs[-1] = (a, max(MIN_MS, PUSH_LAG + (m - PUSH_LAG) * SURE_SHORT))
+            self.expect = None
+            q, d, t = me, 0.0, 0.0                                # how far along the way the pushes should take it
+            for p in self.points:
+                step = math.dist(q, p) / self.speed + PUSH_LAG
+                if t + step > total + 1:
+                    break
+                t, d, q = t + step, d + math.dist(q, p), p
+            self.expect = d * SURE_SHORT if d else None
+            self.sent = (sum(m for _a, m in legs), len(legs))
+        out = []
+        for a, m in legs:                                         # one push is at most SWIPE_MS
+            while m > SWIPE_MS:
+                out.append((a, SWIPE_MS))
+                m -= SWIPE_MS - PUSH_LAG
+            out.append((a, m))
+        self.blind = len(legs) > 1
+        self.stretch = [f"{i}>{i + 1}" for i in range(len(legs))]
+        self.idx = len(legs) - 1 if self.blind else 0
+        self.last, self.push = me, (legs[0][0], sum(m for _a, m in legs))
+        self.moves += 1
+        if len(out) > 1:
+            return ("push", out[0][0], int(out[0][1]), [(a, int(m)) for a, m in out[1:]])
+        return ("push", out[0][0], int(out[0][1]))
+
+    def sure(self):
+        """a walk map: the way planned was walked through before (nothing fixed in the way): the rest of it in one go,
+        a look only at the end (someone in the way now is an accident: walked round from where it stopped)"""
+        return bool(getattr(self, "area", None)) and bool(getattr(self, "proven", False)) and bool(self.speed)             and not self.stuck and not getattr(self, "careful", 0)
 
     # ---------- a route network ----------
     def target_no(self):
@@ -333,6 +564,8 @@ class Walk:
     def plan_from(self, me):
         """the way from me: to the nearest point it may start from, then the shortest way through the links to the last
         point. False when there is none."""
+        if getattr(self, "area", None):
+            return self._plan_area(me)
         n = len(self.nodes)
         if n == 0:
             return False
@@ -371,6 +604,37 @@ class Walk:
         self.last = self.push = None                               # the next push is not learnt against the old way
         self.notes.append(("route", [self.labels[i] for i in route]))
         return True
+
+
+    def _plan_area(self, me):
+        """a walk map: the way from me to the goal on it, as a row of points (a look at each)"""
+        from . import walkmap
+        wm = walkmap.load(*self.area)
+        pts = walkmap.plan(wm, me, self.goal, self.marks) if wm else None
+        if wm and not pts and wm.get("marks"):                    # spots found blocked before (a crowd of monsters,
+            pts = walkmap.plan({**wm, "marks": []}, me, self.goal, self.marks)   # maybe): without them
+        if not pts:
+            return False
+        n = len(pts)
+        self.nodes = [tuple(p) for p in pts]
+        self.node_nears = [self.near] * (n - 1) + [self.goal_near]
+        self.labels = [_ptlabel(i + 1) for i in range(n - 1)] + [self.goal_label]
+        self.links = [(i, i + 1) for i in range(n - 1)]
+        self.checks, self.ends = list(range(n)), [n - 1]
+        self.blocked, self.no_entry, self.leg_moves, self.no_blind = [], [], {}, []
+        self.route, self.idx, self.leg = list(range(n)), 0, getattr(self, "leg", 0) + 1
+        self.points, self.nears = list(self.nodes), list(self.node_nears)
+        self.last = self.push = None
+        self.proven = walkmap.proven(wm, [me] + self.nodes)
+        if wm.get("speed") and not getattr(self, "speed_from_map", False):   # the speed learnt on earlier walks
+            self.speed, self.speed_from_map = float(wm["speed"]) / 1000, True
+        self.notes.append(("area", n, round(sum(math.dist(a, b) for a, b in zip([me] + self.nodes, self.nodes))), self.proven))
+        return True
+
+
+def _ptlabel(i):
+    from i18n import _
+    return _("路徑點 {n}", n=i)
 
 
 def stick_end(stick, angle):

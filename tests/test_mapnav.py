@@ -396,3 +396,190 @@ def test_a_set_turn_and_speed_walk_without_looking_from_the_first_point():
     what = plan.step((0, 0))
     assert what[0] == "push" and len(what) == 4                # at the first point: straight on, no learning first
     assert plan.turn == 0.0
+
+
+class TwoSigns(Env):
+    """the map follows "me": the first sign shows only while me.x < 150, the second (at (300, 0)) only from 100 on"""
+    def map_me(self, n, anchor, me, others=()):
+        x, y = self.w.pos
+        if anchor.get("button") == "sign" and x < 150:
+            return (400, 300), (400 + x, 300 + y)
+        if anchor.get("button") == "far" and x >= 100:
+            return (700, 300), (700 + x - 300, 300 + y)
+        return None
+
+
+def test_another_sign_is_used_where_the_first_is_off_the_screen():
+    w = World(turn=0.0, speed=0.05)
+    st = {"type": "walk_to", "open": {"x": 1160, "y": 200}, "close": {"x": 1236, "y": 44}, "anchor": {"button": "sign"},
+          "anchors": [{"button": "far", "x": 300, "y": 0}],
+          "me": {"color": [210, 84, 50], "box": [300, 120, 900, 500]}, "points": [{"x": 120, "y": 0}, {"x": 280, "y": 10}],
+          "stick": {"x": 192, "y": 570, "r": 60}, "near": 8}
+    lib = {"go": {"id": "go", "name": "GO", "params": [], "steps": [st, {"type": "wait", "seconds": 0.01}]}}
+    run, logs, ex = SubRun("A", "go", {}, lib, 0.0), [], Exec(w, st["stick"])
+    run._env = TwoSigns(w)
+    t = 0.0
+    while not run.done and t < 600:
+        run.advance({}, t, ex, {}, lambda text, level="": logs.append(text), TwoSigns(w))
+        t += 0.5
+    assert run.result == "success", logs[-5:]
+    assert math.dist(w.pos, (280, 10)) <= 8
+
+
+class Pocket(World):
+    """open ground, but a wall north-east of (60, 0): from below it, pushing up-right goes nowhere"""
+    def push(self, a, ms):
+        for _ in range(int(self.speed * lag(ms))):
+            nx, ny = self.pos[0] + math.cos(a), self.pos[1] + math.sin(a)
+            if 50 <= nx <= 70 and -40 <= ny <= -5:
+                break
+            self.pos = [nx, ny]
+
+
+def test_stuck_in_a_pocket_off_the_way_it_goes_back_to_the_last_point_first():
+    w = Pocket(turn=0.0, speed=0.05, start=(0.0, 0.0))
+    plan = mapnav.Walk([{"x": 0, "y": 0}, {"x": 60, "y": -60}, {"x": 120, "y": -60}], near=8, max_moves=60)
+    w.pos = [58.0, 2.0]                                        # drifted under the wall on the way to the 2nd point
+    plan.idx = 1
+    what = None
+    for _ in range(60):
+        what = plan.step(w.pos)
+        if what[0] != "push":
+            break
+        w.push(what[1], what[2])
+        for a, ms in (what[3] if len(what) > 3 else []):
+            w.push(a, ms)
+    assert ("back", "#1") in plan.notes, plan.notes
+    assert what == ("arrived",), (w.pos, plan.notes)
+
+
+# ---------- a walk map (automation/walkmap.py): find the way on it ----------
+def _bridge_map(tmp_path, wall):
+    from automation import walkmap
+    w = Bridges((0, 0), wall=wall)
+    ys, xs = np.mgrid[-140:20, -80:420]
+    free = np.vectorize(w.ok)(xs, ys)
+    walkmap.save(str(tmp_path), "bridges", free, (-80, -140), "bridges")
+    return (str(tmp_path), "bridges")
+
+
+def test_a_walk_map_plan_keeps_off_the_edges_and_skips_the_dead_end_bridge(tmp_path):
+    from automation import walkmap
+    root, wid = _bridge_map(tmp_path, wall=True)
+    pts = walkmap.plan(walkmap.load(root, wid), (0, -110), (350, -50))
+    assert pts and pts[-1] == (350.0, -50.0)
+    w = Bridges((0, -110), wall=True)
+    for a, b in zip([(0, -110)] + pts, pts):              # every straight stretch is walkable all along
+        for k in range(21):
+            assert w.ok(a[0] + (b[0] - a[0]) * k / 20, a[1] + (b[1] - a[1]) * k / 20)
+    assert all(not (40 < x < 300 and y < -90) for x, y in pts)        # not the top bridge (it ends in the void)
+    assert any(-20 <= y <= 0 for x, y in pts if 100 < x < 250)        # the bottom one (a wall on the middle one)
+
+
+class BlockedBelow(Bridges):
+    """a wall on the bottom bridge too - one the map does not show"""
+    def ok(self, x, y):
+        return super().ok(x, y) and not (150 <= x <= 160 and -20 <= y <= 0)
+
+
+def test_with_a_walk_map_it_finds_its_way_and_walks_round_what_the_map_does_not_show(tmp_path):
+    area = _bridge_map(tmp_path, wall=False)            # the map shows neither wall
+    w = BlockedBelow((0, -10))
+    plan = mapnav.Walk([{"x": 350, "y": -50}], near=6, push_ms=3000, max_moves=80, turn=0, speed=50, area=area)
+    assert walk(plan, w)[0] == "arrived"
+    assert plan.marks                                     # stuck at the wall: marked, the way planned again round it
+    assert w.pos[0] > 300
+
+
+def test_spots_found_blocked_are_kept_and_the_next_walk_goes_round_them(tmp_path):
+    from automation import walkmap
+    area = _bridge_map(tmp_path, wall=False)
+    first = mapnav.Walk([{"x": 350, "y": -50}], near=6, push_ms=3000, max_moves=80, turn=0, speed=50, area=area)
+    assert walk(first, BlockedBelow((0, -10)))[0] == "arrived" and first.marks
+    assert walkmap.add_marks(*area, first.marks) == len(first.marks)
+    assert walkmap.add_marks(*area, first.marks) == 0                 # not kept twice
+    again = mapnav.Walk([{"x": 350, "y": -50}], near=6, push_ms=3000, max_moves=80, turn=0, speed=50, area=area)
+    assert walk(again, BlockedBelow((0, -10)))[0] == "arrived" and not again.marks   # round it at once
+
+
+def test_a_walk_map_push_is_short_enough_to_look_again_on_the_way(tmp_path):
+    area = _bridge_map(tmp_path, wall=False)
+    plan = mapnav.Walk([{"x": 350, "y": -50}], near=6, push_ms=8000, max_moves=80, turn=0, speed=20, area=area)
+    what = plan.step((0, -10))
+    assert what[0] == "push" and what[2] <= mapnav.AREA_PUSH_MS and len(what) == 3
+
+
+def test_me_may_have_another_colour_at_times():
+    f = np.zeros((100, 100, 3), np.uint8)
+    f[40:50, 40:50] = (76, 105, 199)                  # "me" drawn blue (the map at night)
+    assert mapnav.find_me(f, [0, 0, 100, 100], [210, 84, 50], 30, 6) is None
+    assert mapnav.find_me(f, [0, 0, 100, 100], [210, 84, 50], 30, 6, (), [[76, 105, 199]]) in ([44, 44], [45, 45])
+
+
+def test_me_standing_on_a_sign_of_its_colour_still_shows():
+    pic = np.zeros((20, 20, 3), np.uint8)
+    pic[5:15, 5:15] = (210, 84, 50)                   # the sign: the colour of "me"
+    f = np.zeros((100, 100, 3), np.uint8)
+    f[40:60, 40:60] = pic
+    f[36:46, 52:60] = (212, 86, 52)                   # "me" on its corner
+    own = mapnav.sign_pixels(f, pic, (40, 40))
+    assert mapnav.find_me(f, [0, 0, 100, 100], [210, 84, 50], 30, 6, [[34, 34, 32, 32]]) is None
+    got = mapnav.find_me(f, [0, 0, 100, 100], [210, 84, 50], 30, 6, (), (), [own])
+    assert got and 50 <= got[0] <= 60 and 35 <= got[1] <= 46
+
+
+def _go(plan, w, n=60):
+    looks, one_go = 0, False
+    for _ in range(n):
+        what = plan.step(w.pos)
+        looks += 1
+        if what[0] != "push":
+            return what, looks, one_go
+        one_go = one_go or plan.sure()
+        w.push(what[1], what[2])
+        for a, ms in (what[3] if len(what) > 3 else []):
+            w.push(a, ms)
+    return what, looks, one_go
+
+
+def test_a_way_walked_through_before_is_walked_in_one_go_next_time(tmp_path):
+    from automation import walkmap
+    area = _bridge_map(tmp_path, wall=False)
+    first = mapnav.Walk([{"x": 350, "y": -50}], near=6, push_ms=8000, max_moves=80, turn=0, speed=50, area=area)
+    what, looks1, one_go = _go(first, Bridges((-50, -110)))
+    assert what[0] == "arrived" and not one_go          # a new way: a look after every stretch
+    walkmap.add_walk(*area, first.track, first.speed * 1000)
+    again = mapnav.Walk([{"x": 350, "y": -50}], near=6, push_ms=8000, max_moves=80, turn=0, speed=50, area=area)
+    what, looks2, one_go = _go(again, Bridges((-45, -105)))
+    assert what[0] == "arrived" and one_go and looks2 < looks1 and looks2 <= 5
+
+
+def test_someone_in_a_way_walked_through_is_walked_round(tmp_path):
+    from automation import walkmap
+    area = _bridge_map(tmp_path, wall=False)
+    first = mapnav.Walk([{"x": 350, "y": -50}], near=6, push_ms=8000, max_moves=80, turn=0, speed=50, area=area)
+    assert _go(first, Bridges((0, -10)))[0][0] == "arrived"
+    walkmap.add_walk(*area, first.track, first.speed * 1000)
+    again = mapnav.Walk([{"x": 350, "y": -50}], near=6, push_ms=8000, max_moves=80, turn=0, speed=50, area=area)
+    what, _l, one_go = _go(again, BlockedBelow((0, -10)))    # now something stands on the bottom bridge
+    assert one_go and what[0] == "arrived" and again.marks
+
+
+def test_stuck_three_times_it_gives_up(tmp_path):
+    from automation import walkmap
+    root, wid = _bridge_map(tmp_path, wall=False)
+
+    class Nowhere(Bridges):                               # walls the map does not show, on every bridge
+        def ok(self, x, y):
+            return super().ok(x, y) and not (150 <= x <= 160)
+    plan = mapnav.Walk([{"x": 350, "y": -50}], near=6, push_ms=3000, max_moves=200, turn=0, speed=50, area=(root, wid))
+    assert walk(plan, Nowhere((0, -10)), 200)[0] in ("stuck", "no_way")
+    assert len(plan.marks) <= mapnav.AREA_REPLANS + 1
+
+
+def test_a_walk_map_with_several_ends_goes_to_the_nearest(tmp_path):
+    area = _bridge_map(tmp_path, wall=False)
+    plan = mapnav.Walk([{"x": 350, "y": -110, "end": True}, {"x": 350, "y": -10}], near=6, push_ms=3000, max_moves=80,
+                       turn=0, speed=50, area=area)
+    w = Bridges((0, -10))
+    assert walk(plan, w)[0] == "arrived" and math.dist(w.pos, (350, -10)) <= 6      # the bottom one: nearer

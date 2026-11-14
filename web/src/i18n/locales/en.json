@@ -2733,5 +2733,15 @@
  "地圖和搖桿方向差": "map vs control direction",
  "度": "°",
  "知道的話可以直接填:地圖上的方向比搖桿轉了幾度(平面地圖通常是 0)、推一秒在地圖上走幾個像素;不填就邊走邊學": "If known, fill them in: how many degrees the map's directions are turned from the control's (a flat map is usually 0) and how many map pixels one second of pushing goes; left empty, they are learnt while walking",
- "速度": "speed"
+ "速度": "speed",
+ "+ 再加一個基準圖示": "+ another sign",
+ "其他基準圖示": "other sign",
+ "地圖跟著自己移動時,離第一個基準圖示太遠它會跑出畫面;這時改找這些圖示。位置是它在地圖上離第一個基準圖示多遠(往右 x、往下 y)": "When the map follows \"me\", far from the first sign it leaves the screen; then these signs are looked for. The position is how far each is from the first sign on the map (x right, y down)",
+ "+ 另一種顏色": "+ another colour",
+ "地圖有時畫成別的樣子(例如晚上)時,「自己」的另一種顏色": "Another colour of \"me\", for when the map is drawn another way at times (e.g. at night)",
+ "可走區域圖": "Walk map",
+ "不用(照上面的點走)": "none (walk through the points)",
+ "卡住幾次就放棄": "Give up after stuck",
+ "走不到就在原地接著做下一步(不算失敗)": "If it cannot get there, go on with the next step where it is (not a failure)",
+ "填了可走區域圖,就照它自己找路走到最後一個點(大地圖黑色的地方不能走);走通過的路線下次會一口氣走完,最後再看": "With a walk map set, it finds its own way on it to the last point (the dark parts of the big map cannot be walked); a way walked through before is walked in one go next time, with a look at the end"
 }

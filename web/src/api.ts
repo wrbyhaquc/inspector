@@ -426,10 +426,11 @@ export interface SubStep {
   options?: { label: string; then: SubStep[] }[]; default?: number      // ask (問使用者)
   catalog?: string; item?: string | { setting: string } | { param: string }   // call_item (照目錄項目做)
   open?: ScriptPoint; close?: ScriptPoint; anchor?: ScriptPoint                // walk_to (走到地圖上的位置)
-  me?: { color: number[]; tol?: number; min_px?: number; box: number[] }
+  anchors?: { button: string; x: number; y: number }[]                        // walk_to: other signs, where they are
+  me?: { color: number[]; more?: number[][]; tol?: number; min_px?: number; box: number[] }
   points?: { x: number; y: number; near?: number; label?: string; links?: number[]; end?: boolean; check?: boolean; moves?: { to: number; dir?: number; s?: number }[] }[]
   stick?: { x: number; y: number; r: number; press?: string }
-  near?: NumVal; push_ms?: NumVal; max_moves?: NumVal; turn?: NumVal; speed?: NumVal; until?: ScriptCond[][]
+  near?: NumVal; push_ms?: NumVal; max_moves?: NumVal; turn?: NumVal; speed?: NumVal; area?: string; tries?: NumVal; until?: ScriptCond[][]
   mini?: { box: number[]; mask?: number; check_every?: number; min_resp?: number }
 }
 /** a catalog (目錄): named items, each a sub-script call with its arguments, filed in folders */

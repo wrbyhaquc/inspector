@@ -16,6 +16,12 @@ from . import values as V
 from .subs import MAX_DEPTH, cond_text, describe_step
 from i18n import _
 
+
+def buttons_root():
+    from . import buttons
+    return buttons.DATA_ROOT
+
+
 UNSURE_WAIT = 5        # seconds an "if" may wait for the model to become sure before failing
 
 
@@ -565,7 +571,9 @@ class SubRun:
                                                V.number(st.get("push_ms", mapnav.PUSH_MS), self._venv(args), mapnav.PUSH_MS),
                                                V.integer(st.get("max_moves", mapnav.MAX_MOVES), self._venv(args), mapnav.MAX_MOVES),
                                                turn=V.number(st.get("turn"), self._venv(args), None) if st.get("turn") is not None else None,
-                                               speed=V.number(st.get("speed"), self._venv(args), None) if st.get("speed") else None),
+                                               speed=V.number(st.get("speed"), self._venv(args), None) if st.get("speed") else None,
+                                               area=(getattr(self._env, "data_root", None) or buttons_root(), st["area"]) if st.get("area") else None,
+                                               tries=V.integer(st.get("tries"), self._venv(args), None) if st.get("tries") else None),
                            "est": None, "last_big": None, "acc": (0.0, 0.0), "k": None, "since_big": 0,
                            "mini_prev": None, "after": 0.0, "bigs": 0, "mini_off": None}
             log(describe_step(st, names, self.lib, params), "step")
@@ -595,7 +603,16 @@ class SubRun:
         def notes():
             """what the route network decided (the way, a link given up), for the log"""
             for nt in getattr(plan, "notes", None) or []:
-                if nt[0] == "off":
+                if nt[0] == "area":
+                    log(_("照可走區域圖找到路:{n} 個路徑點,約 {d} 像素", n=nt[1], d=nt[2]) +
+                        (_(";這條路走通過,一口氣走完再看") if len(nt) > 3 and nt[3] else ""), "step")
+                elif nt[0] == "proven":
+                    log(_("接下來的路走通過,一口氣走完再看"), "step")
+                elif nt[0] == "mark":
+                    log(_("在 ({x}, {y}) 卡住了,把那裡記成走不過去,重新找路", x=nt[1][0], y=nt[1][1]), "step")
+                elif nt[0] == "back":
+                    log(_("卡住了,先退回「{a}」再重走這段", a=nt[1]), "step")
+                elif nt[0] == "off":
                     log(_("離「{b}」太遠(走偏了),從最近的點重新規劃", b=nt[1]), "step")
                 elif nt[0] == "route":
                     log(_("路線:{way}", way=" → ".join(nt[1])), "step")
@@ -613,6 +630,21 @@ class SubRun:
             ws["fut"] = executor.submit(self.device, "tap", x=p[0], y=p[1])
             return True
 
+        def see():
+            """((anchor x, y), (me x, y)) on the map now and where that anchor is in the walk's coordinates: the step's
+            anchor, else the first of its other anchors ("anchors": [{"button", "x", "y"}]) that shows (the map follows
+            "me", so far from the first one another sign is on the screen)"""
+            if self._env is None:
+                return None, (0.0, 0.0)
+            signs = [(st.get("anchor"), (0.0, 0.0))] + [({"button": ex["button"]}, (float(ex.get("x") or 0), float(ex.get("y") or 0)))
+                                                         for ex in st.get("anchors") or [] if ex.get("button")]
+            for k, (sign, off) in enumerate(signs):
+                others = [s for j, (s, _o) in enumerate(signs) if j != k]
+                got = self._env.map_me(self.device, sign, st.get("me"), others) if others else                     self._env.map_me(self.device, sign, st.get("me"))
+                if got:
+                    return got, off
+            return None, (0.0, 0.0)
+
         def done_until():
             return bool(st.get("until")) and self._cond(f, st["until"], now) == engine.MATCH
 
@@ -621,8 +653,30 @@ class SubRun:
             got = self._env.latest_frame(self.device) if self._env is not None and hasattr(self._env, "latest_frame") else (None, None)
             return got[1] if got[0] is not None and got[0] >= ws["after"] else None
 
+        def keep_marks(arrived=False):
+            """a walk map: spots found blocked kept with it for the next walk; a walk that got there: its way kept
+            as walked through (the next one along it goes in one go) and its speed"""
+            if not getattr(plan, "area", None) or ws.get("marks_kept"):
+                return
+            ws["marks_kept"] = True
+            from . import walkmap
+            try:
+                n = walkmap.add_marks(*plan.area, plan.marks) if getattr(plan, "marks", None) else 0
+                if arrived:
+                    walkmap.add_walk(*plan.area, getattr(plan, "track", None), plan.speed * 1000 if plan.speed else None)
+            except OSError:
+                n = 0
+            if n:
+                log(_("把 {n} 個走不過去的地方記到可走區域圖,下次會繞開", n=n), "step")
+
         def fail(what):
+            keep_marks()
+            if st.get("on_fail") == "continue":           # gives up here, the steps after it go on (e.g. hunt where it is)
+                log(_("沒有走到,在這裡停下,接著做下一步(推了 {n} 次)", n=plan.moves), "warn")
+                self._next(f, now)
+                return True
             self._fail(_("{p1}:卡住了,走不過去", p1=describe_step(st, names, self.lib, params)) if what == "stuck" else
+                       _("{p1}:照可走區域圖找不到走得到的路", p1=describe_step(st, names, self.lib, params)) if what == "no_way" and st.get("area") else
                        _("{p1}:路線網裡已經沒有走得通的路", p1=describe_step(st, names, self.lib, params)) if what == "no_way" else
                        _("{p1}:推了 {n} 次還沒走到", p1=describe_step(st, names, self.lib, params), n=plan.moves), now, log)
             return True
@@ -635,19 +689,23 @@ class SubRun:
             if not ws.get("open_checked"):                # the map already open (a step before opened it): look at once
                 ws["open_checked"] = True
                 got = self._env.latest_frame(self.device) if self._env is not None and hasattr(self._env, "latest_frame") else (None, None)
-                if got[0] is not None and got[0] >= f.step_t0 and                         self._env.map_me(self.device, st.get("anchor"), st.get("me")):
+                if got[0] is not None and got[0] >= f.step_t0 and see()[0]:
                     ws.update(phase="look", look_t=now)
                     return True
             if not tap(st.get("open")):
                 self._fail(_("{p1}:找不到打開地圖的地方", p1=describe_step(st, names, self.lib, params)), now, log)
                 return True
-            ws.update(phase="look", until=now + 1.0, look_t=now)
+            ws.update(phase="look", until=now + 0.6, look_t=now)     # (two pictures in a row must agree anyway)
             return False
         if ws["phase"] == "look":
-            seen = self._env.map_me(self.device, st.get("anchor"), st.get("me")) if self._env is not None else None
+            seen, off = see()
             if not seen:
                 if now - ws["look_t"] < 6:
                     return False
+                if st.get("on_fail") == "continue" and plan.moves:     # lost on the way: stop here, go on
+                    log(_("地圖上看不到基準圖示或自己的位置"), "warn")
+                    tap(st.get("close"))
+                    return fail("lost")
                 self._fail(_("{p1}:地圖上看不到基準圖示或自己的位置", p1=describe_step(st, names, self.lib, params)), now, log)
                 return True
             got = self._env.latest_frame(self.device) if hasattr(self._env, "latest_frame") else (None, None)
@@ -658,7 +716,7 @@ class SubRun:
                         return False
             ws["look_prev"] = None
             (ax, ay), (mx, my) = seen
-            me = (mx - ax, my - ay)
+            me = (mx - ax + off[0], my - ay + off[1])
             acc, last = ws["acc"], ws["last_big"]
             if mini and last is not None and ws.get("mini_read"):            # how good the small map's guess was
                 big = math.hypot(me[0] - last[0], me[1] - last[1])
@@ -679,6 +737,7 @@ class SubRun:
             notes()
             if what[0] == "arrived":
                 log(_("走到了(推了 {n} 次,看了 {b} 次大地圖)", n=plan.moves, b=ws["bigs"]), "step")
+                keep_marks(arrived=True)
                 p = self._point(st.get("close"), args)
                 if p:
                     self.pending = executor.submit(self.device, "tap", x=p[0], y=p[1])   # done: the next step after it
@@ -695,7 +754,7 @@ class SubRun:
             else:
                 log(_("在 ({x}, {y}),往第 {k} 個點,推 {ms} 毫秒", x=round(me[0]), y=round(me[1]), k=plan.target_no(), ms=what[2]), "step")
             tap(st.get("close"))
-            ws.update(phase="before" if use_mini() and not getattr(plan, "blind", False) else "push", until=now + 0.8, after=now + 0.8)
+            ws.update(phase="before" if use_mini() and not getattr(plan, "blind", False) else "push", until=now + 0.5, after=now + 0.5)
             return False
         if ws["phase"] == "before":                       # the small map before the push (big map closed and settled)
             img = fresh_frame()
@@ -729,7 +788,7 @@ class SubRun:
                 ws["push"] = ws["queue"].pop(0)
                 ws.update(phase="push", until=now)
                 return False
-            ws.update(phase="after" if use_mini() and not blind else "open", until=now + 0.4, after=now + ms / 1000 + 0.4)
+            ws.update(phase="after" if use_mini() and not blind else "open", until=now + 0.2, after=now + ms / 1000 + 0.2)
             return False
         if ws["phase"] == "after":                        # how far the push went, from the small map
             img = fresh_frame()

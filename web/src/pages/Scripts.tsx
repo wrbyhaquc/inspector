@@ -920,8 +920,24 @@ function WalkToEditor({ st, params, states, ops, onChange }: {
         {t('關掉地圖:點')}<TargetEditor tx={st.close ?? {}} params={params} onChange={tx => onChange(x => { x.close = tx })} /></span>
       <span className="flex flex-wrap items-center gap-1" title={t('地圖上一個固定的圖示(找圖的按鈕);下面的點都從它算起,所以地圖跟著自己移動也沒關係')}>
         {t('地圖上的基準圖示')}<TargetEditor tx={st.anchor ?? {}} params={params} onChange={tx => onChange(x => { x.anchor = tx })} /></span>
+      <div className="flex flex-col gap-1" title={t('地圖跟著自己移動時,離第一個基準圖示太遠它會跑出畫面;這時改找這些圖示。位置是它在地圖上離第一個基準圖示多遠(往右 x、往下 y)')}>
+        {(st.anchors ?? []).map((a, k) => (
+          <span key={k} className="flex flex-wrap items-center gap-1">
+            {t('其他基準圖示')}<TargetEditor tx={{ button: a.button }} params={params} onChange={tx => onChange(x => { x.anchors![k].button = (tx as { button?: string }).button ?? '' })} />
+            {t('位置')} x{num(a.x, n => onChange(x => { x.anchors![k].x = n }))}y{num(a.y, n => onChange(x => { x.anchors![k].y = n }))}
+            <button className="text-stone-500 hover:text-red-700" onClick={() => onChange(x => { x.anchors!.splice(k, 1); if (!x.anchors!.length) x.anchors = undefined })}>{t('刪除')}</button>
+          </span>
+        ))}
+        <button className="self-start text-stone-600 hover:text-stone-900" onClick={() => onChange(x => { x.anchors = [...(x.anchors ?? []), { button: '', x: 0, y: 0 }] })}>{t('+ 再加一個基準圖示')}</button>
+      </div>
       <span className="flex flex-wrap items-center gap-1" title={t('地圖上代表「自己」的記號的顏色;在地圖範圍裡找最大的一塊這種顏色')}>
         {t('「自己」的顏色')}<input type="color" value={hex} onChange={e => { const h = e.target.value; onChange(x => { x.me = { ...me, color: [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)) } }) }} />
+        {(me.more ?? []).map((c, k) => (
+          <span key={k} className="flex items-center gap-1">{t('或')}<input type="color" value={'#' + c.map(v => Math.max(0, Math.min(255, v | 0)).toString(16).padStart(2, '0')).join('')}
+            onChange={e => { const h = e.target.value; onChange(x => { const m = [...(me.more ?? [])]; m[k] = [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)); x.me = { ...me, more: m } }) }} />
+            <button className="text-stone-500 hover:text-red-700" onClick={() => onChange(x => { const m = (me.more ?? []).filter((_c, j) => j !== k); x.me = { ...me, more: m.length ? m : undefined } })}>×</button></span>
+        ))}
+        <button className="text-stone-600 hover:text-stone-900" title={t('地圖有時畫成別的樣子(例如晚上)時,「自己」的另一種顏色')} onClick={() => onChange(x => { x.me = { ...me, more: [...(me.more ?? []), [...me.color]] } })}>{t('+ 另一種顏色')}</button>
         {t('容許差')}{num(me.tol ?? 40, n => onChange(x => { x.me = { ...me, tol: n } }))}
         {t('地圖範圍 x / y / 寬 / 高')}{[0, 1, 2, 3].map(i => <span key={i}>{num(me.box[i], n => onChange(x => { const b = [...me.box]; b[i] = n; x.me = { ...me, box: b } }))}</span>)}</span>
       <div className="flex flex-col gap-1">
@@ -982,6 +998,11 @@ function WalkToEditor({ st, params, states, ops, onChange }: {
           onChange={e => onChange(x => { x.turn = e.target.value === '' ? undefined : Number(e.target.value) })} />{t('度')}
         {t('速度')}<input type="number" className={`${input} w-16 num`} placeholder={t('自動')} value={typeof st.speed === 'number' ? st.speed : ''}
           onChange={e => onChange(x => { x.speed = e.target.value === '' ? undefined : Number(e.target.value) })} />{t('像素/秒')}</span>
+      <span className="flex flex-wrap items-center gap-1" title={t('填了可走區域圖,就照它自己找路走到最後一個點(大地圖黑色的地方不能走);走通過的路線下次會一口氣走完,最後再看')}>
+        {t('可走區域圖')}<input className={`${input} w-32`} placeholder={t('不用(照上面的點走)')} value={st.area ?? ''} onChange={e => onChange(x => { x.area = e.target.value || undefined })} />
+        {st.area && <>{t('卡住幾次就放棄')}<ValueInput value={st.tries} def={3} onChange={v => onChange(x => { x.tries = v })} /></>}
+        <label className="flex items-center gap-1"><input type="checkbox" checked={st.on_fail === 'continue'} onChange={e => onChange(x => { x.on_fail = e.target.checked ? 'continue' : undefined })} />
+          {t('走不到就在原地接著做下一步(不算失敗)')}</label></span>
       <label className="flex items-center gap-1" title={t('推完看小地圖捲了多少就知道走了多遠,大地圖只在一開始、每走幾段、快到時打開確認')}>
         <input type="checkbox" checked={!!st.mini} onChange={e => onChange(x => { x.mini = e.target.checked ? { box: [1078, 130, 166, 148], mask: 14, check_every: 5 } : undefined })} />
         {t('用跟著自己的小地圖算走了多遠(少開大地圖)')}</label>

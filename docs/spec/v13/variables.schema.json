@@ -690,6 +690,30 @@
      "$ref": "#/$defs/point",
      "description": "走到地圖上的位置:地圖上的基準圖示(找圖的按鈕)"
     },
+    "anchors": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "button",
+       "x",
+       "y"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "button": {
+        "type": "string"
+       },
+       "x": {
+        "type": "number"
+       },
+       "y": {
+        "type": "number"
+       }
+      }
+     },
+     "description": "走到地圖上的位置:其他基準圖示和它們的位置(從第一個基準圖示算起);第一個不在畫面上時用"
+    },
     "me": {
      "type": "object",
      "additionalProperties": false,
@@ -706,6 +730,17 @@
        },
        "minItems": 3,
        "maxItems": 3
+      },
+      "more": {
+       "type": "array",
+       "items": {
+        "type": "array",
+        "items": {
+         "type": "integer"
+        },
+        "minItems": 3,
+        "maxItems": 3
+       }
       },
       "tol": {
        "type": "number"
@@ -830,6 +865,14 @@
     },
     "max_moves": {
      "$ref": "#/$defs/num"
+    },
+    "tries": {
+     "$ref": "#/$defs/num",
+     "description": "走到地圖上的位置(可走區域圖):卡住幾次(每次都換路繞過去)就放棄"
+    },
+    "area": {
+     "type": "string",
+     "description": "走到地圖上的位置:可走區域圖(填了就照它自己找路,走到最後一個點)"
     },
     "turn": {
      "$ref": "#/$defs/num",

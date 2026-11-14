@@ -2055,5 +2055,19 @@
  "在 ({x}, {y}),照路線直接走到第 {k} 個點({n} 段,共推 {ms} 毫秒,中途不看地圖)": "At ({x}, {y}), walking the route straight to point {k} ({n} {n|stretch|stretches}, {ms} ms of pushing, no map on the way)",
  "離「{b}」太遠(走偏了),從最近的點重新規劃": "Too far from \"{b}\" (off the way), planning again from the nearest point",
  "走到地圖上的位置:地圖方向和搖桿方向差幾度(填了就不用學)": "Walk to a place on the map: how many degrees the map's directions are turned from the control's (set: not learnt)",
- "走到地圖上的位置:推一秒在地圖上走幾個像素(填了就從這個開始)": "Walk to a place on the map: map pixels walked per second of pushing (set: starts from it)"
+ "走到地圖上的位置:推一秒在地圖上走幾個像素(填了就從這個開始)": "Walk to a place on the map: map pixels walked per second of pushing (set: starts from it)",
+ "走到地圖上的位置:其他基準圖示和它們的位置(從第一個基準圖示算起);第一個不在畫面上時用": "Walk to a place on the map: other signs and where they are (from the first sign); used when the first is not on the screen",
+ "卡住了,先退回「{a}」再重走這段": "Stuck: back to \"{a}\" first, then this stretch again",
+ "(照可走區域圖自己找路)": " (finds its own way on the walk map)",
+ "{p1}:照可走區域圖找不到走得到的路": "{p1}: no way there on the walk map",
+ "在 ({x}, {y}) 卡住了,把那裡記成走不過去,重新找路": "Stuck at ({x}, {y}): marked it as blocked, finding the way again",
+ "照可走區域圖找到路:{n} 個路徑點,約 {d} 像素": "Found the way on the walk map: {n} waypoints, about {d} px",
+ "走到地圖上的位置:可走區域圖(填了就照它自己找路,走到最後一個點)": "Walk to a place on the map: walk map (set: finds its own way on it to the last point)",
+ "路徑點 {n}": "Waypoint {n}",
+ "把 {n} 個走不過去的地方記到可走區域圖,下次會繞開": "Kept {n} blocked spot(s) on the walk map: the next walk goes round them",
+ "沒有走到,在這裡停下,接著做下一步(推了 {n} 次)": "Did not get there: stopping here and going on with the next step ({n} pushes)",
+ "走到地圖上的位置(可走區域圖):卡住幾次(每次都換路繞過去)就放棄": "Walk to a place on the map (walk map): give up after being stuck this many times (each time it tries another way round)",
+ ";這條路走通過,一口氣走完再看": "; walked through before: all the way in one go, then a look",
+ "地圖上看不到基準圖示或自己的位置": "Cannot see the sign or \"me\" on the map",
+ "接下來的路走通過,一口氣走完再看": "The rest of the way was walked through before: all of it in one go, then a look"
 }

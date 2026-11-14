@@ -12,6 +12,9 @@
                                              "max_color_diff": 0..255,      also the colours must be this close (mean
                                                  difference per channel): an enabled (gold) and a disabled (grey)
                                                  button have the same shape
+                                             "around": [x, y, w, h],        what belongs to it around its picture
+                                                 (its name text on a map): not part of the picture looked for (a
+                                                 background that changes), but left out where "me" is looked for
                                              "folder": "a/b",               where it is filed in the library (only for
                                                  the people choosing it; scripts use the id)
                                              "list": list id, "device": d}]}   a name of a list (lists.py), of one device if the list is per device
@@ -140,6 +143,8 @@ def save(data_root, b, frame_img=None):
         out["max_color_diff"] = float(b["max_color_diff"])
     if b.get("feature") in ("gray", "minch", "text"):
         out["feature"] = b["feature"]
+    if b.get("around") and len(b["around"]) == 4:
+        out["around"] = [int(v) for v in b["around"]]
     here = _here()
     if here and not out.get("list"):                  # a runtime only keeps the names of lists it walked
         raise ValueError(_("執行版只能保存清單的項目,其他按鈕要在 Studio 修改"))
@@ -162,7 +167,8 @@ def save(data_root, b, frame_img=None):
             shutil.copy2(image_path(data_root, out["id"]), img_path)
     bs = dict(load(data_root))
     bs[out["id"]] = {**bs.get(out["id"], {}), **out, "updated": time.time()}
-    for k in ("group", "folder", "device", "list", "pos", "missing_since", "feature", "scales", "min_score_scaled", "max_color_diff"):
+    for k in ("group", "folder", "device", "list", "pos", "missing_since", "feature", "scales", "min_score_scaled", "max_color_diff",
+              "around"):
         if k not in out:
             bs[out["id"]].pop(k, None)
     if not out["find"]:

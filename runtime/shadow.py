@@ -665,17 +665,50 @@ class Shadow:
         """(time it was taken, picture) of device n's newest frame - walk_to waits for one taken after a push."""
         return self.cur_frame_t.get(n), self.cur_frames.get(n)
 
-    def map_me(self, n, anchor, me):
-        """walk_to (automation/mapnav.py): ((anchor x, y), (me x, y)) on device n's screen now, or None."""
+    def map_me(self, n, anchor, me, others=()):
+        """walk_to (automation/mapnav.py): ((anchor x, y), (me x, y)) on device n's screen now, or None.
+        others: the walk's other anchors - where they show, they are left out of the search for "me" too (a sign with
+        a label in the same colour as "me")."""
         from automation import mapnav
         a = self.resolve_point(n, anchor) if anchor else None
         if not a or not me:
             return None
-        b = buttons_mod.load(self.data_root).get((anchor or {}).get("button")) or {}
-        w, h = (b.get("box") or [0, 0, 24, 24])[2:]
-        ex = [a[0] - w // 2 - 6, a[1] - h // 2 - 6, w + 12, h + 12]          # the anchor itself may be the same colour
-        m = mapnav.find_me(self.cur_frames.get(n), me.get("box"), me.get("color"), me.get("tol", 40), me.get("min_px", 6), [ex])
+        lib = buttons_mod.load(self.data_root)
+        exclude, own, labels = [], [], []
+        frame = self.cur_frames.get(n)
+        for t, p in [(anchor, a)] + [(o, None) for o in others or () if o and o != anchor]:
+            b = lib.get((t or {}).get("button")) or {}
+            p = p or (self.resolve_point(n, t) if b.get("find") else None)
+            if not p:
+                continue
+            bx, by, w, h = b.get("box") or [p[0] - 12, p[1] - 12, 24, 24]
+            ox, oy = p[0] - (b.get("x", p[0]) - bx), p[1] - (b.get("y", p[1]) - by)   # its box where it was found
+            exclude.append([ox - 6, oy - 6, w + 12, h + 12])     # (the sign and its label may be the colour of "me")
+            if b.get("around"):                                  # its name text etc. (not in its picture)
+                ax, ay, aw, ah = b["around"]
+                labels.append([ax + ox - bx - 3, ay + oy - by - 3, aw + 6, ah + 6])
+                exclude.append(labels[-1])
+            pic = self._sign_pic(b.get("id"))
+            px = mapnav.sign_pixels(frame, pic, (ox, oy)) if pic is not None and frame is not None else None
+            if px:
+                own.append(px)                                   # its own pixels only: "me" standing on it shows
+        args = (me.get("box"), me.get("color"), me.get("tol", 40), me.get("min_px", 6))
+        more = me.get("more") or ()
+        m = mapnav.find_me(frame, *args, exclude, more) or mapnav.find_me(frame, *args, labels, more, own)
         return (a, m) if m else None
+
+    def _sign_pic(self, bid):
+        """a button's picture in the frames' colour order (RGB), cached; None when it has none"""
+        cache = self.__dict__.setdefault("_sign_pics", {})
+        path = buttons_mod.image_path(self.data_root, bid) if bid else None
+        if not path or not os.path.exists(path):
+            return None
+        key = (path, os.path.getmtime(path))
+        if key not in cache:
+            import cv2
+            img = cv2.imdecode(np.fromfile(path, np.uint8), cv2.IMREAD_COLOR)
+            cache[key] = img[:, :, ::-1].copy() if img is not None else None
+        return cache[key]
 
     def list_find(self, n, target):
         """A name of a list (lists.py) on device n's screen now -> {"point"} where it is, {"swipe": "down" | "up",
