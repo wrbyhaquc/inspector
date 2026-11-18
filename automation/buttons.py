@@ -15,6 +15,9 @@
                                              "around": [x, y, w, h],        what belongs to it around its picture
                                                  (its name text on a map): not part of the picture looked for (a
                                                  background that changes), but left out where "me" is looked for
+                                             "with": {"button", "dx", "dy", "tol"},   it counts only where that other
+                                                 find button's picture is too, dx / dy from its tap point (within tol
+                                                 px): a short name told by the icon next to it, not by any text alike
                                              "folder": "a/b",               where it is filed in the library (only for
                                                  the people choosing it; scripts use the id)
                                              "list": list id, "device": d}]}   a name of a list (lists.py), of one device if the list is per device
@@ -145,6 +148,12 @@ def save(data_root, b, frame_img=None):
         out["feature"] = b["feature"]
     if b.get("around") and len(b["around"]) == 4:
         out["around"] = [int(v) for v in b["around"]]
+    w = b.get("with") or {}
+    if w.get("button"):
+        if w["button"] == out["id"]:
+            raise ValueError(_("「旁邊要有」不能是自己"))
+        out["with"] = {"button": str(w["button"]), "dx": int(w.get("dx", 0)), "dy": int(w.get("dy", 0)),
+                       "tol": int(w.get("tol", WITH_TOL))}
     here = _here()
     if here and not out.get("list"):                  # a runtime only keeps the names of lists it walked
         raise ValueError(_("執行版只能保存清單的項目,其他按鈕要在 Studio 修改"))
@@ -168,7 +177,7 @@ def save(data_root, b, frame_img=None):
     bs = dict(load(data_root))
     bs[out["id"]] = {**bs.get(out["id"], {}), **out, "updated": time.time()}
     for k in ("group", "folder", "device", "list", "pos", "missing_since", "feature", "scales", "min_score_scaled", "max_color_diff",
-              "around"):
+              "around", "with"):
         if k not in out:
             bs[out["id"]].pop(k, None)
     if not out["find"]:
@@ -285,15 +294,62 @@ def score_at(b, frame, x, y, data_root=None, pad=12, scales=None):
         tt = t if sc == 1.0 else cv2.resize(t, None, fx=sc, fy=sc, interpolation=cv2.INTER_AREA)
         if reg.shape[0] < tt.shape[0] or reg.shape[1] < tt.shape[1]:
             continue
-        s = float(cv2.matchTemplate(reg, tt, cv2.TM_CCOEFF_NORMED).max())
+        s = float(_match(reg, tt).max())
         best = s if best is None else max(best, s)
     return best
 
 
-def locate(b, frame, data_root=None):
-    """-> ((x, y) to tap, score) for a find button in an RGB frame of the coordinate space; ((None, None), score) if not found."""
+WITH_TOL = 10        # "with": the other picture this near where it should be (px)
+WITH_PEAKS = 8       # ... tried at this many of the best places
+
+
+def _with_peak(b, r, need, sc, frame, at, data_root):
+    """"with": -> (score, bx, by) of the best place in r (>= need) where b["with"]'s button is found dx / dy from the
+    tap point, or None"""
+    w = b["with"]
+    other = load(data_root).get(w.get("button"))
+    if not other or not other.get("find"):
+        return None
+    x, y, x0, y0 = at
+    r = r.copy()
+    th, tw = int(round(b["box"][3] * sc)), int(round(b["box"][2] * sc))
+    tol = int(w.get("tol", WITH_TOL))
+    for _k in range(WITH_PEAKS):
+        _x, score, _x, (bx, by) = cv2.minMaxLoc(r)
+        if score < need:
+            return None
+        px, py = x0 + bx + round((b["x"] - x) * sc), y0 + by + round((b["y"] - y) * sc)
+        ox, oy, ow, oh = other["box"]
+        cx, cy = px + int(w.get("dx", 0)), py + int(w.get("dy", 0))       # where the other's tap point should be
+        near = {**other, "box": [cx - (other["x"] - ox), cy - (other["y"] - oy), ow, oh], "x": cx, "y": cy, "search": tol}
+        near.pop("with", None)
+        if locate(near, frame, data_root)[0][0] is not None:
+            return score, bx, by
+        r[max(0, by - th // 2):by + th // 2 + 1, max(0, bx - tw // 2):bx + tw // 2 + 1] = -1.0   # next best place
+    return None
+
+
+FLAT = 1.0    # a part of the frame with less contrast than this (std of the compared values) matches nothing
+
+
+def _match(reg, tt):
+    """normalised cross-correlation of tt over reg, where a flat part of reg (a black loading screen, an empty bar) scores 0
+    instead of the meaningless 1.0 / inf the formula gives there"""
+    r = cv2.matchTemplate(reg, tt, cv2.TM_CCOEFF_NORMED)
+    h, w = tt.shape[:2]
+    m = cv2.boxFilter(reg, cv2.CV_32F, (w, h), normalize=True, borderType=cv2.BORDER_CONSTANT)
+    m2 = cv2.boxFilter(reg * reg, cv2.CV_32F, (w, h), normalize=True, borderType=cv2.BORDER_CONSTANT)
+    var = (m2 - m * m)[h // 2:h // 2 + r.shape[0], w // 2:w // 2 + r.shape[1]]
+    r = np.nan_to_num(r, nan=0.0, posinf=0.0, neginf=0.0)
+    r[var[:r.shape[0], :r.shape[1]] < FLAT * FLAT] = 0.0
+    return r
+
+
+def locate(b, frame, data_root=None, picture=None):
+    """-> ((x, y) to tap, score) for a find button in an RGB frame of the coordinate space; ((None, None), score) if not found.
+    picture: an RGB picture to look for instead of the saved one (a button being edited, not saved yet)."""
     data_root = data_root or DATA_ROOT
-    t = _template(data_root, b)
+    t = _template(data_root, b) if picture is None else _feature(Image.fromarray(picture), b.get("feature"))
     if t is None or cv2 is None or frame is None:
         return (b["x"], b["y"]), None
     x, y, w, h = b["box"]
@@ -308,8 +364,16 @@ def locate(b, frame, data_root=None):
         tt = t if sc == 1.0 else cv2.resize(t, None, fx=sc, fy=sc, interpolation=cv2.INTER_AREA)
         if reg.shape[0] < tt.shape[0] or reg.shape[1] < tt.shape[1]:
             continue
-        _x, score, _x, (bx, by) = cv2.minMaxLoc(cv2.matchTemplate(reg, tt, cv2.TM_CCOEFF_NORMED))
+        r = _match(reg, tt)
         need = float(b.get("min_score", 0.8)) if sc == 1.0 else float(b.get("min_score_scaled", b.get("min_score", 0.8)))
+        if b.get("with"):                             # the best place where the other picture is too
+            got = _with_peak(b, r, need, sc, frame, (x, y, x0, y0), data_root)
+            if got is None:
+                best = max(best, (float(r.max()), 0, 0, sc))
+                continue
+            score, bx, by = got
+        else:
+            _x, score, _x, (bx, by) = cv2.minMaxLoc(r)
         if score > best[0]:
             best = (score, bx, by, sc)
         if score >= need and (found is None or score - need > found[0] - found[4]):
@@ -319,9 +383,33 @@ def locate(b, frame, data_root=None):
     score, bx, by, sc, _x = found
     if b.get("max_color_diff") is not None and sc == 1.0:   # same shape: also the same colours?
         h, w = t.shape[:2]
-        rgb = _rgb(data_root, b)
+        rgb = _rgb(data_root, b) if picture is None else picture.astype(np.float32)
         got = frame[y0 + by:y0 + by + h, x0 + bx:x0 + bx + w].astype(np.float32)
         if rgb is not None and got.shape == rgb.shape and float(np.abs(got - rgb).mean()) > float(b["max_color_diff"]):
             return (None, None), round(float(score), 3)
     # the tap point keeps its offset inside the picture (it may not be the picture's centre)
     return (x0 + bx + round((b["x"] - x) * sc), y0 + by + round((b["y"] - y) * sc)), round(float(score), 3)
+
+
+def try_on(b, frames, data_root=None, picture=None, rivals=()):
+    """測一測: a find button (as being edited: picture = its RGB picture if not saved yet) on recorded frames ->
+    [{"i", "x", "y", "score", "found", "rival": {"id", "label", "score"} | None}] - found where its picture fits best
+    (with min_score 0: also how close the frames it misses come); "rival": another of `rivals` (find buttons) fits at
+    least as well right there - the place may be that one instead."""
+    data_root = data_root or DATA_ROOT
+    loose = {**b, "min_score": 0.0, "min_score_scaled": 0.0}
+    out = []
+    for i, f in enumerate(frames):
+        (x, y), score = locate(loose, f, data_root, picture)
+        found = x is not None and score is not None and score >= float(b.get("min_score", 0.8))
+        rival = None
+        if x is not None and score is not None:
+            for o in rivals:
+                if o["id"] == b.get("id") or not o.get("find"):
+                    continue
+                s2 = score_at(o, f, x, y, data_root)
+                if s2 is not None and s2 >= score - 0.02 and s2 >= float(o.get("min_score", 0.8)) and (rival is None or s2 > rival["score"]):
+                    rival = {"id": o["id"], "label": o.get("label") or o["id"], "score": round(s2, 3)}
+        no_with = bool(b.get("with")) and x is None and (score or 0) >= float(b.get("min_score", 0.8))   # alike, but the
+        out.append({"i": i, "x": x, "y": y, "score": score, "found": found, "rival": rival, "no_with": no_with})  # other picture is not next to it
+    return out

@@ -296,7 +296,7 @@ class Shadow:
         self.alerts = collections.deque(maxlen=40)
         self.ctrl, self.unblocked_at = dict(CONTROL_DEFAULT), 0.0
         self.resumed_at = time.time()                         # resume requests older than this start are done
-        self.rule_states, self.rule_tpls, self.scoped = [], {}, []
+        self.rule_states, self.rule_tpls, self.scoped, self.state_ids = [], {}, [], set()
         self.galleries, self.gallery_seen = {}, {}         # name galleries judged live: sid -> Matcher; (n, sid) -> (t, entry)
         self.check_states, self.check_tpls = [], {}           # model-judged states that also have a screen rule
         self.model_only = set()                               # states set to 只用模型
@@ -789,6 +789,7 @@ class Shadow:
             self.hist.clear()
             self.recent.clear()
         self.scoped = [s for s in sch["states"] if s.get("sources")]     # states for some sources only
+        self.state_ids = {s["id"] for s in sch["states"]}     # a model head of a state taken out of the schema: not used
         # states the model was not trained on yet (or did not pass its test), but a screen rule can tell:
         # evaluate the rule on the live frame, so a new state works right away without retraining
         auto_rules.configure(sch, self.data_root)             # plugin-provided rules check the model too (arbiter)
@@ -929,6 +930,8 @@ class Shadow:
             if n in frames:
                 self.hist[n].append(preds[list(frames).index(n)])
                 st = smooth(list(self.hist[n]))
+                if self.state_ids:                              # the model may know states taken out since it learnt
+                    st = {k: v for k, v in st.items() if k in self.state_ids}
                 for v in st.values():
                     v["source"] = "model"
                 for rs in self.rule_states:                     # the rule answers these instead of the model
@@ -1104,7 +1107,7 @@ class Shadow:
                 if hs == "frozen":
                     self._stuck_snap(n, frames.get(n), st, _("畫面沒有變化:{htext}", htext=htext))
             self._stuck_check(n, frames.get(n), st, decisions, t0)
-            if hs in ("ok", "slow"):                               # the start check counts from a healthy picture
+            if self.health.ready(hs):                              # the start check counts from a picture coming in
                 self.ready_since.setdefault(n, self.clock())
             else:
                 self.ready_since.pop(n, None)

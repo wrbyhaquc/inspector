@@ -446,6 +446,7 @@
       "launch_app",
       "pick",
       "walk_to",
+      "approach",
       "capture_list",
       "wait",
       "wait_until",

@@ -17,6 +17,9 @@ Steps (nested blocks hold their own step lists):
   launch_app   {"package"}                start the app (or bring it to the front): after it was closed
   walk_to      {"open", "close", "anchor", "me", "points", "stick", "near", "push_ms", "max_moves"}   go to a place on a
                                           map in strides (automation/mapnav.py)
+  approach     {"target", "from", "stick", "near", "push_ms", "max_seconds", "until"}   push the direction control
+                                          toward a thing seen on the screen (target: a find button) until it is "near"
+                                          px from where "me" stands on the screen ("from") or "until" holds
   pick         {"target", "max_swipes", "settle"}   a name of a list (a place, an account): scroll the list until it
                                           shows, tap it once it has stayed put "settle" seconds (the list glides on)
   wait         {"seconds"}
@@ -59,14 +62,14 @@ from . import VAR_MODES, _read, _write, spec, values
 from .conds import check as check_cond
 from i18n import N_, _
 
-STEP_TYPES = {"tap": N_("點擊"), "long_press": N_("長按"), "swipe": N_("滑動"), "back": N_("返回鍵"), "input_text": N_("輸入文字"), "launch_app": N_("啟動 App"), "pick": N_("在清單中找到並點擊"), "walk_to": N_("走到地圖上的位置"), "capture_list": N_("擷取清單(掃描新項目)"), "wait": N_("等待秒數"),
+STEP_TYPES = {"tap": N_("點擊"), "long_press": N_("長按"), "swipe": N_("滑動"), "back": N_("返回鍵"), "input_text": N_("輸入文字"), "launch_app": N_("啟動 App"), "pick": N_("在清單中找到並點擊"), "walk_to": N_("走到地圖上的位置"), "approach": N_("走向畫面上的目標"), "capture_list": N_("擷取清單(掃描新項目)"), "wait": N_("等待秒數"),
               "wait_until": N_("等到條件成立"), "if": N_("如果…否則"), "retry": N_("失敗就重試"), "repeat_until": N_("重複直到"),
               "for_each": N_("對每一個…"),
               "call": N_("呼叫子腳本"), "call_item": N_("照目錄項目做"), "set_var": N_("設定變數"), "notify": N_("通知"), "ask": N_("問使用者"), "output": N_("送到輸出"),
               "succeed": N_("結束(成功)"), "fail": N_("結束(失敗)"),
               "goto": N_("切換情境"), "stop": N_("停下這台"), "stay": N_("原地等著(不動作)"), "hold": N_("暫停其他腳本")}
 # how the step menu is grouped on the page
-STEP_GROUPS = [(N_("操作畫面"), ["tap", "long_press", "swipe", "back", "input_text", "pick", "walk_to", "launch_app", "capture_list"]),
+STEP_GROUPS = [(N_("操作畫面"), ["tap", "long_press", "swipe", "back", "input_text", "pick", "walk_to", "approach", "launch_app", "capture_list"]),
                (N_("等待"), ["wait", "wait_until"]),
                (N_("判斷與重複"), ["if", "repeat_until", "for_each", "retry"]),
                (N_("呼叫與結束"), ["call", "call_item", "succeed", "fail", "stop", "goto"]),
@@ -287,6 +290,8 @@ def _describe_step(st, names, subs=None, params=None):
                         for k, v in (st.get("args") or {}).items())
         return _("呼叫子腳本「{name}」", name=name) + (_("({n})", n=args) if args else "") + \
             {"continue": _("(失敗也繼續)"), "stop": _("(失敗就停下這台)")}.get(st.get("on_fail"), "")
+    if t == "approach":
+        return _("走向畫面上的目標{label} {target}", label=label, target=point_text(st.get("target"), params))
     if t == "walk_to":
         n = len(st.get("points") or [])
         if st.get("area"):
@@ -423,6 +428,18 @@ def _check_steps(steps, sub, lib, states, path, allowed=None, var_names=None):
             raise ValueError(_("{where}:子腳本失敗時要怎麼做?", where=where))
         if t in ("tap", "long_press", "pick"):
             _check_point(st.get("target"), params, where)
+        if t == "approach":
+            if not (st.get("target") and st.get("from")):
+                raise ValueError(_("{where}:請設定要走向的目標(找圖的按鈕)和自己在畫面上的位置", where=where))
+            _check_point(st.get("target"), params, where)
+            _check_point(st.get("from"), params, where)
+            if not all(k in (st.get("stick") or {}) for k in ("x", "y", "r")):
+                raise ValueError(_("{where}:請設定方向控制(搖桿)的位置", where=where))
+            num("near", 120, 1, 2000, _("多近算到要在 1~2000 像素"))
+            num("push_ms", 600, 100, 5000, _("每次推的毫秒數要在 100~5000"))
+            num("max_seconds", 20, 1, 600, _("最多秒數要在 1~600"))
+            if st.get("until"):
+                _check_when(st["until"], states, where, var_names, params)
         if t == "launch_app" and values.is_ref(st.get("package")):
             values.check(st["package"], where, "text", params=params, settings=decls, var_names=var_names, states=states)
         elif t == "launch_app" and not re.fullmatch(r"[A-Za-z0-9_.]+", st.get("package") or _app()):

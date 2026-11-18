@@ -30,6 +30,11 @@ DRIVE_BLOCKED = 10     # ... stopped having gone less than this (map px): blocke
 DRIVE_PASS = 12        # ... a point of the way this near (reckoned): on to the next
 DRIVE_TURN = 4         # ... the control turned when the way to go differs this much (degrees)
 MOVE_CHUNK_MS = 3000   # walk_to on a walk map: a long push is sent in parts this long (dropped when stopped)
+APPROACH_NEAR = 120    # approach (走向畫面上的目標): this near "me" on the screen (px) = got there ...
+APPROACH_MS = 600      # ... a push this long at a time (half as long when close) ...
+APPROACH_S = 20        # ... given up after this long ...
+APPROACH_LOST_S = 3    # ... or once the thing has not been seen this long ...
+APPROACH_BLIND = 3     # ... (lost from sight - behind something on the screen: this many pushes on the way it was last seen)
 STILL_S = 1.0          # ... the view standing still this long while pushing: stopped by something
 
 UNSURE_WAIT = 5        # seconds an "if" may wait for the model to become sure before failing
@@ -124,7 +129,7 @@ class _Frame:
         self.on_item_fail = kw.get("on_item_fail", "fail")
 
 
-QUICK_STEPS = {"tap", "long_press", "swipe", "back", "wait", "walk_to"}   # may go on between two ticks (SubRun.quick)
+QUICK_STEPS = {"tap", "long_press", "swipe", "back", "wait", "walk_to", "approach"}   # may go on between two ticks (SubRun.quick)
 
 class SubRun:
     """One sub-script running on one device (with whatever it calls). origin = the rule that started it."""
@@ -567,6 +572,74 @@ class SubRun:
         ps["fut"] = executor.submit(self.device, "swipe", x1=x, y1=y1, x2=x, y2=y2, ms=900)
         ps["until"] = now + 1.3
         return False
+
+    def _approach(self, f, st, args, now, executor, names, log, params):
+        """approach (走向畫面上的目標): push the direction control toward a thing seen on the screen (a find button), a
+        short push at a time, looking again after each, until it is near where "me" stands on the screen ("from") or
+        the condition "until" holds - for things that answer a tap only from close by (a door, an object)."""
+        from . import mapnav
+        env = self._venv(args)
+        ap = getattr(f, "appr", None)
+        if not ap or ap["t0"] != f.step_t0:              # a new approach step
+            ap = f.appr = {"t0": f.step_t0, "after": now, "fut": None, "lost": None, "pushes": 0, "angle": None, "blind": 0}
+            log(describe_step(st, names, self.lib, params), "step")
+        if ap["fut"] is not None:                         # the push being sent
+            if not ap["fut"].done():
+                return False
+            try:
+                ap["fut"].result()
+            except Exception as e:
+                ap["fut"] = None
+                self._fail(_("動作送不出去:{e}", e=e), now, log)
+                return True
+            ap["fut"] = None
+
+        def arrived():
+            log(_("走到了(推了 {n} 次)", n=ap["pushes"]), "step")
+            self._next(f, now)
+            return True
+        if now - f.step_t0 > V.number(st.get("max_seconds", APPROACH_S), env, APPROACH_S):
+            self._fail(_("{p1}:{s} 秒內沒有走到", p1=describe_step(st, names, self.lib, params),
+                         s=V.number(st.get("max_seconds", APPROACH_S), env, APPROACH_S)), now, log)
+            return True
+        got = self._env.latest_frame(self.device) if self._env is not None and hasattr(self._env, "latest_frame") else (None, None)
+        if got[0] is None or got[0] < ap["after"]:        # a frame taken after the last push (it moved since)
+            return False
+        if st.get("until") and self._cond(f, st["until"], now) == engine.MATCH:
+            return arrived()
+        p = self._point(st.get("target"), args)
+        stick = st.get("stick") or {}
+        ms = V.integer(st.get("push_ms", APPROACH_MS), env, APPROACH_MS)
+
+        def push(angle, ms):
+            end = mapnav.stick_end(stick, angle)
+            ap["fut"] = executor.submit(self.device, "swipe", x1=int(stick["x"]), y1=int(stick["y"]), x2=end[0], y2=end[1], ms=int(ms))
+            ap["pushes"] += 1
+            ap["after"] = now + ms / 1000 + 0.4
+            return False
+        if not p and ap["angle"] is not None and ap["blind"] < APPROACH_BLIND:   # gone behind something on the screen
+            ap["blind"] += 1                              # (a bar at the top): on the way it was last seen
+            return push(ap["angle"], ms)
+        if not p:
+            ap["lost"] = ap["lost"] or now
+            if now - ap["lost"] < APPROACH_LOST_S:        # hidden for a moment (someone walking past)
+                return False
+            self._fail(_("{p1}:畫面上看不到目標", p1=describe_step(st, names, self.lib, params)), now, log)
+            return True
+        ap["lost"], ap["blind"] = None, 0
+        me = self._point(st.get("from"), args)
+        if not me:
+            self._fail(_("{p1}:沒有設定自己在畫面上的位置", p1=describe_step(st, names, self.lib, params)), now, log)
+            return True
+        dx, dy = p[0] - me[0], p[1] - me[1]
+        dist = math.hypot(dx, dy)
+        near = V.number(st.get("near", APPROACH_NEAR), env, APPROACH_NEAR)
+        if dist <= near:
+            return arrived()
+        if dist < 2 * near:
+            ms = max(150, ms // 2)
+        ap["angle"] = math.atan2(dy, dx)
+        return push(ap["angle"], ms)
 
     def _walk(self, f, st, args, now, executor, names, log, params):
         """walk_to (automation/mapnav.py): look at the big map, push the control, again. With "mini" (the small map that
@@ -1059,6 +1132,8 @@ class SubRun:
             return self._pick(f, st, args, now, executor, names, log, params)
         if t == "walk_to":
             return self._walk(f, st, args, now, executor, names, log, params)
+        if t == "approach":
+            return self._approach(f, st, args, now, executor, names, log, params)
         if t == "wait":
             secs = V.number(st.get("seconds", 1), self._venv(args), None)
             if secs is None:

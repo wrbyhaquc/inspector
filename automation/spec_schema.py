@@ -67,7 +67,7 @@ DEFS = {
         "on_enter": {"oneOf": [{"$ref": "#/$defs/steps"}, {"type": "null"}], "description": N_("進入這個情境時做一次的步驟")},
         "max_seconds": {"type": ["number", "null"]}, "on_timeout": {"type": "string"}}},
     "step": {"type": "object", "required": ["type"], "additionalProperties": False, "properties": {
-        "type": {"enum": ["tap", "long_press", "swipe", "back", "input_text", "launch_app", "pick", "walk_to", "capture_list", "wait",
+        "type": {"enum": ["tap", "long_press", "swipe", "back", "input_text", "launch_app", "pick", "walk_to", "approach", "capture_list", "wait",
                           "wait_until", "if", "retry", "repeat_until", "for_each", "call", "call_item", "set_var", "notify", "output",
                           "succeed", "fail", "ask", "goto", "stop", "stay", "hold"]},
         "situation": {"type": "string", "description": N_("切換情境:要切到的情境")},

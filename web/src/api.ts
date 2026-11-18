@@ -381,6 +381,20 @@ export interface LibButton {
   id: string; label: string; x: number; y: number; find?: boolean; box?: number[]; search?: number; min_score?: number; updated?: number
   feature?: 'gray' | 'minch' | 'text'; group?: string; device?: string; list?: string
   folder?: string                         // where it is filed in the library: "a/b"
+  scales?: number[]; min_score_scaled?: number   // also look for the picture this much bigger / smaller
+  max_color_diff?: number                 // the colours must be this close too
+  around?: number[]                       // what belongs to it around its picture (not looked for)
+  with?: { button: string; dx: number; dy: number; tol?: number }   // counts only where that other picture is too
+}
+export interface WalkMapInfo {
+  id: string; label: string; origin: [number, number]; size: [number, number]; marks: [number, number, number][]
+  proven: number; speed?: number | null; has_bg: boolean; updated?: number
+}
+export interface WalkMapMake { id: string; label?: string; snap?: string; frame?: string; box: number[]; anchor: string; dark: number; merge: boolean }
+export interface ButtonTryResult {
+  frames: ({ frame: string } | { snap: string; v: number })[]
+  results: { i: number; x: number | null; y: number | null; score: number | null; found: boolean; rival: { id: string; label: string; score: number } | null; no_with?: boolean }[]
+  min_score: number
 }
 export interface TemplateInfo { id: string; kind: 'script' | 'sub' | 'guard_rules'; name: string; description: string }
 export type ArgItem = ScriptPoint | number | string
@@ -809,6 +823,15 @@ export const api = {
   buttonDelete: (id: string) => req<{ deleted: string }>('DELETE', `/api/buttons/${id}`),
   listCapture: (list: string, device: string) => req<{ new: string[]; known: string[] }>('POST', '/api/lists/capture', { list, device }),
   runSub: (b: { device: string; sub: string; args: Record<string, ArgValue> }) => req<{ queued: boolean }>('POST', '/api/shadow/run_sub', b),
+  buttonTry: (button: LibButton, source: { snap?: string; frame?: string }, seed = 0) =>
+    req<ButtonTryResult>('POST', '/api/buttons/try', { button, ...source, seed }),
+  buttonLocate: (button: string, source: { snap?: string; frame?: string }) =>
+    req<{ x: number | null; y: number | null; score: number | null }>('POST', '/api/buttons/locate', { button, ...source }),
+  walkmaps: () => req<WalkMapInfo[]>('GET', '/api/walkmaps'),
+  walkmapMake: (m: WalkMapMake) => req<WalkMapInfo & { anchor_at: [number, number] }>('POST', '/api/walkmaps/make', m),
+  walkmapPaint: (id: string, png: string, marks: number[][] | null, clearWays: boolean) =>
+    req<WalkMapInfo>('POST', `/api/walkmaps/${encodeURIComponent(id)}/paint`, { png, marks, clear_ways: clearWays }),
+  walkmapDelete: (id: string) => req<{ ok: boolean }>('POST', `/api/walkmaps/${encodeURIComponent(id)}/delete`, {}),
   buttonSnap: (device: string) => req<{ device: string; updated: number }>('POST', '/api/buttons/snap', { device }),
   scriptTemplate: (template: string) => req<{ kind: 'script' | 'sub' | 'guard_rules'; item: Script | SubScript | ScriptRule[] }>('POST', '/api/scripts/template', { template }),
   replayStart: (b: { session: string; device: string; start: number; minutes: number; script?: Script | null; sub_result: string }) =>
@@ -866,6 +889,7 @@ export const shadowLiveUrl = (name: string, v: number) => `/api/shadow/live/${en
 export const imageUrl = (path: string, thumb = 0) => `/api/image?${qs({ path, thumb: thumb || undefined })}`
 /** full-size JPEG copy: much faster than the PNG, for pages that flip through many frames */
 export const buttonImageUrl = (id: string, v?: number) => `/api/buttons/${id}/image?v=${v ?? 0}`
+export const walkmapImageUrl = (id: string, bg: boolean, v = 0) => `/api/walkmaps/${encodeURIComponent(id)}/image?${qs({ bg: bg ? 1 : undefined, v })}`
 export const buttonSnapUrl = (device: string, v: number) => `/api/buttons/snap/${encodeURIComponent(device)}?v=${v}`
 export const viewUrl = (path: string) => `/api/image?${qs({ path, view: 1 })}`
 export const ruleTemplateUrl = (stateId: string, file: string) => `/api/rules/templates/${stateId}/${encodeURIComponent(file)}`

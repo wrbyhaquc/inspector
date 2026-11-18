@@ -79,5 +79,12 @@ class Health:
         return state, text, changed, {"fps": fps, "age": None if age is None else round(age, 1), "ms": round(ms),
                                       "since": h["since"]}
 
+    @staticmethod
+    def ready(state):
+        """May a device start acting in this state (the start check after the runner starts / the source comes back)?
+        Frozen counts: the frames still arrive, and a screen that waits on a message (a server under maintenance, an
+        update to make) does not move - a script started then has to see that still screen and act on it."""
+        return state in ("ok", "slow", "frozen")
+
     def forget(self, n):
         self.d.pop(n, None)

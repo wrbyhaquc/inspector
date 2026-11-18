@@ -5,7 +5,7 @@ import { Fragment, createContext, useContext, useEffect, useRef, useState, type 
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   api, buttonImageUrl, buttonSnapUrl, imageUrl, isRef, shadowLiveUrl, type AnswerValue, type ArgItem, type NumVal, type ValueRef, type ArgValue, type LibButton, type Script, type ScriptCond, type ScriptPoint, type ScriptRule,
-  type ListInfo, type ReplayResult, type ScriptsInfo, type SettingDecl, type Situation, type StateDef, type SubLayout, type SubParam, type SubScript, type SubStep, type VarDef,
+  type ButtonTryResult, type ListInfo, type ReplayResult, type ScriptsInfo, type SettingDecl, type Situation, type StateDef, type SubLayout, type SubParam, type SubScript, type SubStep, type VarDef,
 } from '../api'
 import { Button, Card, Empty, ErrorText, Modal, MoreButton, Page, Pill } from '../components/ui'
 import { clock, dateTime, sessionTime } from '../lib/format'
@@ -13,6 +13,7 @@ import { DropLine, DropTarget, Grip, moveInList } from '../lib/dnd'
 import { usePersistentState } from '../lib/persist'
 import { screen, words } from '../lib/project'
 import { useSchema } from '../lib/schema'
+import { MapPointsPicker } from '../components/MapPointsPicker'
 import { TreePicker, labelPrefix, shortLabel, splitFolder, type PickItem } from '../components/TreePicker'
 import { dn, sourceIds } from '../lib/sources'
 
@@ -557,6 +558,7 @@ function stepText(st: SubStep, ctx: Ctx): string {
     case 'launch_app': tx = t('啟動 App{p1}', { p1: st.package ? `「${st.package}」` : '' }); break
     case 'pick': tx = t('在清單中找到並點擊 {p1}', { p1: pointText(st.target, info, params) }); break
     case 'walk_to': tx = (st.points ?? []).some(p => p.links?.length) ? t('走到地圖上的位置') + t('(路線網 {n} 個點)', { n: (st.points ?? []).length }) : (st.points ?? []).length > 1 ? t('走到地圖上的位置(經過 {n} 個點)', { n: (st.points ?? []).length }) : t('走到地圖上的位置'); break
+    case 'approach': tx = t('走向畫面上的目標 {p1}', { p1: pointText(st.target, info, params) }); break
     case 'capture_list': tx = t('擷取清單「{p1}」', { p1: info.lists.find(l => l.id === st.list)?.title ?? st.list }); break
     case 'wait': tx = t('等 {p1} 秒', { p1: v(st.seconds ?? 1) }); break
     case 'wait_until': {
@@ -905,12 +907,41 @@ function LinksInput({ links, onChange }: { links?: number[]; onChange: (l: numbe
     onBlur={() => { const l = text.split(/[,\s、,]+/).map(Number).filter(n => Number.isInteger(n) && n > 0); onChange(l.length ? l : undefined) }} />
 }
 
+/** approach (走向畫面上的目標): the thing to go to, where "me" stands on the screen, the direction control */
+function ApproachEditor({ st, params, states, ops, onChange }: {
+  st: SubStep; params: SubParam[]; states: StateDef[]; ops: Record<string, string>; onChange: (fn: (x: SubStep) => void) => void
+}) {
+  const stick = st.stick ?? { x: 190, y: 570, r: 60 }
+  const num = (v: number | undefined, set: (n: number) => void) =>
+    <input type="number" className={`${input} w-16 num`} value={v ?? ''} onChange={e => set(Number(e.target.value))} />
+  return (
+    <div className="basis-full flex flex-col gap-1.5 text-xs pl-6">
+      <span className="flex flex-wrap items-center gap-1" title={t('要走過去的東西(找圖的按鈕),例如門上的圖示')}>
+        {t('目標')}<TargetEditor tx={st.target ?? {}} params={params} onChange={tx => onChange(x => { x.target = tx })} />
+        <input className={`${input} w-28`} placeholder={t('說明(可不填)')} value={st.label ?? ''} onChange={e => onChange(x => { x.label = e.target.value || undefined })} /></span>
+      <span className="flex flex-wrap items-center gap-1" title={t('自己的角色在畫面上站的位置(畫面跟著自己時通常在中間)')}>
+        {t('自己在畫面上的位置')}<TargetEditor tx={st.from ?? {}} params={params} onChange={tx => onChange(x => { x.from = tx })} /></span>
+      <span className="flex flex-wrap items-center gap-1">{t('方向搖桿:中心 x / y')}{num(stick.x, n => onChange(x => { x.stick = { ...stick, x: n } }))}{num(stick.y, n => onChange(x => { x.stick = { ...stick, y: n } }))}
+        {t('推多遠')}{num(stick.r, n => onChange(x => { x.stick = { ...stick, r: n } }))}</span>
+      <span className="flex flex-wrap items-center gap-1">{t('離目標多近算到(畫面像素)')}<ValueInput value={st.near} def={120} onChange={v => onChange(x => { x.near = v })} />
+        {t('每次推')}<ValueInput value={st.push_ms} def={600} w="w-20" onChange={v => onChange(x => { x.push_ms = v })} />{t('毫秒')}
+        {t('最多')}<ValueInput value={st.max_seconds} def={20} onChange={v => onChange(x => { x.max_seconds = v })} />{t('秒')}</span>
+      <label className="flex items-center gap-1"><input type="checkbox" checked={!!st.until} onChange={e => onChange(x => { x.until = e.target.checked ? [[defaultCond(states)]] : undefined })} />
+        {t('這個條件成立就算到了(例如出現確認視窗)')}</label>
+      {st.until && <CondGroups when={st.until} states={states} ops={ops} onChange={fn => onChange(x => fn(x.until!))} />}
+      <span className="text-stone-500">{t('推一下就看一次畫面,朝目標的方向再推,直到夠近;目標一直看不到就算失敗。')}</span>
+    </div>
+  )
+}
+
 /** walk_to (走到地圖上的位置): the map, "me" on it, the points (from the anchor), the direction control */
 function WalkToEditor({ st, params, states, ops, onChange }: {
   st: SubStep; params: SubParam[]; states: StateDef[]; ops: Record<string, string>; onChange: (fn: (x: SubStep) => void) => void
 }) {
   const me = st.me ?? { color: [210, 84, 50], box: [0, 120, 1280, 500] }
   const stick = st.stick ?? { x: 190, y: 570, r: 60 }
+  const [picking, setPicking] = useState(false)
+  const anchorId = (st.anchor as { button?: string } | undefined)?.button
   const hex = '#' + me.color.map(c => Math.max(0, Math.min(255, c | 0)).toString(16).padStart(2, '0')).join('')
   const num = (v: number | undefined, set: (n: number) => void, w = 'w-16') =>
     <input type="number" className={`${input} ${w} num`} value={v ?? ''} onChange={e => set(Number(e.target.value))} />
@@ -941,7 +972,10 @@ function WalkToEditor({ st, params, states, ops, onChange }: {
         {t('容許差')}{num(me.tol ?? 40, n => onChange(x => { x.me = { ...me, tol: n } }))}
         {t('地圖範圍 x / y / 寬 / 高')}{[0, 1, 2, 3].map(i => <span key={i}>{num(me.box[i], n => onChange(x => { const b = [...me.box]; b[i] = n; x.me = { ...me, box: b } }))}</span>)}</span>
       <div className="flex flex-col gap-1">
-        <span className="text-stone-600">{t('依序走到這些點(從基準圖示算起,往右 x、往下 y,地圖上的像素)')}</span>
+        <span className="flex flex-wrap items-center gap-2"><span className="text-stone-600">{t('依序走到這些點(從基準圖示算起,往右 x、往下 y,地圖上的像素)')}</span>
+          <Button onClick={() => setPicking(!picking)}>{picking ? t('收起地圖') : t('在地圖上點')}</Button></span>
+        {picking && <MapPointsPicker anchor={anchorId} anchors={st.anchors} area={st.area} points={st.points ?? []}
+          onClose={() => setPicking(false)} onApply={pts => { onChange(x => { x.points = pts as typeof x.points }); setPicking(false) }} />}
         <span className="text-stone-500">{t('路線網:點填了「連到」(直走得到的點的編號,用逗號分開)時,這些點是一張路線網,最後一點是目的地;從最近的點出發,走最短的路,走不通的連線會換別條路')}</span>
         {(st.points ?? []).map((p, k) => (
           <span key={k} className="flex flex-wrap items-center gap-1">
@@ -1503,6 +1537,7 @@ function newStep(type: string, ctx: Ctx): SubStep {
     case 'swipe': return { type, from: { x: 640, y: 500 }, to: { x: 640, y: 300 }, ms: 400 }
     case 'walk_to': return { type, open: {}, close: {}, anchor: {}, me: { color: [210, 84, 50], tol: 45, min_px: 6, box: [0, 120, 1280, 500] },
       points: [{ x: 100, y: 0 }], stick: { x: 190, y: 570, r: 60, press: 'drag' }, near: 10, push_ms: 1500, max_moves: 40 }
+    case 'approach': return { type, target: {}, from: { x: 640, y: 330 }, stick: { x: 190, y: 570, r: 60 }, near: 120, push_ms: 600, max_seconds: 20 }
     case 'wait': return { type, seconds: 1 }
     case 'wait_until': return { type, when: cond(), timeout: 10, on_timeout: 'fail' }
     case 'if': return { type, when: cond(), then: [{ type: 'wait', seconds: 1 }], else: [] }
@@ -1543,6 +1578,7 @@ const STEP_HINT: Record<string, string> = {
   tap: t('點畫面上的按鈕或位置'), long_press: t('按住不放'), swipe: t('從一點滑到另一點'), back: t('按 Android 返回鍵'),
   input_text: t('在輸入框打字'), pick: t('在會捲動的清單裡找到名字並點它'),
   walk_to: t('看地圖上自己在哪,用方向搖桿一段一段走過去(可經過幾個點)'), launch_app: t('開啟 App(已開著就切到前面)'),
+  approach: t('看畫面上的目標在哪,用方向搖桿往它走,走到旁邊為止(例如要站在旁邊才點得動的門)'),
   capture_list: t('把清單從頭滑到尾,記下名字'), wait: t('等固定的秒數'), wait_until: t('等到畫面或數字符合條件'),
   if: t('依條件做不同的事'), repeat_until: t('重複做,直到條件成立'), for_each: t('清單裡每一個都做一次'), retry: t('裡面失敗了就重來'),
   call: t('執行另一個子腳本'), call_item: t('做目錄裡的一項(例如使用者選的地點),每一項有自己的做法'), succeed: t('到這裡就結束(算成功)'), fail: t('到這裡就結束(算失敗)'), stop: t('讓這台停下來,等你按「繼續」'),
@@ -1812,6 +1848,7 @@ function StepRow({ st, i, n, ctx, types, depth, allowed, no, path, onChange, onR
           <label className="flex items-center gap-1 text-xs" title={t('清單沒看到這個名稱時,會自己往上或往下滑來找')}>{t('最多滑')}<ValueInput value={st.max_swipes} def={25} onChange={v => onChange(x => { x.max_swipes = v })} />{t('次')}</label>
         </>}
         {st.type === 'walk_to' && <WalkToEditor st={st} params={params} states={states} ops={info.ops} onChange={onChange} />}
+        {st.type === 'approach' && <ApproachEditor st={st} params={params} states={states} ops={info.ops} onChange={onChange} />}
         {st.type === 'long_press' && <label className="flex items-center gap-1 text-xs">{t('按住')}<ValueInput value={st.ms} def={800} w="w-20" onChange={v => onChange(x => { x.ms = v })} />{t('毫秒')}</label>}
         {st.type === 'swipe' && <span className="flex flex-col gap-1 text-xs">
           <span className="flex items-center gap-1">{t('從')} <TargetEditor tx={st.from ?? {}} params={params} onChange={tx => onChange(x => { x.from = tx })} /></span>
@@ -2372,14 +2409,128 @@ export function ButtonsEditor({ info, devices, onSaved }: { info: ScriptsInfo; d
           {all.length === 0 ? <Empty>{t('還沒有按鈕')}</Empty> : !shown.length ? <Empty>{t('找不到')}</Empty> : <div className="flex flex-col">{tree([])}</div>}
         </div>
       </Card>
-      {edit && <ButtonForm key={edit.id} b={edit} isNew={!info.buttons.some(x => x.id === edit.id)} devices={devices} folders={folders}
+      {edit && <ButtonForm key={edit.id} b={edit} isNew={!info.buttons.some(x => x.id === edit.id)} devices={devices} folders={folders} library={info.buttons}
         onDone={() => { setEdit(null); onSaved() }} onCancel={() => setEdit(null)} />}
     </div>
   )
 }
 
-function ButtonForm({ b: initial, isNew, devices, folders = [], onDone, onCancel }: {
-  b: LibButton; isNew: boolean; devices: string[]; folders?: string[]; onDone: () => void; onCancel: () => void
+/** a find button's less common settings: how it is compared, other sizes, colours, what is around it, what must be next to it */
+function ButtonAdvanced({ b, setB, library }: { b: LibButton; setB: (fn: (x: LibButton) => LibButton) => void; library: LibButton[] }) {
+  const [open, setOpen] = useState(!!(b.feature || b.scales || b.max_color_diff != null || b.around || b.with))
+  const box = b.box ?? [b.x - 40, b.y - 25, 80, 50]
+  const num = (v: number | undefined, set: (n: number) => void, w = 'w-16') =>
+    <input type="number" className={`${input} ${w} num`} value={v ?? ''} onChange={e => set(Number(e.target.value))} />
+  const others = library.filter(o => o.find && o.id !== b.id)
+  return (
+    <div className="flex flex-col gap-1.5 text-xs border-t border-stone-200 pt-2">
+      <button className="self-start text-stone-600 hover:text-stone-900" onClick={() => setOpen(!open)}>{open ? '▾ ' : '▸ '}{t('進階設定(找不到或常認錯時再調)')}</button>
+      {open && <div className="flex flex-col gap-2 pl-4">
+        <label className="flex flex-wrap items-center gap-1" title={t('灰階:比形狀和明暗;最暗通道:背景換顏色也不影響;只看筆畫:文字疊在會動或很雜的畫面上時用')}>{t('比對方式')}
+          <select className={input} value={b.feature ?? ''} onChange={e => setB(x => ({ ...x, feature: (e.target.value || undefined) as LibButton['feature'] }))}>
+            <option value="">{t('灰階(形狀和明暗)')}</option><option value="minch">{t('最暗通道(背景顏色不影響)')}</option><option value="text">{t('只看筆畫(文字疊在雜亂的畫面上)')}</option>
+          </select></label>
+        <span className="flex flex-wrap items-center gap-1" title={t('同一個東西有時畫得大一點或小一點(例如走近時圖示變大):填比例,用逗號分開,1 是原本大小')}>
+          <label className="flex items-center gap-1"><input type="checkbox" checked={!!b.scales} onChange={e => setB(x => ({ ...x, scales: e.target.checked ? [1, 1.25] : undefined, min_score_scaled: e.target.checked ? x.min_score_scaled : undefined }))} />{t('也找放大或縮小的圖')}</label>
+          {b.scales && <>{t('比例')}<ScalesInput scales={b.scales} onChange={sc => setB(x => ({ ...x, scales: sc }))} />
+            {t('縮放過的相似度 ≥')}{num(b.min_score_scaled != null ? Math.round(b.min_score_scaled * 100) : undefined, n => setB(x => ({ ...x, min_score_scaled: n ? n / 100 : undefined })), 'w-14')}%</>}</span>
+        <span className="flex flex-wrap items-center gap-1" title={t('形狀一樣、顏色不同時(例如亮的和灰掉的按鈕)用:每個顏色平均差多少以內才算(0~255)')}>
+          <label className="flex items-center gap-1"><input type="checkbox" checked={b.max_color_diff != null} onChange={e => setB(x => ({ ...x, max_color_diff: e.target.checked ? 40 : undefined }))} />{t('顏色也要接近')}</label>
+          {b.max_color_diff != null && <>{t('平均差 ≤')}{num(b.max_color_diff, n => setB(x => ({ ...x, max_color_diff: n })))}</>}</span>
+        <span className="flex flex-wrap items-center gap-1" title={t('圖片旁邊屬於它、但背景會變的部分(例如地圖圖示旁的名稱文字):不拿來比對;在地圖上找「自己」時也會避開')}>
+          <label className="flex items-center gap-1"><input type="checkbox" checked={!!b.around} onChange={e => setB(x => ({ ...x, around: e.target.checked ? [box[0] - 20, box[1] - 30, box[2] + 40, 28] : undefined }))} />{t('旁邊屬於它的範圍')}</label>
+          {b.around && <>{t('左 / 上 / 寬 / 高')}{[0, 1, 2, 3].map(i => <span key={i}>{num(b.around![i], n => setB(x => { const a = [...x.around!]; a[i] = n; return { ...x, around: a } }))}</span>)}</>}</span>
+        <span className="flex flex-wrap items-center gap-1" title={t('短短的名稱容易在別處湊巧很像:要求另一張圖(例如名稱旁的圖示)也在固定的相對位置,才算找到')}>
+          <label className="flex items-center gap-1"><input type="checkbox" checked={!!b.with} onChange={e => setB(x => ({ ...x, with: e.target.checked ? { button: others[0]?.id ?? '', dx: 0, dy: 0, tol: 10 } : undefined }))} />{t('旁邊要有另一張圖')}</label>
+          {b.with && <>
+            <select className={`${input} max-w-56`} value={b.with.button} onChange={e => setB(x => ({ ...x, with: { ...x.with!, button: e.target.value } }))}>
+              {others.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+            </select>
+            {t('在點擊位置往右')}{num(b.with.dx, n => setB(x => ({ ...x, with: { ...x.with!, dx: n } })))}{t('往下')}{num(b.with.dy, n => setB(x => ({ ...x, with: { ...x.with!, dy: n } })))}
+            {t('誤差')}{num(b.with.tol ?? 10, n => setB(x => ({ ...x, with: { ...x.with!, tol: n } })), 'w-14')}{t('像素')}</>}</span>
+      </div>}
+    </div>
+  )
+}
+
+/** "1, 1.25" typed freely, read when it loses the focus */
+function ScalesInput({ scales, onChange }: { scales: number[]; onChange: (s: number[]) => void }) {
+  const [text, setText] = useState(scales.join(', '))
+  return <input className={`${input} w-24 num`} value={text} onChange={e => setText(e.target.value)}
+    onBlur={() => { const s = text.split(/[,\s、,]+/).map(Number).filter(v => v >= 0.3 && v <= 2); onChange(s.length ? s : [1]) }} />
+}
+
+/** 測一測: the button (as edited) on recorded frames and the devices' last snapshots - mark each right / wrong and get a 相似度 */
+function ButtonTryPanel({ b, src, canTry, setMin }: {
+  b: LibButton; src: { snap?: string; frame?: string } | null; canTry: boolean; setMin: (v: number) => void
+}) {
+  const [seed, setSeed] = useState(0)
+  const [marks, setMarks] = useState<Record<number, boolean>>({})
+  const run = useMutation({ mutationFn: () => api.buttonTry(b, src ? { snap: src.snap, frame: src.frame } : {}, seed),
+    onSuccess: () => { setMarks({}); setSeed(x => x + 1) } })
+  const r: ButtonTryResult | undefined = run.data
+  const min = b.min_score ?? 0.8
+  const scores = (ok: boolean) => (r?.results ?? []).filter(x => marks[x.i] === ok && x.score != null).map(x => x.score!)
+  const right = scores(true), wrong = scores(false)
+  const lo = right.length ? Math.min(...right) : null, hi = wrong.length ? Math.max(...wrong) : null
+  const suggest = lo != null && hi != null ? (lo > hi ? Math.round(((lo + hi) / 2) * 100) / 100 : null)
+    : lo != null ? Math.max(0.5, Math.round((lo - 0.05) * 100) / 100) : null
+  const K = 0.7, TW = 200, TH = 112
+  const url = (f: ButtonTryResult['frames'][number]) => 'snap' in f ? buttonSnapUrl(f.snap, f.v) : imageUrl(f.frame)
+  const sorted = [...(r?.results ?? [])].sort((a, c) => (c.score ?? -1) - (a.score ?? -1))
+  return (
+    <div className="flex flex-col gap-2 text-xs border-t border-stone-200 pt-2">
+      <span className="flex flex-wrap items-center gap-2">
+        <Button onClick={() => run.mutate()} disabled={!canTry || run.isPending}>{run.isPending ? t('測試中…') : r ? t('換一批畫面再測') : t('測一測(用錄過的畫面)')}</Button>
+        <span className="text-stone-500">{canTry ? t('拿幾十張錄過的畫面和各台最後擷取的畫面,看這個按鈕在哪裡找到、像不像') : t('先擷取一張畫面,框出按鈕的圖片')}</span>
+      </span>
+      <ErrorText error={run.error} />
+      {r && <>
+        <span className="text-stone-600">
+          {t('{n} 張裡找到 {k} 張(相似度 ≥ {min}%)', { n: r.results.length, k: r.results.filter(x => x.found).length, min: Math.round(min * 100) })}
+          {r.results.some(x => x.rival) && <span className="text-amber-700">{t(';有 {n} 張在同一處別的按鈕也一樣像(可能認錯)', { n: r.results.filter(x => x.rival).length })}</span>}
+        </span>
+        <span className="text-stone-500">{t('在每張下面標「對」或「不對」(找到的位置是不是這個按鈕),會建議相似度:比「不對」的都高、比「對」的都低。')}</span>
+        {(right.length > 0 || wrong.length > 0) && <span className="flex flex-wrap items-center gap-2">
+          {t('對的最低 {lo},不對的最高 {hi}', { lo: lo != null ? Math.round(lo * 100) + '%' : '—', hi: hi != null ? Math.round(hi * 100) + '%' : '—' })}
+          {suggest != null ? <Button variant="primary" onClick={() => setMin(suggest)}>{t('相似度設成 {v}%', { v: Math.round(suggest * 100) })}</Button>
+            : lo != null && hi != null && <span className="text-red-700">{t('對的和不對的分數重疊:試試「進階設定」換比對方式、重新框圖,或加「旁邊要有另一張圖」')}</span>}
+        </span>}
+        <div className="flex flex-wrap gap-2">
+          {sorted.map(x => {
+            const f = r.frames[x.i]
+            const cx = x.x ?? screen.w / 2, cy = x.y ?? screen.h / 2
+            const mark = marks[x.i]
+            return (
+              <div key={x.i} className={`flex flex-col gap-1 p-1 rounded border ${x.found ? 'border-emerald-400' : 'border-stone-200'}`} style={{ width: TW + 10 }}>
+                <div className="relative bg-stone-900 rounded overflow-hidden" style={{
+                  width: TW, height: TH, backgroundImage: `url("${url(f)}")`, backgroundRepeat: 'no-repeat',
+                  backgroundSize: `${screen.w * K}px ${screen.h * K}px`, backgroundPosition: `${-(cx * K - TW / 2)}px ${-(cy * K - TH / 2)}px`,
+                }}>
+                  {x.x != null && <span className="absolute w-4 h-4 -ml-2 -mt-2 rounded-full border-2 border-amber-400 pointer-events-none" style={{ left: TW / 2, top: TH / 2 }} />}
+                </div>
+                <span className={`num ${x.found ? 'text-emerald-700' : 'text-stone-500'}`}>
+                  {x.score != null ? Math.round(x.score * 100) + '%' : '—'} {x.found ? t('找到') : x.no_with ? t('像,但旁邊沒有另一張圖') : x.x == null ? t('沒有') : t('不夠像')}
+                  {'snap' in f && <span className="text-stone-400"> · {dn(f.snap)}</span>}
+                </span>
+                {x.rival && <span className="text-amber-700" title={t('「{label}」在這裡也有 {s}%', { label: x.rival.label, s: Math.round(x.rival.score * 100) })}>⚠ {x.rival.label}</span>}
+                {x.x != null && <span className="flex gap-1">
+                  <button className={`px-1.5 rounded border ${mark === true ? 'bg-emerald-600 text-white border-emerald-600' : 'border-stone-300'}`} onClick={() => setMarks(m => ({ ...m, [x.i]: true }))}>{t('對')}</button>
+                  <button className={`px-1.5 rounded border ${mark === false ? 'bg-red-600 text-white border-red-600' : 'border-stone-300'}`} onClick={() => setMarks(m => ({ ...m, [x.i]: false }))}>{t('不對')}</button>
+                  {mark !== undefined && <button className="text-stone-400" onClick={() => setMarks(m => { const n = { ...m }; delete n[x.i]; return n })}>×</button>}
+                </span>}
+              </div>
+            )
+          })}
+        </div>
+      </>}
+    </div>
+  )
+}
+
+
+function ButtonForm({ b: initial, isNew, devices, folders = [], library = [], onDone, onCancel }: {
+  b: LibButton; isNew: boolean; devices: string[]; folders?: string[]; library?: LibButton[]; onDone: () => void; onCancel: () => void
 }) {
   const [b, setB] = useState<LibButton>(initial)
   const [src, setSrc] = useState<{ snap?: string; frame?: string; v: number } | null>(null)
@@ -2438,6 +2589,8 @@ function ButtonForm({ b: initial, isNew, devices, folders = [], onDone, onCancel
             {!isNew && !src && <span className="text-stone-400">{t('(不重新擷取就沿用原本的圖片)')}</span>}
           </div>
         )}
+        {b.find && <ButtonAdvanced b={b} setB={setB} library={library} />}
+        {b.find && <ButtonTryPanel b={b} src={src} canTry={!!src || !isNew} setMin={v => setB(x => ({ ...x, min_score: v }))} />}
       </div>
     </Card>
   )

@@ -321,3 +321,72 @@ def plan(wm, start, goal, marks=()):
     if out:
         out[-1] = (float(goal[0]), float(goal[1]))
     return out
+
+
+# ---------------------------------------------------------------- making and editing one (可走區域圖編輯器)
+def bg_path(data_root, wid):
+    """the map picture a walk map was made from (RGB, aligned with its mask): shown under it while editing"""
+    return os.path.join(_dir(data_root), wid + ".bg.png")
+
+
+def summary(data_root, wid):
+    wm = load(data_root, wid)
+    if not wm:
+        return None
+    h, w = wm["free"].shape
+    return {"id": wid, "label": wm.get("label") or wid, "origin": wm["origin"], "size": [int(w), int(h)],
+            "marks": wm.get("marks") or [], "proven": len(wm.get("proven") or []), "speed": wm.get("speed"),
+            "has_bg": os.path.exists(bg_path(data_root, wid)), "updated": wm.get("updated")}
+
+
+def make(data_root, wid, frame, box, anchor_at, dark=DARK, label="", merge_in=False):
+    """A walk map from a big-map picture (RGB): new, or merged into the one there (what either saw walkable); the
+    marks and the ways walked through are kept. The colour picture is kept aligned with it (shown while editing)."""
+    import cv2
+    free, origin = from_frame(frame, box, anchor_at, dark)
+    x, y, w, h = [int(v) for v in box]
+    bg = np.asarray(frame)[y:y + h, x:x + w, :3].astype(np.uint8)
+    old = load(data_root, wid) if merge_in else None
+    if not old:                                   # a new one (or made again): nothing learnt on the old one is kept
+        remove(data_root, wid)
+    if old:
+        (free2, origin2) = merge((old["free"], tuple(old["origin"])), (free, origin))
+        canvas = np.zeros(free2.shape + (3,), np.uint8)
+        p = bg_path(data_root, wid)
+        if os.path.exists(p):
+            ob = cv2.cvtColor(cv2.imdecode(np.fromfile(p, np.uint8), cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB)
+            ox, oy = old["origin"][0] - origin2[0], old["origin"][1] - origin2[1]
+            canvas[oy:oy + ob.shape[0], ox:ox + ob.shape[1]] = ob[:canvas.shape[0] - oy, :canvas.shape[1] - ox]
+        nx, ny = origin[0] - origin2[0], origin[1] - origin2[1]
+        canvas[ny:ny + h, nx:nx + w] = bg
+        free, origin, bg = free2, origin2, canvas
+    meta = save(data_root, wid, free, origin, label or (old or {}).get("label") or wid, None if old else [])
+    ok, buf = cv2.imencode(".png", cv2.cvtColor(bg, cv2.COLOR_RGB2BGR))
+    buf.tofile(bg_path(data_root, wid))
+    return meta
+
+
+def paint(data_root, wid, free, marks=None, clear_ways=False):
+    """the mask as edited (True = walkable; the same size), the marks kept (or these), the ways walked through dropped"""
+    wm = load(data_root, wid)
+    if not wm:
+        raise ValueError(wid)
+    if free.shape != wm["free"].shape:
+        raise ValueError("size")
+    meta = save(data_root, wid, free, wm["origin"], wm.get("label") or wid, marks)
+    if clear_ways:
+        base = os.path.join(_dir(data_root), wid)
+        with open(base + ".json", encoding="utf-8") as f:
+            meta = json.load(f)
+        meta["proven"] = []
+        with open(base + ".json", "w", encoding="utf-8") as f:
+            json.dump(meta, f, ensure_ascii=False, indent=1)
+            f.write("\n")
+    return meta
+
+
+def remove(data_root, wid):
+    for p in (os.path.join(_dir(data_root), wid + ".json"), os.path.join(_dir(data_root), wid + ".png"), bg_path(data_root, wid)):
+        if os.path.exists(p):
+            os.remove(p)
+    _cache.pop(os.path.join(_dir(data_root), wid), None)

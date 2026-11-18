@@ -7,6 +7,7 @@ import re
 import os
 import tempfile
 import time
+import threading
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
@@ -1988,6 +1989,177 @@ def buttons_save(req: ButtonSave):
         _bad(e)
 
 
+class ButtonTry(BaseModel):
+    button: dict                     # as being edited (may not be saved yet)
+    snap: str | None = None          # its picture cut from this device's snapshot (not saved yet) ...
+    frame: str | None = None         # ... or from this recorded frame; neither: the saved picture
+    n: int = 48                      # recorded frames to try it on
+    seed: int = 0
+
+
+@app.post("/api/buttons/try")
+def buttons_try(req: ButtonTry):
+    """測一測: a find button on recorded frames (and the devices' last snapshots): where it is found on each, how well,
+    and where another button of the same folder fits as well (it may be that one) - to choose its 相似度."""
+    from automation import buttons
+    b = req.button
+    if not b.get("find") or not b.get("box"):
+        _bad(_("只有「找圖」的按鈕可以測"))
+
+    def load_img(snap, frame):
+        if snap:
+            p = os.path.join(RUNTIME_DIR, "snaps", os.path.basename(snap) + ".png")
+            return np.asarray(Image.open(p).convert("RGB")) if os.path.exists(p) else None
+        try:
+            return np.asarray(Image.open(data.abs_path(frame)).convert("RGB").resize(project.screen()))
+        except (ValueError, OSError):
+            return None
+    picture = None
+    if req.snap or req.frame:
+        src = load_img(req.snap, req.frame)
+        if src is None:
+            _bad(_("讀不到這張畫面"))
+        x, y, w, h = (int(v) for v in b["box"])
+        picture = src[y:y + h, x:x + w]
+    elif not os.path.exists(buttons.image_path(DATA_ROOT, b.get("id") or "")):
+        _bad(_("先擷取一張畫面,框出按鈕的圖片"))
+    names, imgs = [], []
+    snaps = os.path.join(RUNTIME_DIR, "snaps")
+    for f in sorted(os.listdir(snaps)) if os.path.isdir(snaps) else []:
+        if f.endswith(".png"):
+            im = load_img(f[:-4], None)
+            if im is not None:
+                names.append({"snap": f[:-4], "v": int(os.path.getmtime(os.path.join(snaps, f)))})
+                imgs.append(im)
+    for f in frames_random(min(max(1, req.n), 48), req.seed):
+        im = load_img(None, f)
+        if im is not None:
+            names.append({"frame": f})
+            imgs.append(im)
+    lib = buttons.load(DATA_ROOT)
+    folder = b.get("folder") or ""
+    rivals = [o for o in lib.values() if o.get("find") and o["id"] != b.get("id") and (o.get("folder") or "") == folder][:80]
+    res = buttons.try_on(b, imgs, DATA_ROOT, picture, rivals)
+    return {"frames": names, "results": res, "min_score": float(b.get("min_score", 0.8))}
+
+
+# ---------------- walk maps (可走區域圖, automation/walkmap.py) ----------------
+def _wid(wid):
+    if not re.fullmatch(r"[a-z][a-z0-9_]{0,40}", wid or ""):
+        _bad(_("可走區域圖代號只能用小寫英文、數字、底線,且以英文開頭"))
+    return wid
+
+
+@app.get("/api/walkmaps")
+def walkmaps_list():
+    from automation import walkmap
+    return [walkmap.summary(DATA_ROOT, w) for w in walkmap.list_ids(DATA_ROOT)]
+
+
+@app.get("/api/walkmaps/{wid}/image")
+def walkmap_image(wid: str, bg: int = 0):
+    from automation import walkmap
+    p = walkmap.bg_path(DATA_ROOT, _wid(wid)) if bg else os.path.join(DATA_ROOT, "meta", "walkmaps", _wid(wid) + ".png")
+    if not os.path.exists(p):
+        _bad(_("找不到這張圖"), 404)
+    return FileResponse(p, headers={"Cache-Control": "no-store"})
+
+
+class WalkMapMake(BaseModel):
+    id: str
+    label: str = ""
+    snap: str | None = None          # the big map: this device's snapshot ...
+    frame: str | None = None         # ... or a recorded frame
+    box: list[int]                   # the map's part of the screen [x, y, w, h]
+    anchor: str                      # the find button on the map everything is measured from
+    dark: int = 35                   # this dark (brightest colour channel) = cannot walk
+    merge: bool = False              # add to the one there (another part of the same map)
+
+
+@app.post("/api/walkmaps/make")
+def walkmap_make(req: WalkMapMake):
+    from automation import buttons, walkmap
+    wid = _wid(req.id)
+    if req.snap:
+        p = os.path.join(RUNTIME_DIR, "snaps", os.path.basename(req.snap) + ".png")
+        img = np.asarray(Image.open(p).convert("RGB")) if os.path.exists(p) else None
+    else:
+        try:
+            img = np.asarray(Image.open(data.abs_path(req.frame or "")).convert("RGB").resize(project.screen()))
+        except (ValueError, OSError):
+            img = None
+    if img is None:
+        _bad(_("讀不到這張畫面"))
+    b = buttons.load(DATA_ROOT).get(req.anchor)
+    if not b or not b.get("find"):
+        _bad(_("請選地圖上的基準圖示(找圖的按鈕)"))
+    (ax, ay), _s = buttons.locate(b, img, DATA_ROOT)
+    if ax is None:
+        _bad(_("這張畫面上找不到基準圖示「{label}」", label=b.get("label") or b["id"]))
+    x, y, w, h = (int(v) for v in req.box)
+    W, H = project.screen()
+    if not (w >= 20 and h >= 20 and x >= 0 and y >= 0 and x + w <= W and y + h <= H):
+        _bad(_("地圖範圍不正確"))
+    if req.merge and wid not in walkmap.list_ids(DATA_ROOT):
+        _bad(_("還沒有這張可走區域圖,不能合併"))
+    walkmap.make(DATA_ROOT, wid, img, [x, y, w, h], (ax, ay), int(req.dark), req.label, req.merge)
+    return walkmap.summary(DATA_ROOT, wid) | {"anchor_at": [int(ax), int(ay)]}
+
+
+class WalkMapPaint(BaseModel):
+    png: str                         # the mask as edited: a data URL / base64 PNG, white = can walk, the same size
+    marks: list[list[float]] | None = None
+    clear_ways: bool = False
+
+
+@app.post("/api/walkmaps/{wid}/paint")
+def walkmap_paint(wid: str, req: WalkMapPaint):
+    import base64
+    import io
+    from automation import walkmap
+    try:
+        raw = base64.b64decode(req.png.split(",", 1)[-1])
+        free = np.asarray(Image.open(io.BytesIO(raw)).convert("L")) >= 128
+        walkmap.paint(DATA_ROOT, _wid(wid), free, req.marks, req.clear_ways)
+    except ValueError as e:
+        _bad(_("存不了:{e}", e=e))
+    return walkmap.summary(DATA_ROOT, wid)
+
+
+@app.post("/api/walkmaps/{wid}/delete")
+def walkmap_delete(wid: str):
+    from automation import walkmap
+    walkmap.remove(DATA_ROOT, _wid(wid))
+    return {"ok": True}
+
+
+class ButtonLocate(BaseModel):
+    button: str
+    snap: str | None = None
+    frame: str | None = None
+
+
+@app.post("/api/buttons/locate")
+def buttons_locate(req: ButtonLocate):
+    """where a find button is on one picture (a device's snapshot or a recorded frame): {x, y, score}, x None = not there"""
+    from automation import buttons
+    if req.snap:
+        p = os.path.join(RUNTIME_DIR, "snaps", os.path.basename(req.snap) + ".png")
+        img = np.asarray(Image.open(p).convert("RGB")) if os.path.exists(p) else None
+    else:
+        try:
+            img = np.asarray(Image.open(data.abs_path(req.frame or "")).convert("RGB").resize(project.screen()))
+        except (ValueError, OSError):
+            img = None
+    if img is None:
+        _bad(_("讀不到這張畫面"))
+    b = buttons.load(DATA_ROOT).get(req.button)
+    if not b:
+        _bad(_("找不到這個按鈕"))
+    (x, y), score = buttons.locate(b, img, DATA_ROOT)
+    return {"x": x, "y": y, "score": score}
+
+
 class ButtonFolders(BaseModel):
     moves: dict[str, str]          # id -> "a/b" ("" = not filed)
 
@@ -3010,7 +3182,24 @@ def _start_runner_with_server():
     st = _read_json(os.path.join(RUNTIME_DIR, "status.json"), {}) or {}
     if st.get("running") and time.time() - st.get("updated", 0) < 10:
         print(_("腳本執行已經在跑(可能是另一個 Inspector),這次不再啟動一個"), flush=True)
+        # (it may be the runner of the server that was just stopped, about to end: look again in a while)
+        threading.Timer(RUNNER_RECHECK_S, _start_runner_if_gone).start()
         return
+    _start_runner_now()
+
+
+RUNNER_RECHECK_S = 20
+
+
+def _start_runner_if_gone():
+    st = _read_json(os.path.join(RUNTIME_DIR, "status.json"), {}) or {}
+    if st.get("running") and time.time() - st.get("updated", 0) < 10:
+        return
+    print(_("之前的腳本執行已經結束:啟動一個"), flush=True)
+    _start_runner_now()
+
+
+def _start_runner_now():
     last = _read_json(os.path.join(RUNTIME_DIR, RUNNER_LAST), {}) or {}
     try:
         interval = float(last.get("interval") or project.run_defaults(DATA_ROOT).get("interval") or 1.0)
