@@ -936,8 +936,9 @@ function ApproachEditor({ st, params, states, ops, onChange }: {
 }
 
 /** walk_to (走到地圖上的位置): the map, "me" on it, the points (from the anchor), the direction control */
-function WalkToEditor({ st, params, states, ops, maps, onChange }: {
+function WalkToEditor({ st, params, states, ops, maps, subs, onChange }: {
   st: SubStep; params: SubParam[]; states: StateDef[]; ops: Record<string, string>; maps: NonNullable<ScriptsInfo['maps']>
+  subs: { id: string; name: string }[]
   onChange: (fn: (x: SubStep) => void) => void
 }) {
   const newMaps = maps.filter(m => m.new)
@@ -966,6 +967,13 @@ function WalkToEditor({ st, params, states, ops, maps, onChange }: {
   if (st.map) return (
     <div className="basis-full flex flex-col gap-1.5 text-xs pl-6">
       {where}
+      <span className="flex flex-wrap items-center gap-1">
+        {(['before_sub', 'after_sub'] as const).map(k => <label key={k} className="flex items-center gap-1">{k === 'before_sub' ? t('走之前先做') : t('走到之後做')}
+          <select className={input} value={st[k] === undefined ? '*' : st[k]} onChange={e => onChange(x => { if (e.target.value === '*') delete x[k]; else x[k] = e.target.value })}>
+            <option value="*">{t('(照走路設定)')}</option><option value="">{t('(不用)')}</option>
+            {subs.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select></label>)}
+      </span>
       <span className="text-stone-500">{t('怎麼打開地圖、走之前之後要做什麼,照「素材庫 › 地圖 › 走路設定」;路線由平台照地圖自己找。')}</span>
     </div>
   )
@@ -1879,7 +1887,7 @@ function StepRow({ st, i, n, ctx, types, depth, allowed, no, path, onChange, onR
           <label className="flex items-center gap-1 text-xs" title={t('清單滑動後會慣性滑一下:看到名稱停在同一個位置這麼久,才點下去')}>{t('停穩')}<ValueInput value={st.settle} def={1} w="w-14" step={0.5} onChange={v => onChange(x => { x.settle = v })} />{t('秒才點')}</label>
           <label className="flex items-center gap-1 text-xs" title={t('清單沒看到這個名稱時,會自己往上或往下滑來找')}>{t('最多滑')}<ValueInput value={st.max_swipes} def={25} onChange={v => onChange(x => { x.max_swipes = v })} />{t('次')}</label>
         </>}
-        {st.type === 'walk_to' && <WalkToEditor st={st} params={params} states={states} ops={info.ops} maps={info.maps ?? []} onChange={onChange} />}
+        {st.type === 'walk_to' && <WalkToEditor st={st} params={params} states={states} ops={info.ops} maps={info.maps ?? []} subs={info.subs} onChange={onChange} />}
         {st.type === 'approach' && <ApproachEditor st={st} params={params} states={states} ops={info.ops} onChange={onChange} />}
         {st.type === 'long_press' && <label className="flex items-center gap-1 text-xs">{t('按住')}<ValueInput value={st.ms} def={800} w="w-20" onChange={v => onChange(x => { x.ms = v })} />{t('毫秒')}</label>}
         {st.type === 'swipe' && <span className="flex flex-col gap-1 text-xs">

@@ -22,3 +22,17 @@ def test_the_programs_own_held_finger_is_no_person_but_a_person_is():
               (5, "EV_ABS", "ABS_MT_POSITION_Y", "00000100"), (5, "EV_SYN", "SYN_REPORT", "00000000"),
               (5.1, "EV_ABS", "ABS_MT_TRACKING_ID", "ffffffff"), (5.1, "EV_SYN", "SYN_REPORT", "00000000")])
     assert r.last_event > 1000 and len(got) == 1
+
+
+def test_lifting_a_finger_that_is_not_down_is_no_person():
+    """a hold starts and ends by lifting any finger left down (none is): that is the program, not someone operating"""
+    got = []
+    r = TouchRecorder("x", got.append, "t", "adb")
+    lift = [(1, "EV_ABS", "ABS_MT_SLOT", "00000000"), (1, "EV_ABS", "ABS_MT_TRACKING_ID", "ffffffff"),
+            (1, "EV_KEY", "BTN_TOUCH", "UP"), (1, "EV_SYN", "SYN_REPORT", "00000000")]
+    _feed(r, lift)
+    assert r.last_event == 0 and not got
+    _feed(r, [(5, "EV_ABS", "ABS_MT_TRACKING_ID", "00000005"), (5, "EV_ABS", "ABS_MT_POSITION_X", "00000100"),
+              (5, "EV_ABS", "ABS_MT_POSITION_Y", "00000100"), (5, "EV_SYN", "SYN_REPORT", "00000000"),
+              (5.1, "EV_ABS", "ABS_MT_TRACKING_ID", "ffffffff"), (5.1, "EV_SYN", "SYN_REPORT", "00000000")])
+    assert r.last_event > 1000 and len(got) == 1                   # a person's tap still is one

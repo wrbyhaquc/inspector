@@ -144,6 +144,18 @@ def _write_json(path, obj):
 
 WALK_EVERY = 0.25                  # s: how often a sub-script at quick steps is looked at between two ticks
 
+def scripts_wait_for(run):
+    """(schedule name, hand-run name): what a device's run makes its main scripts wait for (guard rules never wait) -
+    a schedule that pauses the others, or something a person started by hand (a panel button, 試走, a test run), so
+    they neither undo it (e.g. send it back while it passes a safe place) nor get in its way."""
+    if not run or run.result is not None:
+        return None, None
+    o = run.origin or {}
+    if o.get("schedule"):
+        return (o.get("schedule_name") if o.get("pause_others") else None), None
+    return None, (o.get("script_name") if o.get("manual") else None)
+
+
 class Predictor:
     """The trained multi-head model: RGB frames (the coordinate space) -> {state id: {"value", "conf"}} per frame.
 
@@ -1055,7 +1067,7 @@ class Shadow:
             self._act_tick(n, st, t0, manual)
             self._schedule_tick(n, st, t0, manual, frames.get(n))
             run = self.procs.get(n)
-            sched_hold = run.origin.get("schedule_name") if run and run.origin.get("schedule") and run.origin.get("pause_others") else None
+            sched_hold, hand_hold = scripts_wait_for(run)
             # every script is evaluated on every tick, even while a sub-script has control: an urgent rule or a
             # higher-priority script must be able to step in - unless the device is stopped / paused: then nothing of
             # its scripts moves (停下來: 繼續 starts them over; 暫停: 繼續 carries on where they were)
@@ -1092,9 +1104,10 @@ class Shadow:
                 mode = automation.mode_for(sc, n)
                 if mode == "off":
                     continue
-                if sched_hold and not automation.is_guard(sc):      # a schedule runs here: the main scripts wait
+                if (sched_hold or hand_hold) and not automation.is_guard(sc):   # a schedule / a hand-started run: they wait
                     decisions.append({"script": sc["id"], "script_name": sc["name"], "mode": mode, "guard": False, "action": "none",
-                                      "text": _("排程中暫停"), "reason": _("{sched_hold}執行中,這個腳本暫停", sched_hold=sched_hold), "rule": None,
+                                      "text": _("排程中暫停") if sched_hold else _("手動執行中暫停"),
+                                      "reason": _("{sched_hold}執行中,這個腳本暫停", sched_hold=sched_hold or hand_hold), "rule": None,
                                       "stable": True, "exec": "", "tap": None})
                     continue
                 sit = self._situation(n, sc, t0, st)

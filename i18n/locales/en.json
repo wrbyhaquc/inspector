@@ -2135,5 +2135,8 @@
  "「{name}」要選哪一個?在後面打它的名字或名字的一部分,例如「{eg}」": "Which one for \"{name}\"? Type its name, or part of it, after: e.g. \"{eg}\"",
  "子腳本「{name}」沒有參數「{arg}」": "sub-script \"{name}\" has no parameter \"{arg}\"",
  "按下「{label}」:{pick}": "Pressed \"{label}\": {pick}",
- "確定現在在 {p1}「{name}」:{pick}?": "\"{name}\": {pick} on {p1} now?"
+ "確定現在在 {p1}「{name}」:{pick}?": "\"{name}\": {pick} on {p1} now?",
+ "走到地圖上的地點:走之前先做的子腳本(不填 = 照走路設定;空白 = 不做)": "Walk to a place on a map: the sub-script to run before walking (not set = the walk settings'; empty = none)",
+ "走到地圖上的地點:走到之後做的子腳本(不填 = 照走路設定;空白 = 不做)": "Walk to a place on a map: the sub-script to run after arriving (not set = the walk settings'; empty = none)",
+ "手動執行中暫停": "Waiting: something started by hand is running"
 }

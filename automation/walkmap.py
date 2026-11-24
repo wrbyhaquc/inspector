@@ -621,14 +621,15 @@ def walk_step(data_root, st):
         if len(signs) > 1:
             out["anchors"] = [{"button": g["button"], "x": g["x"], "y": g["y"]} for g in signs[1:]]
     out["points"] = [{"x": place["x"], "y": place["y"], "label": place["name"], "near": place.get("near") or PLACE_NEAR}]
-    out.update({k: v for k, v in st.items() if k not in ("map", "place", "type")})
+    out.update({k: v for k, v in st.items() if k not in ("map", "place", "type", "before_sub", "after_sub")})
     return out
 
 
 def walk_sub(data_root, st):
     """walk_to {"map", "place"} run as a sub-script of its own (made up, this run only): the walk settings' "before"
-    sub, the walk, their "after" sub"""
+    sub, the walk, their "after" sub - the step's own "before_sub" / "after_sub" instead where it has them ("" = none)"""
     s = settings(data_root)
+    s = {**s, **{k: st[k + "_sub"] for k in ("before", "after") if k + "_sub" in st}}
     place, wm = place_of(data_root, st.get("map"), st.get("place"))
     name = _("走到「{map} › {place}」", map=(wm or {}).get("label") or st.get("map"), place=(place or {}).get("name") or st.get("place"))
     steps = [{"type": "call", "sub": s["before"]}] if s.get("before") else []

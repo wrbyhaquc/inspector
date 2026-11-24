@@ -886,6 +886,14 @@
      "type": "string",
      "description": "走到地圖上的位置:地圖上的哪個地點"
     },
+    "before_sub": {
+     "type": "string",
+     "description": "走到地圖上的地點:走之前先做的子腳本(不填 = 照走路設定;空白 = 不做)"
+    },
+    "after_sub": {
+     "type": "string",
+     "description": "走到地圖上的地點:走到之後做的子腳本(不填 = 照走路設定;空白 = 不做)"
+    },
     "turn": {
      "$ref": "#/$defs/num",
      "description": "走到地圖上的位置:地圖方向和搖桿方向差幾度(填了就不用學)"

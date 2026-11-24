@@ -525,13 +525,16 @@ def _check_steps(steps, sub, lib, states, path, allowed=None, var_names=None):
             raise ValueError(_("{where}:「成立時」「否則如果」或「否則」至少要有一個步驟", where=where))
         if t == "walk_to" and st.get("map"):              # a place on a map: everything else from the map and the walk settings
             from . import walkmap, buttons
-            place, wm = walkmap.place_of(buttons.DATA_ROOT, st.get("map"), st.get("place"))
+            spot, wm = walkmap.place_of(buttons.DATA_ROOT, st.get("map"), st.get("place"))   # (not "place": that is where these steps are)
             if not wm:
                 raise ValueError(_("{where}:找不到地圖「{map}」", where=where, map=st.get("map")))
-            if not place:
+            if not spot:
                 raise ValueError(_("{where}:請選要走到地圖上的哪個地點", where=where))
             if not walkmap.settings(buttons.DATA_ROOT).get("me"):
                 raise ValueError(_("{where}:還沒設定走路的方式(素材庫 › 地圖 › 走路設定)", where=where))
+            for k in ("before_sub", "after_sub"):
+                if st.get(k) and lib is not None and st[k] not in lib:
+                    raise ValueError(_("{where}:找不到子腳本「{sub}」", where=where, sub=st[k]))
         elif t == "walk_to":
             me, stick = st.get("me") or {}, st.get("stick") or {}
             if not (st.get("open") and st.get("close") and "button" in (st.get("anchor") or {})):

@@ -462,6 +462,7 @@ export interface SubStep {
   stick?: { x: number; y: number; r: number; press?: string }
   near?: NumVal; push_ms?: NumVal; max_moves?: NumVal; turn?: NumVal; speed?: NumVal; area?: string; tries?: NumVal; until?: ScriptCond[][]
   map?: string; place?: string                                                 // walk_to: a place on a map (all else from the map)
+  before_sub?: string; after_sub?: string                                      // walk_to on a map: instead of the walk settings' ('' = none)
   mini?: { box: number[]; mask?: number; check_every?: number; min_resp?: number }
 }
 /** a catalog (目錄): named items, each a sub-script call with its arguments, filed in folders */

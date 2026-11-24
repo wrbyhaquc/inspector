@@ -84,6 +84,9 @@ def test_shoot_add_a_part_places_and_the_walk(root):
     assert st["points"] == [{"x": 600.4, "y": -20.0, "label": "倉庫", "near": walkmap.PLACE_NEAR}] and st["on_fail"] == "continue"
     sub = walkmap.walk_sub(root, {"type": "walk_to", "map": "map1", "place": "p1"})
     assert [x["type"] for x in sub["steps"]] == ["call", "walk_to"] and sub["steps"][0]["sub"] == "prepare"
+    own = walkmap.walk_sub(root, {"type": "walk_to", "map": "map1", "place": "p1", "before_sub": "", "after_sub": "talk"})
+    assert [x["type"] for x in own["steps"]] == ["walk_to", "call"] and own["steps"][1]["sub"] == "talk"   # the step's own
+    assert "after_sub" not in own["steps"][0]
     with pytest.raises(ValueError):
         walkmap.walk_step(root, {"type": "walk_to", "map": "map1", "place": "p9"})
     # the map made again from scratch: its old signs go
@@ -122,3 +125,17 @@ def test_a_sign_matched_in_the_wrong_place_is_outvoted():
     wrong = (((700, 40), (5, 5)), (30, 30))
     best, n = _agreeing([wrong] + right)
     assert n == 3 and best in right
+
+
+def test_steps_after_a_walk_to_a_place_are_checked_too(root):
+    from automation import subs
+    walkmap.shoot(root, "map1", _screen(_world(), (200, 150), me=(500, 300)), "村莊")
+    walkmap.set_places(root, "map1", [{"name": "商店", "x": 120, "y": 40}])
+    monkey = buttons.DATA_ROOT
+    try:
+        buttons.DATA_ROOT = root
+        sub = {"id": "go", "name": "去", "params": [], "steps": [
+            {"type": "walk_to", "map": "map1", "place": "p1", "after_sub": ""}, {"type": "wait", "seconds": 1}]}
+        subs.validate(sub, {}, {"states": []}, set())            # used to fail on the step after the walk
+    finally:
+        buttons.DATA_ROOT = monkey

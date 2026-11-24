@@ -2908,5 +2908,6 @@
  "(不用選,直接執行)": "(no pick, run as it is)",
  "(選選項來源)": "(choose where the options come from)",
  "只用在這一次,不會改任何設定": "Used for this run only; no setting is changed",
- "按鈕旁讓使用者選": "Let the user pick beside the button"
+ "按鈕旁讓使用者選": "Let the user pick beside the button",
+ "(照走路設定)": "(as in the walk settings)"
 }

@@ -130,6 +130,8 @@ DEFS = {
         "area": {"type": "string", "description": N_("走到地圖上的位置:可走區域圖(填了就照它自己找路,走到最後一個點)")},
         "map": {"type": "string", "description": N_("走到地圖上的位置:地圖(拍下來的地圖;和「place」一起填,其他都照地圖和走路設定)")},
         "place": {"type": "string", "description": N_("走到地圖上的位置:地圖上的哪個地點")},
+        "before_sub": {"type": "string", "description": N_("走到地圖上的地點:走之前先做的子腳本(不填 = 照走路設定;空白 = 不做)")},
+        "after_sub": {"type": "string", "description": N_("走到地圖上的地點:走到之後做的子腳本(不填 = 照走路設定;空白 = 不做)")},
         "turn": {"$ref": "#/$defs/num", "description": N_("走到地圖上的位置:地圖方向和搖桿方向差幾度(填了就不用學)")},
         "speed": {"$ref": "#/$defs/num", "description": N_("走到地圖上的位置:推一秒在地圖上走幾個像素(填了就從這個開始)")},
         "until": {"$ref": "#/$defs/when", "description": N_("走到地圖上的位置:這個條件成立就算到了(可不填)")},

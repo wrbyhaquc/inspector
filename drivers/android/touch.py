@@ -225,6 +225,9 @@ class TouchRecorder:
                     d["touches"].pop(d["slot"], None)      # not a gesture of a person
                     d["own_tail"] = True                   # (its touch key and sync after it too)
                     return True
+                if d["slot"] not in d["touches"]:          # lifting a finger that is not down: the program making
+                    d["own_tail"] = True                   # sure none is left held (before / after a hold), no person
+                    return True
                 d["own_tail"] = False
                 return False
             if v in OWN_IDS:
