@@ -10,6 +10,9 @@ import { PaintForm } from './WalkMaps'
 
 const input = 'border border-stone-300 rounded-md px-2 py-1 text-sm bg-white'
 
+const PLACE_NEAR = 20                       // (automation/walkmap.py) map px: this near a place counts as there
+const nears = (): [number, string][] => [[8, t('很準 8')], [12, t('準 12')], [20, t('一般 20')], [30, t('寬鬆 30')]]
+
 /** 地圖: a picture of a big map is all it takes - 拍下來, click the places, 試走. The signs that tell where the map is
  *  on the screen are cut from the picture by the platform; how walking is done (open the map, "me", the control) is
  *  set once for the project (走路設定). */
@@ -164,6 +167,8 @@ function MapView({ m, devices, device, setDevice }: { m: WalkMapInfo; devices: s
     g.font = 'bold 15px sans-serif'; g.lineWidth = 3
     places.forEach(p => {
       const [x, y] = [p.x - ox, p.y - oy]
+      g.setLineDash([4, 3]); g.strokeStyle = 'rgba(34,197,94,.9)'; g.lineWidth = 1.5          // how near counts as there
+      g.beginPath(); g.arc(x, y, p.near ?? PLACE_NEAR, 0, Math.PI * 2); g.stroke(); g.setLineDash([])
       g.fillStyle = tried?.place === p.id ? '#f59e0b' : '#22c55e'; g.strokeStyle = '#fff'; g.lineWidth = 2
       g.beginPath(); g.arc(x, y, 8, 0, Math.PI * 2); g.fill(); g.stroke()
       g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.75)'; g.strokeText(p.name, x + 11, y + 5); g.fillStyle = '#fff'; g.fillText(p.name, x + 11, y + 5)
@@ -227,6 +232,11 @@ function MapView({ m, devices, device, setDevice }: { m: WalkMapInfo; devices: s
                       onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditing(null) }} />
                   : <button className="flex-1 min-w-0 text-left truncate hover:underline" title={t('改名')} onClick={() => setEditing(k)}>{p.name}</button>}
                 <Button variant="primary" disabled={!m.signs.length || !device || go.isPending || (!!tried && !done && !!proc)} onClick={() => go.mutate(p)}>{t('試走')}</Button>
+                <select className={`${input} w-auto text-xs`} title={t('離地點多近就算到了(地圖上的虛線圈)。走到了卻還看不到要找的東西,就選小一點')}
+                  value={p.near ?? PLACE_NEAR} onChange={e => save.mutate(places.map((q, j) => j === k ? { ...q, near: Number(e.target.value) === PLACE_NEAR ? undefined : Number(e.target.value) } : q))}>
+                  {nears().map(([v, tx]) => <option key={v} value={v}>{tx}</option>)}
+                  {!nears().some(([v]) => v === (p.near ?? PLACE_NEAR)) && <option value={p.near}>{p.near}</option>}
+                </select>
                 <button className="text-xs text-stone-400 hover:text-red-700" onClick={() => save.mutate(places.filter((_q, j) => j !== k))}>{t('刪除')}</button>
               </div>
             ))}
