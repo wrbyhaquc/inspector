@@ -699,29 +699,48 @@ function ActionButton({ c, device, onMsg, small = false }: { c: PanelControl; de
   const who = device ? [device] : c.targets ?? []
   const isStop = kind === 'act_stop'
   const held = isStop && who.length > 0 && who.every(n => doing[n]?.held)       // 停下來 pressed before: now it says 繼續
+  // a button with a pick: what can be picked (this emulator's), the pick goes with this press only
+  const hasPick = !!c.bind?.arg
+  const picks: PanelOption[] = !hasPick ? [] : Array.isArray(c.choices) ? c.choices : (device ? (c.choices as Record<string, PanelOption[]> | undefined)?.[device] : undefined) ?? []
+  const [pick, setPick] = useState(-1)
+  const label = hasPick && picks[pick] ? `${c.label}:${picks[pick].label}` : c.label
   const press = useMutation({
-    mutationFn: (if_busy: 'ask' | 'interrupt' | 'queue') => api.panelAct({ control: c.id, device, if_busy, resume: held }),
+    mutationFn: (if_busy: 'ask' | 'interrupt' | 'queue') => api.panelAct({ control: c.id, device, if_busy, resume: held, value: hasPick ? picks[pick]?.value : undefined }),
     onSuccess: r => {
       if (Object.keys(r.busy).length) { setAsk(r.busy); return }
       setAsk(null)
       const errs = Object.entries(r.errors ?? {})
       onMsg(errs.length ? { ok: false, text: t('「{label}」:{errors}', { label: c.label, errors: errs.map(([k, v]) => `${k} ${v}`).join(t('、')) }) }
         : { ok: true, text: held ? t('{who} 恢復自動了', { who: device ?? t('全部') }) : isStop ? t('{who} 已停下來,不會再自動做事;要恢復按「繼續」', { who: device ?? t('全部') })
-          : device ? t('已經送出「{label}」給 {device},過一下就會開始', { label: c.label, device }) : t('已經送出「{label}」,過一下就會開始', { label: c.label }) })
+          : device ? t('已經送出「{label}」給 {device},過一下就會開始', { label, device }) : t('已經送出「{label}」,過一下就會開始', { label }) })
       qc.invalidateQueries({ queryKey: ['panel'] })
     },
     onError: (e: Error) => onMsg({ ok: false, text: e.message }),
   })
   const go = () => {
     const where = device ? dn(device) : (who.length ? who.map(dn).join(t('、')) : t('所有{device}', { device: words.device }))
-    if (!held && !isStop && !window.confirm(t('確定要讓 {where} 現在「{label}」嗎?', { where, label: c.label }))) return
+    if (!held && !isStop && !window.confirm(t('確定要讓 {where} 現在「{label}」嗎?', { where, label }))) return
     press.mutate('ask')
   }
   if (device && c.targets && !c.targets.includes(device)) return null      // this emulator does not take part
+  const groups = picks.reduce<[string, number[]][]>((g, o, i) => {          // by folder (a catalog's), in order
+    const f = o.folder ?? ''
+    const last = g[g.length - 1]
+    if (last && last[0] === f) last[1].push(i); else g.push([f, [i]])
+    return g
+  }, [])
   return (
     <div className="flex flex-col gap-2">
-      <Btn onClick={go} disabled={press.isPending} title={held ? t('恢復自動') : c.help} size={small ? 'sm' : 'md'} variant={held ? 'primary' : isStop ? 'danger' : small ? 'secondary' : 'primary'}>
+      <div className="flex flex-wrap items-center gap-2">
+      {hasPick && <select value={pick} onChange={e => setPick(Number(e.target.value))} aria-label={c.label} className={`${FIELD} max-w-56`}>
+        <option value={-1}>{t('(請選擇)')}</option>
+        {groups.map(([f, ix], k) => f
+          ? <optgroup key={k} label={f}>{ix.map(i => <option key={i} value={i}>{picks[i].label}</option>)}</optgroup>
+          : ix.map(i => <option key={i} value={i}>{picks[i].label}</option>))}
+      </select>}
+      <Btn onClick={go} disabled={press.isPending || (hasPick && pick < 0)} title={held ? t('恢復自動') : c.help} size={small ? 'sm' : 'md'} variant={held ? 'primary' : isStop ? 'danger' : small ? 'secondary' : 'primary'}>
         {press.isPending ? t('送出中…') : held ? <><Icon name="play" className="w-3.5 h-3.5" />{t('繼續')}</> : c.label}</Btn>
+      </div>
       {ask && (
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-[0.8125rem] flex flex-col gap-2 max-w-md">
           <div>{Object.entries(ask).map(([n, x]) => t('{n} 正在做「{p2}」{p3}', { n, p2: x.name ?? '', p3: x.loop ? `(${x.loop.split(' ').pop()})` : '' })).join(t(';'))}</div>

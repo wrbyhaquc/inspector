@@ -2126,5 +2126,14 @@
  "這台正在執行「{name}」,等它做完或先停下來": "this one is running \"{name}\": wait for it to finish or stop it first",
  "這張地圖上找不到夠清楚、不會認錯的地方當記號(地圖太空白,或範圍不對)": "no part of this map is clear and unique enough to be a sign (the map is too plain, or the area is wrong)",
  "這張畫面上認不出「{label}」:請拍和之前那張有重疊的一塊(移一點就好)": "\"{label}\" is not recognised on this screen: take a part that overlaps the earlier picture (move just a little)",
- "還沒有這張地圖,不能再加一塊": "this map does not exist yet: nothing to add a part to"
+ "還沒有這張地圖,不能再加一塊": "this map does not exist yet: nothing to add a part to",
+ "「{label}」:沒有這個選項,請重新整理頁面": "\"{label}\": no such option, reload the page",
+ "「{label}」:請先選一個": "\"{label}\": pick one first",
+ "「{label}」:請設定可以選的項目": "\"{label}\": set what can be picked",
+ "「{name}」沒有「{extra}」。": "\"{name}\" has no \"{extra}\". ",
+ "「{name}」沒有可以選的項目": "\"{name}\" has nothing to pick",
+ "「{name}」要選哪一個?在後面打它的名字或名字的一部分,例如「{eg}」": "Which one for \"{name}\"? Type its name, or part of it, after: e.g. \"{eg}\"",
+ "子腳本「{name}」沒有參數「{arg}」": "sub-script \"{name}\" has no parameter \"{arg}\"",
+ "按下「{label}」:{pick}": "Pressed \"{label}\": {pick}",
+ "確定現在在 {p1}「{name}」:{pick}?": "\"{name}\": {pick} on {p1} now?"
 }

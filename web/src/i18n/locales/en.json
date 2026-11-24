@@ -2904,5 +2904,9 @@
  "點地圖上代表自己的記號,取它的顏色": "Click the mark for yourself on the map to take its colour",
  "點地圖上要去的地方 = 新增一個地點": "Click where to go on the map = a new place",
  "點搖桿中心": "Click the joystick centre",
- "點方向搖桿的中心(紫圈)": "Click the centre of the direction joystick (purple circle)"
+ "點方向搖桿的中心(紫圈)": "Click the centre of the direction joystick (purple circle)",
+ "(不用選,直接執行)": "(no pick, run as it is)",
+ "(選選項來源)": "(choose where the options come from)",
+ "只用在這一次,不會改任何設定": "Used for this run only; no setting is changed",
+ "按鈕旁讓使用者選": "Let the user pick beside the button"
 }

@@ -2968,8 +2968,8 @@ class _ChatActions:
             out += _("\n操作面板上的(打名稱看現在的值,後面加新的值就是改):\n") + "\n".join(lines)
         return out
 
-    def panel_act(self, c, device, by):
-        r = _panel_press(c, device, "queue", False, _("聊天:{by}", by=by))
+    def panel_act(self, c, device, by, value=None):
+        r = _panel_press(c, device, "queue", False, _("聊天:{by}", by=by), value)
         from drivers.sources import label
         return "\n".join(f"{label(n)}:{v}" for n, v in r["done"].items()) or _("沒有要做這件事的機台")
 
@@ -3819,7 +3819,8 @@ def panel_get(request: Request, draft: bool = False):
                               "loop": busy[n].get("loop"), "paused": busy[n].get("paused"), "held": held.get(n, False)} if busy.get(n)
                              else {"held": True} if held.get(n) else None)
                          for n in devices}
-                out_controls.append({**c, "value": state, "choices": [], "targets": tg})
+                picks = ({n: pm.options(DATA_ROOT, c, n) for n in tg} if c.get("scope") == "device" else pm.options(DATA_ROOT, c, None))                     if c["bind"].get("arg") else []          # a button with a pick: what can be picked (per emulator)
+                out_controls.append({**c, "value": state, "choices": picks, "targets": tg})
                 continue
             if c.get("scope") == "device":
                 mine = [n for n in devices if pm.applies(c, n)]      # the devices it is for: a row / a cell each
@@ -4063,7 +4064,7 @@ def _widget_data(w, st, devices, cards, pm):
                 for a in st.get("alerts") or [] if not a.get("device") or a.get("device") in devices]
         if w.get("panel_changes"):
             for h in pm.history(DATA_ROOT, int(w["limit"])):
-                what = _("按下「{label}」", label=h['label']) if h.get("action") else _("改了「{label}」", label=h['label'])
+                what = (_("按下「{label}」:{pick}", label=h['label'], pick=h['pick']) if h.get("pick") else _("按下「{label}」", label=h['label'])) if h.get("action") else _("改了「{label}」", label=h['label'])
                 rows.append({"t": h["t"], "device": h.get("device"), "text": _("操作面板:{what}", what=what), "level": "panel"})
         rows.sort(key=lambda r: -r["t"])
         return {"rows": rows[:int(w["limit"])]}
@@ -4442,8 +4443,13 @@ def panel_definition():
             "source_kinds": [{"kind": k, "label": v.get("label", k), "category": v.get("category"), "category_label": v.get("category_label")}
                              for k, v in __import__("drivers").describe().items()],
             "main_scripts": [{"id": sc["id"], "name": sc["name"]} for sc in automation.load_all(DATA_ROOT) if not automation.is_guard(sc)],
-            # sub-scripts a panel button can run as they are (no argument without a default)
-            "runnable_subs": [{"id": s["id"], "name": s["name"]} for s in lib.values() if all(p.get("default") is not None for p in s.get("params") or [])],
+            # sub-scripts a panel button can run: as they are (no argument without a default), or with one argument the
+            # user picks beside the button (its params, for the editor to choose which)
+            "runnable_subs": [{"id": s["id"], "name": s["name"], "params": [{"name": p["name"], "label": p.get("label") or p["name"],
+                                                                              "type": p.get("type"), "required": p.get("default") is None}
+                                                                             for p in s.get("params") or []]}
+                              for s in lib.values() if sum(1 for p in s.get("params") or [] if p.get("default") is None) <= 1],
+            "catalogs": [{"id": x["id"], "name": x.get("name") or x["id"]} for x in __import__("automation.catalogs", fromlist=["x"]).load(DATA_ROOT).values()],
             "buttons": [{"id": b["id"], "label": b["label"], "group": b.get("group"), "device": b.get("device"), "list": b.get("list")} for b in bm.load(DATA_ROOT).values()
                         ],
             "lists": [{"id": x["id"], "title": x.get("title") or x["id"], "per_device": bool(x.get("per_device"))}
@@ -4603,6 +4609,7 @@ class PanelAct(BaseModel):
     device: str | None = None
     if_busy: str = "ask"
     resume: bool = False                    # a 停下來 button pressed again: 繼續
+    value: Any = None                       # a button with a pick: what was picked (this run only)
 
 
 @app.post("/api/panel/act")
@@ -4613,10 +4620,10 @@ def panel_act(req: PanelAct):
     c = next((x for x in pnl.get("controls", []) if x["id"] == req.control and x.get("type") == "action"), None)
     if not c:
         _bad(_("找不到這個按鈕,請重新整理頁面"))
-    return _panel_press(c, req.device, req.if_busy, req.resume, _("面板:{label}", label=c['label']))
+    return _panel_press(c, req.device, req.if_busy, req.resume, _("面板:{label}", label=c['label']), req.value)
 
 
-def _panel_press(c, device, if_busy, resume, by):
+def _panel_press(c, device, if_busy, resume, by, value=None):
     """Press a panel button (the page or a chat): on the emulator it is for, or every one it acts on."""
     from . import panel as pm
     pnl = pm.load(DATA_ROOT)
@@ -4630,6 +4637,10 @@ def _panel_press(c, device, if_busy, resume, by):
     if not targets:
         _bad(_("沒有要做這件事的{p1}", p1=project.word("device")))
     kind = {"act_schedule": "schedule", "act_sub": "sub", "act_situation": "situation", "act_stop": "stop"}[b["kind"]]
+    try:
+        args = pm.pick_value(DATA_ROOT, c, device, value)
+    except ValueError as e:
+        _bad(e)
     if kind == "stop" and resume:
         kind = "resume"
     if if_busy == "ask" and kind in ("schedule", "sub"):      # ask first, before anything is sent to any emulator
@@ -4643,14 +4654,15 @@ def _panel_press(c, device, if_busy, resume, by):
         if kind in ("schedule", "sub", "situation") and n in held:     # it would only be refused there: say so here
             out[n] = {"error": (_("暫停中") if held[n].get("mode") == "pause" else _("已停下來")) + _(",先按「繼續」")}
             continue
-        act = Act(device=n, kind=kind, sub=b.get("sub"),
+        act = Act(device=n, kind=kind, sub=b.get("sub"), args=args,
                   id=b.get("schedule"), script=b.get("script"), situation=b.get("situation"), mode="hold",
                   if_busy="queue" if if_busy == "ask" else if_busy)
         try:
             out[n] = _act_send(act, by)
         except HTTPException as e:
             out[n] = {"error": e.detail}
-    pm.log_action(DATA_ROOT, c, device, {n: (_("已送出") if r.get("queued") else r.get("error")) for n, r in out.items()})
+    pm.log_action(DATA_ROOT, c, device, {n: (_("已送出") if r.get("queued") else r.get("error")) for n, r in out.items()},
+                  pm.pick_label(DATA_ROOT, c, device, value) if args else None)
     return {"busy": {}, "done": {n: r.get("error") or _("已送出") for n, r in out.items()},
             "errors": {n: r["error"] for n, r in out.items() if r.get("error")}}
 

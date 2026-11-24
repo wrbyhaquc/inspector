@@ -13,6 +13,24 @@ from project import word
 
 from . import panel as pm
 
+def _pick_from(sub, param):
+    """where a sub-script's argument is picked from on a panel button: the catalog it is done from (a call_item of
+    that argument), or the list the parameter names; None = the consultant chooses"""
+    if param.get("from_list"):
+        return f"list:{param['from_list']}"
+
+    def walk(steps):
+        for st in steps or []:
+            if st.get("type") == "call_item" and st.get("item") == {"param": param["name"]} and st.get("catalog"):
+                return f"catalog:{st['catalog']}"
+            for k in ("steps", "then", "else"):
+                got = walk(st.get(k))
+                if got:
+                    return got
+        return None
+    return walk(sub.get("steps"))
+
+
 GROUPS = {"setting": N_("使用者設定"), "schedule": N_("排程"), "situation": N_("情境"), "sub": N_("子腳本"),
           "variable": N_("數值"), "list": N_("清單")}
 TEMPLATES = {"full": (N_("完整"), N_("每個排程、使用者設定和情境都放上去,分成總覽、排程、設定、紀錄幾頁")),
@@ -128,9 +146,17 @@ def catalog(data_root, runtime_dir, st):
                         "add": {"block": {"title": sit["name"], "items": ["c1"]}, "controls": [_situation_control(sc, sit)]}})
     for s in subs_mod.load_all(data_root).values():
         it = {"kind": "sub", "id": s["id"], "name": s["name"], "now": ""}
-        if all(p.get("default") is not None for p in s.get("params") or []):
+        need = [p for p in s.get("params") or [] if p.get("default") is None]
+        if not need:
             it["add"] = {"block": {"title": s["name"], "items": ["c1"]}, "controls": [
                 {"id": "c1", "label": s["name"], "type": "action", "scope": "device", "bind": {"kind": "act_sub", "sub": s["id"]}}]}
+        elif len(need) == 1:                        # one argument: picked beside the button, for that run only
+            c = {"id": "c1", "label": s["name"], "type": "action", "scope": "device",
+                 "bind": {"kind": "act_sub", "sub": s["id"], "arg": need[0]["name"]}}
+            src = _pick_from(s, need[0])
+            if src:
+                c["options"] = src
+            it["add"] = {"block": {"title": s["name"], "items": ["c1"]}, "controls": [c]}
         else:
             it["why"] = _("要填參數,不能直接做成按鈕")
         out.append(it)

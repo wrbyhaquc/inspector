@@ -168,13 +168,13 @@ export interface Schedule {
 export type ScheduleOverride = { enabled?: boolean; at?: string; devices?: string[] }
 export interface ScheduleRunEntry { t: number; kind: string; text: string; frame?: string }
 export interface ScheduleRun { id: string; schedule: string; schedule_name: string; device: string; start: number; end: number | null; result: string | null; message: string; entries: ScheduleRunEntry[] }
-export interface PanelOption { label: string; value: unknown }
+export interface PanelOption { label: string; value: unknown; folder?: string }
 export interface PanelControl {
   id: string; label: string; help?: string; type: 'toggle' | 'time' | 'number' | 'multi' | 'single' | 'action'; scope?: 'global' | 'device'
   targets?: string[]                          // the emulators it is for (a per-emulator one) / a global button acts on
   devices?: string[]                          // the design: a per-emulator control only for these (ids / "#tag")
   unit?: string; min?: number; max?: number; value?: unknown; choices?: PanelOption[] | Record<string, PanelOption[]>; error?: string
-  bind?: { kind: string; [k: string]: unknown }; options?: `list:${string}` | PanelOption[]; scale?: number
+  bind?: { kind: string; [k: string]: unknown }; options?: `list:${string}` | `catalog:${string}` | PanelOption[]; scale?: number
   chat?: string; chat_off?: boolean            // its name in a chat bot / only on the page
 }
 /** what is wrong with a panel (error: it cannot be published) or worth a look, and the block it is about */
@@ -205,7 +205,9 @@ export interface PanelDefinition {
   settings: SettingDecl[]; variables: { name: string; label: string; scope?: string }[]
   states?: { id: string; name: string; type: string }[]
   widgets: Record<string, string>; widget_defaults: Record<string, Record<string, unknown>>; modes: Record<string, string>
-  main_scripts: { id: string; name: string }[]; runnable_subs: { id: string; name: string }[]
+  main_scripts: { id: string; name: string }[]
+  runnable_subs: { id: string; name: string; params?: { name: string; label: string; type?: string; required: boolean }[] }[]
+  catalogs?: { id: string; name: string }[]
   acts: Record<string, string>
   scripts: { id: string; name: string; situations: { id: string; name: string }[] }[]
 }
@@ -771,7 +773,7 @@ export const api = {
   sourceKind: (kind: string, on: boolean, params: Record<string, unknown>) => req<SourceView>('POST', '/api/sources/kind', { kind, on, params }),
   sourceIgnore: (kind: string, match: string, ignore = true) => req<{ ok: boolean }>('POST', '/api/sources/ignore', { kind, match, ignore }),
   answer: (id: string, option: number) => req<{ message: string }>('POST', '/api/panel/answer', { id, option }),
-  panelAct: (b: { control: string; device?: string; if_busy?: 'ask' | 'interrupt' | 'queue'; resume?: boolean }) =>
+  panelAct: (b: { control: string; device?: string; if_busy?: 'ask' | 'interrupt' | 'queue'; resume?: boolean; value?: unknown }) =>
     req<{ busy: Record<string, { name?: string; loop?: string | null; now?: string }>; done: Record<string, string>; errors?: Record<string, string> }>('POST', '/api/panel/act', b),
   panelDeploy: (b: { block: string; script: string; device: string; mode: string }) => req<{ old: string; new: string }>('POST', '/api/panel/deploy', b),
   panelSources: () => req<PanelSources>('GET', '/api/panel/sources'),

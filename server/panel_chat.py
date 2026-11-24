@@ -76,7 +76,7 @@ def help_lines(panel):
         c = e["control"]
         dev = (_(" [機台|全部]") if c["type"] == "action" else _(" [機台]")) if c.get("scope") == "device" else ""
         what = {"toggle": _(" 開/關"), "time": _(" 時間"), "number": _(" 數字{p1}", p1=c.get('unit') or ''), "single": _(" 選項"), "multi": _(" 選項、選項")}
-        lines.append(f"{e['name']}{dev}" + ("" if c["type"] == "action" else what.get(c["type"], "")))
+        lines.append(f"{e['name']}{dev}" + ((_(" 選項") if c["bind"].get("arg") else "") if c["type"] == "action" else what.get(c["type"], "")))
     return lines
 
 
@@ -226,6 +226,8 @@ class PanelChat:
                 return {"ask": (_("確定現在在 {p1}「{name}」?", p1=_("、").join(map(L, tg)), name=e['name']), do_all)}
             btns = [(L(n), f"cmd:{e['name']} {n}") for n in tg] + ([(_("全部"), f"cmd:{e['name']} 全部")] if len(tg) > 1 else [])   # i18n: keep
             return {"text": _("「{name}」要做哪一台?", name=e['name']), "buttons": self._rows(btns)}
+        if c["bind"].get("arg"):
+            return self._press_pick(e, device, extra, devices, by)
         if extra:
             return {"text": _("「{name}」是按鈕,只要打「{name2}{p3}」", name=e['name'], name2=e['name'], p3=_(" 機台") if c.get('scope') == 'device' else '')}
         targets = pm.act_targets(self.root, c, device, devices)
@@ -235,6 +237,25 @@ class PanelChat:
         if c["bind"]["kind"] == "act_stop":                           # stopping never waits for 確認
             return {"text": do()}
         return {"ask": (_("確定現在在 {p1}「{name}」?", p1=_("、").join(map(L, targets)), name=e['name']), do)}
+
+    def _press_pick(self, e, device, extra, devices, by):
+        """a button with a pick: "名稱 [機台] 選項" - the option by its name, or a part of it that only one has"""
+        c = e["control"]
+        opts = pm.options(self.root, c, device)
+        pre = f"{e['name']} {device + ' ' if device else ''}"
+        if not opts:
+            return {"text": _("「{name}」沒有可以選的項目", name=e['name'])}
+        hit = [o for o in opts if o["label"] == extra] or [o for o in opts if extra and extra in o["label"]]
+        if len(hit) != 1:
+            shown = hit if hit else opts
+            text = (_("「{name}」沒有「{extra}」。") if extra and not hit else "").format(name=e['name'], extra=extra) +                 _("「{name}」要選哪一個?在後面打它的名字或名字的一部分,例如「{eg}」", name=e['name'], eg=pre + opts[0]["label"])
+            return {"text": text, "buttons": self._rows([(o["label"], "cmd:" + pre + o["label"]) for o in shown]) if len(shown) <= 20 else None}
+        o = hit[0]
+        targets = pm.act_targets(self.root, c, device, devices)
+        if not targets:
+            return {"text": _("沒有機台可以「{name}」", name=e['name'])}
+        do = lambda: self.env.panel_act(c, device, by, o["value"])
+        return {"ask": (_("確定現在在 {p1}「{name}」:{pick}?", p1=_("、").join(map(L, targets)), name=e['name'], pick=o["label"]), do)}
 
     def menu(self, panel, which):
         blocks = [b for b in panel.get("blocks") or []]

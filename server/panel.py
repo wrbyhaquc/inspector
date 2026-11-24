@@ -37,6 +37,11 @@ bind kinds:
   {"kind": "act_stop"}                                                      stop what the emulator is doing now
   {"kind": "act_sub", "sub"}                                                run a sub-script now (one that needs no
                                                                             arguments, e.g. 掃描帳號清單)
+  {"kind": "act_sub", "sub", "arg"} + "options"                             the same, with a pick beside the button
+                                                                            (options: [{"label", "value"}], "list:<id>"
+                                                                            or "catalog:<id>"): the value picked goes to
+                                                                            the sub's parameter arg for this run only -
+                                                                            nothing is kept (e.g. go to a place now)
 
 Where a block sits (spec v11): "place": {"x", "y", "w", "h"} on a wide screen's 12-column grid - column x (0-11),
 row y, w columns wide, h rows tall (no h = as tall as it needs); "phone": {"order", "hide"} - a phone shows one
@@ -391,7 +396,24 @@ def options(data_root, c, device):
     o = c.get("options")
     if isinstance(o, str) and o.startswith("list:"):     # every name of a list (lists.py), in list order
         return list_options(data_root, o[5:], device)
+    if isinstance(o, str) and o.startswith("catalog:"):  # every item of a catalog (catalogs.py)
+        from automation import catalogs
+        return catalogs.choices(data_root, o[8:])
     return o or []
+
+
+def pick_value(data_root, c, device, v):
+    """An action button with a pick (act_sub + "arg"): the value picked, checked against its options -> the sub's
+    arguments for this run ({} for a button without a pick)."""
+    arg = c["bind"].get("arg")
+    if c["bind"].get("kind") != "act_sub" or not arg:
+        return {}
+    if v is None or v == "":
+        raise ValueError(_("「{label}」:請先選一個", label=c['label']))
+    allowed = {json.dumps(o["value"], sort_keys=True) for o in options(data_root, c, device)}
+    if json.dumps(v, sort_keys=True) not in allowed:
+        raise ValueError(_("「{label}」:沒有這個選項,請重新整理頁面", label=c['label']))
+    return {arg: v}
 
 
 def value(data_root, c, device=None):
@@ -405,7 +427,12 @@ def value(data_root, c, device=None):
             sub = subs_mod.load_all(data_root).get(b.get("sub"))
             if not sub:
                 raise ValueError(_("這個按鈕要執行的子腳本已經不存在,請聯絡導入顧問"))
-            if any(p.get("default") is None for p in sub.get("params") or []):
+            arg = b.get("arg")
+            if arg and not any(p["name"] == arg for p in sub.get("params") or []):
+                raise ValueError(_("子腳本「{name}」沒有參數「{arg}」", name=sub['name'], arg=arg))
+            if arg and not c.get("options"):
+                raise ValueError(_("「{label}」:請設定可以選的項目", label=c['label']))
+            if any(p.get("default") is None and p["name"] != arg for p in sub.get("params") or []):
                 raise ValueError(_("子腳本「{name}」要填參數,不能直接放在面板上", name=sub['name']))
         elif kind == "act_situation":
             automation.situation(automation.load(data_root, b["script"]), b["situation"])
@@ -537,10 +564,16 @@ def act_targets(data_root, c, device, devices):
     return targets
 
 
-def log_action(data_root, c, device, result):
+def log_action(data_root, c, device, result, pick=None):
     with open(log_path(), "a", encoding="utf-8") as f:
         f.write(json.dumps({"t": time.time(), "control": c["id"], "label": c["label"], "device": device,
-                            "action": True, "result": result}, ensure_ascii=False, default=str) + "\n")
+                            "action": True, "result": result, **({"pick": pick} if pick else {})},
+                           ensure_ascii=False, default=str) + "\n")
+
+
+def pick_label(data_root, c, device, v):
+    """what a picked value is called (for the log)"""
+    return next((o["label"] for o in options(data_root, c, device) if o["value"] == v), None) if v is not None else None
 
 
 def history(data_root, limit=50):

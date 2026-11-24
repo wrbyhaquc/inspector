@@ -887,10 +887,33 @@ function ControlEditor({ c, info, open, onOpen, onChange, onMove, onDelete, firs
             </select>}
             {c.type === 'action' && <select className={input} value={c.scope ?? 'device'} onChange={e => onChange(x => { x.scope = e.target.value as 'global' | 'device' })}>
               <option value="device">{t('每台一顆按鈕')}</option><option value="global">{t('一顆按鈕,所有{device}一起', { device: words.device })}</option></select>}
-            {b.kind === 'act_sub' && <select className={input} value={String(b.sub ?? '')} onChange={e => onChange(x => { x.bind.sub = e.target.value })}>
+            {b.kind === 'act_sub' && <select className={input} value={String(b.sub ?? '')} onChange={e => onChange(x => {
+              x.bind.sub = e.target.value
+              const need = info.runnable_subs.find(s => s.id === e.target.value)?.params?.find(pm => pm.required)
+              if (need) x.bind.arg = need.name; else delete x.bind.arg     // one it must have: picked beside the button
+              if (!x.bind.arg) delete x.options
+            })}>
               {!info.runnable_subs.length && <option value="">{t('(沒有不需要參數的子腳本)')}</option>}
               {info.runnable_subs.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>}
+            {b.kind === 'act_sub' && (() => {
+              const ps = info.runnable_subs.find(s => s.id === b.sub)?.params ?? []
+              if (!ps.length) return null
+              const required = ps.find(pm => pm.required)
+              return <>
+                <label className="flex items-center gap-1">{t('按鈕旁讓使用者選')}
+                  <select className={input} value={String(b.arg ?? '')} onChange={e => onChange(x => { if (e.target.value) x.bind.arg = e.target.value; else { delete x.bind.arg; delete x.options } })}>
+                    {!required && <option value="">{t('(不用選,直接執行)')}</option>}
+                    {ps.map(pm => <option key={pm.name} value={pm.name}>{pm.label}</option>)}
+                  </select></label>
+                {!!b.arg && <label className="flex items-center gap-1" title={t('只用在這一次,不會改任何設定')}>{t('從')}
+                  <select className={input} value={typeof c.options === 'string' ? c.options : ''} onChange={e => onChange(x => { x.options = (e.target.value || undefined) as PanelControl['options'] })}>
+                    <option value="">{t('(選選項來源)')}</option>
+                    {(info.catalogs ?? []).map(ct => <option key={ct.id} value={`catalog:${ct.id}`}>{t('目錄:{name}', { name: ct.name })}</option>)}
+                    {info.lists.map(l => <option key={l.id} value={`list:${l.id}`}>{t('清單:{title}', { title: l.title })}{l.per_device ? t('(這台的)') : t('(全部)')}</option>)}
+                  </select></label>}
+              </>
+            })()}
             {b.kind !== 'entry_arg' && b.kind !== 'act_situation' && b.kind !== 'act_stop' && b.kind !== 'setting' && b.kind !== 'act_sub' && <select className={input} value={String(b.schedule ?? '')} onChange={e => onChange(x => {
               x.bind.schedule = e.target.value
               if (x.bind.kind === 'schedule_arg') { const s = info.schedules.find(y => y.id === e.target.value); x.bind.param = s?.params[0]?.name; suggest('schedule_arg', undefined, s?.params[0])(x) }
