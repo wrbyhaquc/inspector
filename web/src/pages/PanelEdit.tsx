@@ -771,6 +771,12 @@ function WidgetEditor({ w, info, onChange }: { w: PanelWidget; info: PanelDefini
       {!info.variables.length && <span className="text-xs text-amber-700">{t('方案包還沒有變數(在主腳本的「變數」新增)')}</span>}
       <span className="text-xs text-stone-500">{t('每台各自的變數列成一張表,全部共用的只顯示一個值;看起來像時間的數字會顯示成時間。')}</span>
     </div>
+    case 'plans': return <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap gap-3"><span className="text-stone-600">{t('開放哪些可以排的事(都不勾 = 全部):')}</span>
+        {(info.plan_tasks ?? []).map(x => <label key={x.id} className="flex items-center gap-1"><input type="checkbox" checked={ids('tasks').includes(x.id)} onChange={e => pick('tasks', x.id, e.target.checked)} />{x.name}</label>)}</div>
+      {!(info.plan_tasks ?? []).length && <span className="text-xs text-amber-700">{t('方案包還沒有可以排的事(素材庫 › 可以排的事)')}</span>}
+      <span className="text-xs text-stone-500">{t('使用者替每台各自排一週的行程:星期幾、幾點、做哪件事、選什麼;可以只做一次,或維持到下一筆。')}</span>
+    </div>
     case 'log': return <div className="flex flex-wrap items-center gap-4">{limit}{flag('panel_changes', t('也列出使用者在面板上的修改'))}
       <span className="text-xs text-stone-500">{t('紀錄包含:排程開始/結束、緊急規則、失敗與提醒')}</span></div>
     case 'chat': return <div className="flex flex-col gap-2">

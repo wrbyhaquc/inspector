@@ -208,6 +208,7 @@ export interface PanelDefinition {
   main_scripts: { id: string; name: string }[]
   runnable_subs: { id: string; name: string; params?: { name: string; label: string; type?: string; required: boolean }[] }[]
   catalogs?: { id: string; name: string }[]
+  plan_tasks?: { id: string; name: string }[]
   acts: Record<string, string>
   scripts: { id: string; name: string; situations: { id: string; name: string }[] }[]
 }
@@ -226,7 +227,7 @@ export interface NotifyInfo {
   status: Record<string, { last_ok?: number; last_error?: number; error?: string; sent?: number; failed?: number }>
   types: Record<string, { label: string; help: string; listens?: boolean; fields: { name: string; label: string; secret?: boolean; placeholder?: string }[] }>
 }
-export interface PanelWidget { kind: 'devices' | 'incidents' | 'deploy' | 'schedules' | 'log' | 'chat' | 'list' | 'values'; [k: string]: unknown }
+export interface PanelWidget { kind: 'devices' | 'incidents' | 'deploy' | 'schedules' | 'log' | 'chat' | 'list' | 'values' | 'plans'; [k: string]: unknown }
 export interface ChatBot {
   id: string; name: string; type: string; label: string; enabled: boolean; state: string | null; error: string | null; invite: string | null
   paired: boolean; chat_name: string | null; allowed: { id: string; name?: string }[]; token_end: string
@@ -254,7 +255,24 @@ export interface WidgetData {
   modes?: Record<string, string>; all_modes?: Record<string, string>
   // 清單 widget: per emulator ("*" = one shared list) its names and the last walk
   title?: string; per_device?: boolean; scan?: boolean; rename?: boolean; remove?: boolean
-  by_device?: Record<string, PanelListDevice>
+  by_device?: Record<string, PanelListDevice> | Record<string, PlanDevice>
+  // 每台行程表: the things the users may plan, the project's schedules (shown), how long an entry may start late
+  tasks?: PlanTask[]; schedules?: { name: string; at?: string; days: number[]; devices: string[] }[]; window?: number; today?: number
+}
+/** 每台行程表 */
+/** 可以排的事 (design): a sub-script, what the users pick for each of its parameters, the settings a kept pick stands for */
+export interface PlanTaskDef { id: string; name: string; sub: string; pause_others?: boolean; max_minutes?: number
+  params: Record<string, { label: string; from: string; sets?: string[] }> }
+export interface PlanTasksInfo { tasks: PlanTaskDef[]
+  subs: { id: string; name: string; params: { name: string; label: string; type?: string; required: boolean; from_list?: string }[] }[]
+  settings: { id: string; label: string; pick_from?: string; scope?: string }[]
+  catalogs: { id: string; name: string }[]; lists: { id: string; title: string }[] }
+export interface PlanTask { id: string; name: string; keeps: boolean; builtin: boolean
+  params: { name: string; label: string; keeps: boolean; options: Record<string, PanelOption[]> }[] }
+export interface PlanEntry { id?: string; task: string; days: number[]; at: string; keep: boolean; enabled: boolean; args: Record<string, unknown> }
+export interface PlanDevice {
+  entries: (PlanEntry & { id: string; for: string; mine: boolean; name: string; labels: Record<string, string>; status: { code: string; text: string } })[]
+  standing: string | null; until: { day: number; at: string } | null
 }
 export interface PanelListDevice {
   scan: { t: number; total: number | null; new: string[]; missing: string[]; complete: boolean } | null
@@ -782,6 +800,10 @@ export const api = {
   panelSourcesScan: () => req<{ found: PanelSourceRow[]; errors: Record<string, string> }>('POST', '/api/panel/sources/scan'),
   panelSourcesUse: (b: { kind: string; match: string; use: boolean; name?: string }) => req<{ ok: boolean; id?: string }>('POST', '/api/panel/sources/use', b),
   panelTodoAck: (keys: string[]) => req<{ ok: boolean }>('POST', '/api/panel/todo/ack', { keys }),
+  panelPlansSave: (block: string, device: string, entries: PlanEntry[]) =>
+    req<{ entries: PlanEntry[] }>('POST', `/api/panel/plans/${encodeURIComponent(block)}`, { device, entries }),
+  planTasks: () => req<PlanTasksInfo>('GET', '/api/plan_tasks'),
+  planTasksSave: (tasks: PlanTaskDef[]) => req<{ tasks: PlanTaskDef[] }>('POST', '/api/plan_tasks', { tasks }),
   panelListItem: (block: string, b: { device: string; id: string; action: 'rename' | 'keep' | 'remove'; label?: string }) =>
     req<{ ok: boolean }>('POST', `/api/panel/list/${encodeURIComponent(block)}/item`, b),
   panelListScan: (block: string, device: string, if_busy: 'ask' | 'interrupt' | 'queue') =>

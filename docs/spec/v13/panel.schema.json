@@ -1119,7 +1119,8 @@
          "log",
          "chat",
          "list",
-         "values"
+         "values",
+         "plans"
         ]
        }
       }

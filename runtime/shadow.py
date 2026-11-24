@@ -82,7 +82,7 @@ import automation
 import schema as schema_mod
 from automation import engine
 from automation.executor import Executor
-from automation import buttons as buttons_mod, conds, lists as lists_mod, schedules, subs as subs_mod
+from automation import buttons as buttons_mod, conds, lists as lists_mod, plans, schedules, subs as subs_mod
 from automation.runner import SubRun
 from automation import outputs as outputs_mod, values
 import drivers
@@ -1637,8 +1637,10 @@ class Shadow:
         if n in self.parked:                              # a run is set aside for an urgent rule: it comes back first
             return
         run = self.procs.get(n)
-        items = schedules.effective(self.data_root, self.fast)
         self.sched_state.day_start = schedules.day_start(self.data_root)
+        # this device's own plan entries first (at the same time they go before the project's schedules), as
+        # schedules of it alone: one thing at a time, done today, max_minutes, carried on after a restart
+        items = plans.as_schedules(self.data_root, self.fast, n, plans.device_tags(n), self.sched_state.day_start) +             schedules.effective(self.data_root, self.fast)
         if run and run.origin.get("schedule"):
             s = next((x for x in items if x["id"] == run.origin["schedule"]), {})
             if run.result is None and run.paused_at is None and now - run.started - run.paused_total > float(s.get("max_minutes", 240)) * 60:

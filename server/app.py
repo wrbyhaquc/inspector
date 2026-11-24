@@ -4045,6 +4045,8 @@ def _widget_data(w, st, devices, cards, pm):
                                 for b in lists.ordered(DATA_ROOT, spec, n if spec.get("per_device") else None)]}
         return {"title": spec.get("title") or spec["id"], "per_device": bool(spec.get("per_device")), "by_device": out,
                 "scan": bool(w.get("scan_sub")), "rename": bool(w.get("rename")), "remove": bool(w.get("remove"))}
+    if kind == "plans":
+        return _plans_widget(w, st, devices)
     if kind == "schedules":
         defs = {s["id"]: s for s in sm.effective(DATA_ROOT, RUNTIME_DIR)}
         want = w.get("schedules") or [s["id"] for s in defs.values() if s.get("enabled")]
@@ -4269,6 +4271,108 @@ class PanelListItem(BaseModel):
     label: str = ""
 
 
+def _plans_widget(w, st, devices):
+    """每台行程表: the things the users may plan (with what each parameter may be, per device), each device's entries
+    with today's status, the kept one standing now and until when, and the project's schedules (shown, not edited)"""
+    import datetime
+    from automation import plans, schedules as sm
+    tasks = plans.tasks(DATA_ROOT)
+    offered = [t for t in (w.get("tasks") or [k for k in tasks if k != plans.RESET]) if t in tasks] + [plans.RESET]
+    now = time.time()
+    ds = sm.day_start(DATA_ROOT)
+    state = sm.State(os.path.join(RUNTIME_DIR, "schedules_state.json"), ds)
+    running = {d["name"]: (d.get("proc") or {}).get("schedule") for d in st.get("devices") or []}
+    out_tasks = []
+    for tid in dict.fromkeys(offered):
+        t = tasks[tid]
+        out_tasks.append({"id": tid, "name": t["name"], "keeps": plans.keeps(t), "builtin": bool(t.get("builtin")),
+                          "params": [{"name": pn, "label": p.get("label") or pn, "keeps": bool(p.get("sets")),
+                                      "options": {n: plans.options(DATA_ROOT, p, n) for n in devices}}
+                                     for pn, p in (t.get("params") or {}).items()]})
+    by_dev = {}
+    for n in devices:
+        tags = plans.device_tags(n)
+        es = plans.entries_for(RUNTIME_DIR, n, tags)
+        scheds = {s["plan"]: s for s in plans.as_schedules(DATA_ROOT, RUNTIME_DIR, n, tags, ds)}
+        rows = []
+        for e in es:
+            t = tasks.get(e["task"]) or {}
+            labels = {}
+            for pn, p in (t.get("params") or {}).items():
+                v = (e.get("args") or {}).get(pn)
+                labels[pn] = next((o["label"] for o in plans.options(DATA_ROOT, p, n) if o["value"] == v), _("(已不存在)"))
+            s = scheds.get(e["id"])
+            code, text = sm.describe(s, n, now, state, running.get(n) == s["id"]) if s else ("", "")
+            rows.append({**e, "name": t.get("name") or e["task"], "labels": labels, "status": {"code": code, "text": text},
+                         "mine": e["for"] == n})
+        stand = plans.standing(es, now)
+        nxt, when = plans.next_keep(es, now)
+        by_dev[n] = {"entries": rows, "standing": stand["id"] if stand else None,
+                     "until": {"day": datetime.datetime.fromtimestamp(when).weekday(), "at": nxt["at"]} if nxt and stand else None}
+    shown = [{"name": s["name"], "at": s.get("at"), "days": s.get("days") or [], "devices": [d for d in s.get("devices") or [] if d in devices]}
+             for s in sm.effective(DATA_ROOT, RUNTIME_DIR) if s.get("enabled", True)]
+    return {"tasks": out_tasks, "by_device": by_dev, "schedules": shown, "window": plans.WINDOW,
+            "today": datetime.datetime.fromtimestamp(now).weekday()}
+
+
+class PanelPlan(BaseModel):
+    device: str
+    entries: list[dict]
+
+
+@app.post("/api/panel/plans/{block}")
+def panel_plans_save(block: str, req: PanelPlan):
+    """每台行程表: one device's entries as the user edited them (only the things this block offers)"""
+    from . import panel as pm
+    from automation import plans
+    pnl = pm.load(DATA_ROOT)
+    b = next((x for x in pnl.get("blocks") or [] if x.get("id") == block and (x.get("widget") or {}).get("kind") == "plans"), None)
+    if not b:
+        _bad(_("找不到這個行程表,請重新整理頁面"))
+    if req.device not in _panel_devices(pnl):
+        _bad(_("請選擇是哪一台"))
+    offered = set(b["widget"].get("tasks") or list(plans.tasks(DATA_ROOT))) | {plans.RESET}
+    if any(e.get("task") not in offered for e in req.entries):
+        _bad(_("這個行程表不開放這件事"))
+    old = len(plans.plans(RUNTIME_DIR).get(req.device) or [])
+    try:
+        out = plans.save_plan(DATA_ROOT, RUNTIME_DIR, req.device, req.entries)
+    except ValueError as e:
+        _bad(e)
+    with open(pm.log_path(), "a", encoding="utf-8") as f:
+        f.write(json.dumps({"t": time.time(), "control": f"plans:{block}", "label": b.get("title") or _("行程表"), "device": req.device,
+                            "old": _("{n} 筆", n=old), "new": _("{n} 筆", n=len(out))}, ensure_ascii=False) + "\n")
+    return {"entries": out}
+
+
+@app.get("/api/plan_tasks")
+def plan_tasks_get():
+    """the things the users may plan (design), and what they may be made of"""
+    from automation import plans, subs, settings as us, catalogs, lists
+    return {"tasks": [t for t in plans.tasks(DATA_ROOT).values() if not t.get("builtin")],
+            "subs": [{"id": s["id"], "name": s["name"], "params": [{"name": p["name"], "label": p.get("label") or p["name"], "type": p.get("type"),
+                                                                    "required": p.get("default") is None, "from_list": p.get("from_list")}
+                                                                   for p in s.get("params") or []]}
+                     for s in subs.load_all(DATA_ROOT).values()],
+            "settings": [{"id": s["id"], "label": s.get("label") or s["id"], "pick_from": s.get("pick_from"), "scope": s.get("scope")}
+                         for s in us.load(DATA_ROOT).values()],
+            "catalogs": [{"id": c["id"], "name": c.get("name") or c["id"]} for c in catalogs.load(DATA_ROOT).values()],
+            "lists": [{"id": x["id"], "title": x.get("title") or x["id"]} for x in lists.load(DATA_ROOT).values()]}
+
+
+class PlanTasks(BaseModel):
+    tasks: list[dict]
+
+
+@app.post("/api/plan_tasks")
+def plan_tasks_save(req: PlanTasks):
+    from automation import plans
+    try:
+        return {"tasks": plans.save_tasks(DATA_ROOT, req.tasks)}
+    except ValueError as e:
+        _bad(e)
+
+
 @app.post("/api/panel/list/{block}/item")
 def panel_list_item(block: str, req: PanelListItem):
     from . import panel as pm
@@ -4450,6 +4554,7 @@ def panel_definition():
                                                                              for p in s.get("params") or []]}
                               for s in lib.values() if sum(1 for p in s.get("params") or [] if p.get("default") is None) <= 1],
             "catalogs": [{"id": x["id"], "name": x.get("name") or x["id"]} for x in __import__("automation.catalogs", fromlist=["x"]).load(DATA_ROOT).values()],
+            "plan_tasks": [{"id": x["id"], "name": x["name"]} for x in __import__("automation.plans", fromlist=["x"]).tasks(DATA_ROOT).values() if not x.get("builtin")],
             "buttons": [{"id": b["id"], "label": b["label"], "group": b.get("group"), "device": b.get("device"), "list": b.get("list")} for b in bm.load(DATA_ROOT).values()
                         ],
             "lists": [{"id": x["id"], "title": x.get("title") or x["id"], "per_device": bool(x.get("per_device"))}

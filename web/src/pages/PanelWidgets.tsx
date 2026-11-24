@@ -1,12 +1,12 @@
 import { locale, t } from '../i18n'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
-import { api, type ChatBot, type PanelBlock, type PanelListDevice, type WidgetData } from '../api'
+import { api, type ChatBot, type PanelBlock, type PanelListDevice, type PanelOption, type PlanDevice, type PlanEntry, type WidgetData } from '../api'
 import { dn } from '../lib/sources'
 import { words } from '../lib/project'
 import { Modal } from '../components/ui'
 import { Icon } from '../components/Icon'
-import { Section } from '../components/panelUi'
+import { Btn, FIELD, Section } from '../components/panelUi'
 
 // Watch widgets of the end users' operation panel (監看元件): what the consultant chose to show, big and plain.
 export const TONE: Record<string, string> = {
@@ -35,7 +35,8 @@ export function WidgetBlock({ b, devices, onMsg, device }: { b: PanelBlock; devi
         : kind === 'log' ? <Log data={b.data} />
         : kind === 'chat' ? <Chat data={b.data} onMsg={onMsg} />
         : kind === 'list' ? <ListWidget b={b} onMsg={onMsg} only={device} />
-        : kind === 'values' ? <Values data={b.data} devices={device ? [device] : devices} /> : null}
+        : kind === 'values' ? <Values data={b.data} devices={device ? [device] : devices} />
+        : kind === 'plans' ? <Plans b={b} devices={device ? [device] : devices} onMsg={onMsg} /> : null}
     </Section>
   )
 }
@@ -206,7 +207,7 @@ function Deploy({ b, devices, onMsg }: { b: PanelBlock; devices: string[]; onMsg
 /** a list's names on each emulator (characters, places ...): scan it, name the new ones, take out the gone ones */
 function ListWidget({ b, onMsg, only }: { b: PanelBlock; onMsg: Msg; only?: string }) {
   const d = b.data!
-  const per = d.by_device ?? {}
+  const per = (d.by_device ?? {}) as Record<string, PanelListDevice>
   const names = Object.keys(per).filter(x => !only || x === only || x === '*')
   const [cur, setCur] = useState(names[0] ?? '')
   const n = names.includes(cur) ? cur : names[0]
@@ -304,6 +305,118 @@ function NameInput({ value, disabled, onSave }: { value: string; disabled: boole
 }
 
 /** today's schedules on each emulator */
+const DAYS = () => [t('一'), t('二'), t('三'), t('四'), t('五'), t('六'), t('日')]
+const hm = (s?: string) => { const [h, m] = (s ?? '0:0').split(':').map(Number); return h * 60 + m }
+
+/** 每台行程表: one emulator's week - its entries by day and time (the project's schedules shown faintly), which kept
+ *  one stands now and until when; add, change, switch off, delete */
+function Plans({ b, devices, onMsg }: { b: PanelBlock; devices: string[]; onMsg: Msg }) {
+  const data = b.data!
+  const [dev, setDev] = useState(devices[0] ?? '')
+  const [form, setForm] = useState<PlanEntry | null>(null)
+  const [editing, setEditing] = useState<string | null>(null)
+  const qc = useQueryClient()
+  const d = (data.by_device as Record<string, PlanDevice> | undefined)?.[dev]
+  const tasks = data.tasks ?? []
+  const save = useMutation({
+    mutationFn: (entries: PlanEntry[]) => api.panelPlansSave(b.id, dev, entries),
+    onSuccess: () => { setForm(null); setEditing(null); onMsg({ ok: true, text: t('{device} 的行程已儲存', { device: dn(dev) }) }); qc.invalidateQueries({ queryKey: ['panel'] }) },
+    onError: (e: Error) => onMsg({ ok: false, text: e.message }),
+  })
+  if (!d) return <div className="text-stone-500">{t('沒有{device}', { device: words.device })}</div>
+  const mine = d.entries.filter(e => e.mine)
+  const strip = (e: PlanEntry) => ({ id: e.id, task: e.task, days: e.days, at: e.at, keep: e.keep, enabled: e.enabled, args: e.args })
+  const put = (e: PlanEntry) => save.mutate(editing ? mine.map(x => x.id === editing ? e : strip(x)) : [...mine.map(strip), e])
+  const days = DAYS()
+  const stand = d.entries.find(e => e.id === d.standing)
+  const others = (data.schedules ?? []).filter(s => s.devices.includes(dev))
+  const blank = (): PlanEntry => { const tk = tasks.find(x => !x.builtin) ?? tasks[0]; return { task: tk?.id ?? '', days: [data.today ?? 0], at: '10:00', keep: !!tk?.keeps, enabled: true, args: {} } }
+  return <div className="flex flex-col gap-3">
+    <div className="flex flex-wrap items-center gap-2">
+      {devices.length > 1 && <select className={FIELD} value={dev} onChange={e => { setDev(e.target.value); setForm(null); setEditing(null) }} aria-label={words.device}>
+        {devices.map(n => <option key={n} value={n}>{dn(n)}</option>)}</select>}
+      <span className="text-[0.8125rem] text-stone-600">{stand
+        ? t('維持中:{name}({what}){until}', { name: stand.name, what: Object.values(stand.labels).join(' · '), until: d.until ? t(',到星期{d} {at}', { d: days[d.until.day], at: d.until.at }) : '' })
+        : t('目前照平常的設定')}</span>
+      <span className="flex-1" />
+      {!form && <Btn size="sm" variant="primary" onClick={() => { setEditing(null); setForm(blank()) }}>{t('+ 新增行程')}</Btn>}
+    </div>
+    {form && <PlanForm entry={form} tasks={tasks} device={dev} busy={save.isPending} onCancel={() => { setForm(null); setEditing(null) }} onSave={put} />}
+    <div className="flex flex-col divide-y divide-stone-100 rounded-lg border border-stone-200">
+      {days.map((dn_, k) => {
+        const es = d.entries.filter(e => e.days.includes(k)).sort((x, y) => hm(x.at) - hm(y.at))
+        const ss = others.filter(s => !s.days.length || s.days.includes(k))
+        if (!es.length && !ss.length) return null
+        const items = [...es.map(e => ({ at: e.at, e })), ...ss.map(s => ({ at: s.at ?? '', s }))].sort((x, y) => hm(x.at) - hm(y.at))
+        return <div key={k} className={`flex gap-3 px-3 py-2 ${k === data.today ? 'bg-accent/5' : ''}`}>
+          <span className={`w-10 shrink-0 text-[0.8125rem] ${k === data.today ? 'font-semibold' : 'text-stone-500'}`}>{t('週{d}', { d: dn_ })}</span>
+          <div className="flex-1 min-w-0 flex flex-col gap-1">
+            {items.map((it, i) => 'e' in it && it.e ? (
+              <div key={i} className={`flex flex-wrap items-center gap-2 text-[0.8125rem] ${it.e.enabled ? '' : 'opacity-50'}`}>
+                <span className="num w-12">{it.e.at}</span>
+                <span className={`px-2 py-0.5 rounded-md ${it.e.id === d.standing ? 'bg-accent/10 text-accent font-medium' : 'bg-stone-100'}`}>
+                  {it.e.name}{Object.values(it.e.labels).length ? `:${Object.values(it.e.labels).join(' · ')}` : ''}</span>
+                {it.e.keep && it.e.task !== '_reset' && <span className="text-stone-500">{t('維持到下一筆')}</span>}
+                {!it.e.mine && <span className="text-stone-400">{t('(來自 {tag})', { tag: it.e.for })}</span>}
+                {k === data.today && it.e.status.text && <span className={`px-1.5 rounded ${CODE_TONE[it.e.status.code] ?? 'text-stone-500'}`}>{it.e.status.text}</span>}
+                {it.e.mine && <span className="ml-auto flex gap-2 text-stone-500">
+                  <button className="hover:text-stone-900" onClick={() => { setEditing(it.e!.id); setForm(strip(it.e!)) }}>{t('修改')}</button>
+                  <button className="hover:text-stone-900" onClick={() => save.mutate(mine.map(x => x.id === it.e!.id ? { ...strip(x), enabled: !x.enabled } : strip(x)))}>{it.e.enabled ? t('關掉') : t('打開')}</button>
+                  <button className="hover:text-rose-700" onClick={() => save.mutate(mine.filter(x => x.id !== it.e!.id).map(strip))}>{t('刪除')}</button></span>}
+              </div>) : 's' in it && it.s ? (
+              <div key={i} className="flex items-center gap-2 text-[0.8125rem] text-stone-400">
+                <span className="num w-12">{it.s.at}</span><span>{t('{name}(全平台排程)', { name: it.s.name })}</span></div>) : null)}
+          </div>
+        </div>
+      })}
+      {!d.entries.length && <div className="px-3 py-3 text-stone-500 text-[0.8125rem]">{t('還沒有行程:按「+ 新增行程」')}</div>}
+    </div>
+    <span className="text-xs text-stone-500">{t('同一台一次做一件事,後到的等前一件做完;到點 {n} 分鐘內還沒開始就算錯過。「維持到下一筆」:之後回到原位這類動作都照這筆選的,直到下一筆維持的行程。', { n: data.window ?? 10 })}</span>
+  </div>
+}
+
+function PlanForm({ entry, tasks, device, busy, onCancel, onSave }: {
+  entry: PlanEntry; tasks: NonNullable<WidgetData['tasks']>; device: string; busy: boolean; onCancel: () => void; onSave: (e: PlanEntry) => void
+}) {
+  const [e, setE] = useState(entry)
+  const task = tasks.find(x => x.id === e.task)
+  const days = DAYS()
+  const set = (f: (x: PlanEntry) => PlanEntry) => setE(x => f(x))
+  const ok = !!task && e.days.length > 0 && /^\d\d:\d\d$/.test(e.at) && task.params.every(p => e.args[p.name] !== undefined)
+  const pick = (opts: PanelOption[], v: unknown) => opts.findIndex(o => JSON.stringify(o.value) === JSON.stringify(v))
+  return <div className="rounded-lg border border-accent/40 bg-accent/5 p-3 flex flex-col gap-2 text-[0.8125rem]">
+    <div className="flex flex-wrap items-center gap-2">
+      <select className={FIELD} value={e.task} onChange={ev => { const tk = tasks.find(x => x.id === ev.target.value); set(x => ({ ...x, task: ev.target.value, args: {}, keep: !!tk?.keeps })) }}>
+        {tasks.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+      <input type="time" className={`${FIELD} num`} value={e.at} onChange={ev => set(x => ({ ...x, at: ev.target.value }))} />
+    </div>
+    <div className="flex flex-wrap items-center gap-1">
+      {days.map((dd, k) => <button key={k} className={`w-8 h-8 rounded-md border ${e.days.includes(k) ? 'bg-accent text-white border-accent' : 'border-stone-300'}`}
+        onClick={() => set(x => ({ ...x, days: x.days.includes(k) ? x.days.filter(y => y !== k) : [...x.days, k].sort() }))}>{dd}</button>)}
+      <button className="ml-2 text-stone-600 hover:underline" onClick={() => set(x => ({ ...x, days: [0, 1, 2, 3, 4, 5, 6] }))}>{t('每天')}</button>
+      <button className="text-stone-600 hover:underline" onClick={() => set(x => ({ ...x, days: [0, 1, 2, 3, 4] }))}>{t('平日')}</button>
+      <button className="text-stone-600 hover:underline" onClick={() => set(x => ({ ...x, days: [5, 6] }))}>{t('週末')}</button>
+    </div>
+    {task?.params.map(p => {
+      const opts = p.options[device] ?? []
+      const groups = opts.reduce<[string, number[]][]>((g, o, i) => { const f = (o as PanelOption & { folder?: string }).folder ?? ''; const l = g.at(-1); if (l && l[0] === f) l[1].push(i); else g.push([f, [i]]); return g }, [])
+      return <label key={p.name} className="flex flex-wrap items-center gap-2">{p.label}
+        <select className={`${FIELD} max-w-64`} value={pick(opts, e.args[p.name])} onChange={ev => { const o = opts[Number(ev.target.value)]; set(x => ({ ...x, args: { ...x.args, [p.name]: o?.value } })) }}>
+          <option value={-1}>{t('(請選擇)')}</option>
+          {groups.map(([f, ix], k) => f ? <optgroup key={k} label={f}>{ix.map(i => <option key={i} value={i}>{opts[i].label}</option>)}</optgroup>
+            : ix.map(i => <option key={i} value={i}>{opts[i].label}</option>))}
+        </select></label>
+    })}
+    {task && task.keeps && task.id !== '_reset' && <div className="flex flex-wrap gap-4">
+      <label className="flex items-center gap-1"><input type="radio" checked={!e.keep} onChange={() => set(x => ({ ...x, keep: false }))} />{t('只做一次')}</label>
+      <label className="flex items-center gap-1"><input type="radio" checked={e.keep} onChange={() => set(x => ({ ...x, keep: true }))} />{t('維持到下一筆')}</label>
+    </div>}
+    {task?.id === '_reset' && <span className="text-stone-500">{t('結束目前維持的行程,回到平常的設定(不執行任何動作)')}</span>}
+    <div className="flex gap-2"><Btn size="sm" variant="primary" disabled={!ok || busy} onClick={() => onSave(e)}>{busy ? t('儲存中…') : t('儲存')}</Btn>
+      <Btn size="sm" variant="ghost" onClick={onCancel}>{t('取消')}</Btn></div>
+  </div>
+}
+
 function Schedules({ data, devices }: { data: WidgetData; devices: string[] }) {
   const rows = data.rows ?? []
   if (!rows.length) return <div className="text-stone-500">{t('沒有排程')}</div>

@@ -192,7 +192,7 @@ def _schema(kind):
             "items": {"type": "array", "items": {"type": "string"}},
             "page": {"type": "string", "description": _("在哪個分頁(沒填 = 第一個)")},
             "width": {"enum": ["auto", "third", "narrow", "two_thirds", "wide"], "description": _("寬螢幕上:自動 / 1/3 列 / 半列 / 2/3 列 / 整列")},
-            "widget": {"type": "object", "required": ["kind"], "properties": {"kind": {"enum": ["devices", "incidents", "deploy", "schedules", "log", "chat", "list", "values"]}}},
+            "widget": {"type": "object", "required": ["kind"], "properties": {"kind": {"enum": ["devices", "incidents", "deploy", "schedules", "log", "chat", "list", "values", "plans"]}}},
             "place": {"type": "object", "required": ["x", "y", "w"], "additionalProperties": False,
                       "description": _("寬螢幕 12 欄格線上的位置:第幾欄、第幾列、佔幾欄、幾列高(沒填 = 依內容)"), "properties": {
                           "x": {"type": "integer", "minimum": 0, "maximum": 11}, "y": {"type": "integer", "minimum": 0},

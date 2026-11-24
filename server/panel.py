@@ -116,7 +116,7 @@ def setting_of(c):
 
 
 WIDGETS = {"devices": N_("裝置狀態"), "incidents": N_("緊急事件"), "deploy": N_("部署開關"), "schedules": N_("排程表"), "log": N_("紀錄"),
-           "chat": N_("通知與指令(聊天 Bot)"), "list": N_("清單(帳號、地點…)"), "values": N_("數值")}
+           "chat": N_("通知與指令(聊天 Bot)"), "list": N_("清單(帳號、地點…)"), "values": N_("數值"), "plans": N_("每台行程表")}
 WIDGET_DEFAULTS = {"devices": {"show_step": True, "show_alerts": False, "show_image": False},
                    "incidents": {"limit": 10, "show_frames": True},
                    "deploy": {"scripts": [], "modes": ["off", "live"]},
@@ -124,7 +124,8 @@ WIDGET_DEFAULTS = {"devices": {"show_step": True, "show_alerts": False, "show_im
                    "log": {"limit": 20, "panel_changes": True},
                    "chat": {"setup": True, "pair": True},
                    "list": {"list": "", "scan_sub": "", "rename": True, "remove": True},
-                   "values": {"vars": []}}
+                   "values": {"vars": []},
+                   "plans": {"tasks": []}}
 
 
 def widget_blocks(panel, kind):
@@ -162,6 +163,13 @@ def check_widget(data_root, w):
         have = {s["id"] for s in schedules.load(data_root)}
         if any(s not in have for s in w.get("schedules") or []):
             raise ValueError(_("「排程表」選的排程已經不存在"))
+    if kind == "plans":
+        from automation import plans
+        have = plans.tasks(data_root)
+        if any(t not in have for t in w.get("tasks") or []):
+            raise ValueError(_("「每台行程表」選的可以排的事已經不存在"))
+        if not [t for t in have if t != plans.RESET]:
+            raise ValueError(_("「每台行程表」:還沒有可以排的事(素材庫 › 可以排的事)"))
 
 
 # a block's width on a wide screen (spec v10): of a row of six columns 2, 3, 4 or 6; "auto" = half, or the whole row

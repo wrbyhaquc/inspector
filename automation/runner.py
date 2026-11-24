@@ -292,6 +292,7 @@ class SubRun:
                 "cleaning": bool(self.cleanup) and self.ci < len(self.cleanup), "started": self.started,
                 "paused": self.paused_at is not None,
                 "script": self.origin.get("script"), "script_name": self.origin.get("script_name"), "schedule_name": self.origin.get("schedule_plain"),
+                "schedule": self.origin.get("schedule"),
                 "rule_name": self.origin.get("rule_name"), "result": self.result, "message": self.message,
                 "progress": self._progress(),
                 "say": next((x.steps[x.i].get("say") for x in reversed(self.stack) if x.i < len(x.steps) and x.steps[x.i].get("say")), None)

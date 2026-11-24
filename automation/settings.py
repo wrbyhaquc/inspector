@@ -86,9 +86,20 @@ def value(data_root, runtime_dir, sid, device=None):
 
 
 def run_value(data_root, runtime_dir, sid, device=None):
-    """What a run gets: value(), without the names of a list that are gone or were not seen in its last walk."""
+    """What a run gets: value() - or what the device's plan keeps for it now (automation/plans.py: a kept entry stands
+    for its settings until the next one; the users' own value stays as it is) -, without the names of a list that are
+    gone or were not seen in its last walk."""
     s = load(data_root).get(sid)
-    return _present(data_root, s, value(data_root, runtime_dir, sid, device)) if s else None
+    if not s:
+        return None
+    v = value(data_root, runtime_dir, sid, device)
+    if device and s.get("scope") == "device":
+        import time
+        from . import plans
+        ov = plans.overlay(data_root, runtime_dir, device, time.time(), plans.device_tags(device))
+        if sid in ov:
+            v = ov[sid]
+    return _present(data_root, s, v)
 
 
 def _present(data_root, s, v):
