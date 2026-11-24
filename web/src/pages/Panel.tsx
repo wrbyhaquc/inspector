@@ -181,7 +181,7 @@ export default function Panel({ canLogout = false, canEdit = false }: { canLogou
             ? <DeviceView n={card.device} card={card} d={d} byId={byId} change={change} busy={set.isPending} onMsg={setMsg} onOpen={openDevice} onBack={() => nav('/panel')} />
             : <Section title={t('找不到「{p1}」', { p1: dn(shown) })}><Btn onClick={() => nav('/panel')}><Icon name="back" className="w-4 h-4" />{t('回總覽')}</Btn></Section>
           : <>
-              <nav className="flex gap-1 border-b border-stone-200 overflow-x-auto">
+              <nav className="sticky z-10 -mx-4 px-4 bg-stone-100 flex gap-1 border-b border-stone-200 overflow-x-auto" style={{ top: 'calc(3.5rem + 1px + env(safe-area-inset-top, 0px))' }}>
                 {pages.map(p => (
                   <button key={p.id} onClick={() => setView(p.id)} aria-current={tab === p.id ? 'page' : undefined}
                     className={`px-3 py-2.5 text-sm font-medium whitespace-nowrap -mb-px border-b-2 transition-colors ${tab === p.id ? 'border-accent text-stone-900' : 'border-transparent text-stone-500 hover:text-stone-800'}`}>{p.title}</button>

@@ -1927,6 +1927,7 @@ def scripts_list():
             "modes": tr(automation.MODES), "actions": tr(automation.ACTIONS), "ops": conds.op_labels(),
             "cond_kinds": conds.kind_labels(), "variables": automation.variables(DATA_ROOT),
             "buttons": list(buttons.load(DATA_ROOT).values()), "templates": templates.templates(DATA_ROOT),
+            "maps": _maps_brief(),
             "var_modes": tr(automation.VAR_MODES), "var_scopes": tr(automation.VAR_SCOPES, device=project.word("device")), "var_resets": tr(automation.VAR_RESETS),
             "step_types": tr(subs.STEP_TYPES), "param_types": tr(subs.PARAM_TYPES), "cleanup_steps": sorted(subs.CLEANUP_STEPS),
             "step_groups": [(_(g), ids) for g, ids in subs.STEP_GROUPS], "after_steps": sorted(subs.AFTER_STEPS), "on_fail": tr(subs.ON_FAIL),
@@ -2128,8 +2129,14 @@ def walkmap_paint(wid: str, req: WalkMapPaint):
 
 @app.post("/api/walkmaps/{wid}/delete")
 def walkmap_delete(wid: str):
-    from automation import walkmap
-    walkmap.remove(DATA_ROOT, _wid(wid))
+    from automation import buttons, walkmap
+    wm = walkmap.load(DATA_ROOT, _wid(wid)) or {}
+    walkmap.remove(DATA_ROOT, wid)
+    for sg in wm.get("signs") or []:                  # its signs were made for it only
+        try:
+            buttons.delete(DATA_ROOT, sg["button"])
+        except ValueError:
+            pass
     return {"ok": True}
 
 
@@ -2265,6 +2272,136 @@ def buttons_snap(req: SnapReq):
             return {"device": name, "updated": os.path.getmtime(out)}
         time.sleep(0.1)
     _bad(_("等不到這台{p1}的畫面(視窗可能縮到最小)", p1=project.word("device")))
+
+
+def _maps_brief():
+    """the maps and their places, for picking 「走到地圖上的位置 › 地圖 › 地點」 in a step"""
+    from automation import walkmap
+    out = []
+    for w in walkmap.list_ids(DATA_ROOT):
+        m = walkmap.summary(DATA_ROOT, w) or {}
+        out.append({"id": w, "label": m.get("label") or w, "new": bool(m.get("signs")),
+                    "places": [{"id": p["id"], "name": p["name"]} for p in m.get("places") or []]})
+    return out
+
+
+# ---------------- maps by taking a picture (地圖:拍下來 → 標地點 → 試走, automation/walkmap.py) ----------------
+@app.get("/api/walksettings")
+def walksettings_get():
+    from automation import walkmap
+    return walkmap.settings(DATA_ROOT)
+
+
+@app.post("/api/walksettings")
+def walksettings_set(req: dict):
+    from automation import walkmap
+    try:
+        return walkmap.save_settings(DATA_ROOT, req)
+    except ValueError as e:
+        _bad(str(e))
+
+
+def _screen_img(snap, frame):
+    """a device's snapshot (its name) or a recorded frame -> RGB array in the project's size, or None"""
+    if snap:
+        p = os.path.join(RUNTIME_DIR, "snaps", os.path.basename(snap) + ".png")
+        return np.asarray(Image.open(p).convert("RGB")) if os.path.exists(p) else None
+    try:
+        return np.asarray(Image.open(data.abs_path(frame or "")).convert("RGB").resize(project.screen()))
+    except (ValueError, OSError):
+        return None
+
+
+class MapShoot(BaseModel):
+    id: str | None = None            # add to this map (another part of it); none = a new map
+    label: str = ""
+    snap: str | None = None
+    frame: str | None = None
+
+
+@app.post("/api/maps/shoot")
+def map_shoot(req: MapShoot):
+    """拍下來: a new map from a picture of the big map (or another part added to one) - its signs picked by itself"""
+    from automation import walkmap
+    img = _screen_img(req.snap, req.frame)
+    if img is None:
+        _bad(_("讀不到這張畫面"))
+    if req.id:
+        wid, merge = _wid(req.id), True
+    else:
+        if not req.label.strip():
+            _bad(_("請替這張地圖取個名字"))
+        if any((walkmap.summary(DATA_ROOT, w) or {}).get("label") == req.label.strip() for w in walkmap.list_ids(DATA_ROOT)):
+            _bad(_("已經有叫「{label}」的地圖", label=req.label.strip()))
+        ids, k = set(walkmap.list_ids(DATA_ROOT)), 1
+        while f"map{k}" in ids:
+            k += 1
+        wid, merge = f"map{k}", False
+    try:
+        return walkmap.shoot(DATA_ROOT, wid, img, req.label.strip(), merge)
+    except ValueError as e:
+        _bad(str(e))
+
+
+class MapPlaces(BaseModel):
+    places: list[dict]
+
+
+@app.post("/api/walkmaps/{wid}/places")
+def map_places(wid: str, req: MapPlaces):
+    from automation import walkmap
+    try:
+        return walkmap.set_places(DATA_ROOT, _wid(wid), req.places)
+    except (ValueError, KeyError, TypeError) as e:
+        _bad(str(e))
+
+
+class MapLabel(BaseModel):
+    label: str
+
+
+@app.post("/api/walkmaps/{wid}/label")
+def map_label(wid: str, req: MapLabel):
+    from automation import walkmap
+    if not req.label.strip():
+        _bad(_("請替這張地圖取個名字"))
+    if wid not in walkmap.list_ids(DATA_ROOT):
+        _bad(_("找不到這張圖"), 404)
+    walkmap._update(DATA_ROOT, _wid(wid), label=req.label.strip())
+    return walkmap.summary(DATA_ROOT, wid)
+
+
+class MapTry(BaseModel):
+    device: str
+    place: str
+
+
+@app.post("/api/walkmaps/{wid}/try")
+def map_try(wid: str, req: MapTry):
+    """試走: the device walks to the place now (real input); what it sees shows in its status ("walk")"""
+    from automation import walkmap
+    place, wm = walkmap.place_of(DATA_ROOT, _wid(wid), req.place)
+    if not place:
+        _bad(_("地圖上沒有這個地點"))
+    if not walkmap.settings(DATA_ROOT).get("me"):
+        _bad(_("請先設定走路的方式"))
+    st = _read_json(os.path.join(RUNTIME_DIR, "status.json"), {}) or {}
+    if not st.get("running") or time.time() - st.get("updated", 0) > 10:
+        _bad(_("腳本執行沒有在跑,請先到「執行」開始執行"))
+    dv = next((x for x in st.get("devices") or [] if x["name"] == req.device), None)
+    if not dv:
+        _bad(_("找不到這台{p1}", p1=project.word("device")))
+    if dv.get("hold"):
+        _bad(_("這台") + (_("暫停中") if dv["hold"].get("mode") == "pause" else _("停下來中")) + _(",先按「繼續」"))
+    if dv.get("proc"):
+        _bad(_("這台正在執行「{name}」,等它做完或先停下來", name=dv["proc"].get("sub_name") or ""))
+    d = os.path.join(RUNTIME_DIR, "sub_requests")
+    os.makedirs(d, exist_ok=True)
+    p = os.path.join(d, os.path.basename(req.device) + ".json")
+    with open(p + ".tmp", "w", encoding="utf-8") as f:
+        json.dump({"walk": {"map": wid, "place": req.place}}, f, ensure_ascii=False)
+    os.replace(p + ".tmp", p)
+    return {"queued": True, "t": time.time()}
 
 
 @app.get("/api/buttons/snap/{device}")

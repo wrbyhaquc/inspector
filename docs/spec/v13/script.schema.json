@@ -749,6 +749,9 @@
       "min_px": {
        "type": "number"
       },
+      "size": {
+       "type": "number"
+      },
       "box": {
        "type": "array",
        "items": {
@@ -874,6 +877,14 @@
     "area": {
      "type": "string",
      "description": "走到地圖上的位置:可走區域圖(填了就照它自己找路,走到最後一個點)"
+    },
+    "map": {
+     "type": "string",
+     "description": "走到地圖上的位置:地圖(拍下來的地圖;和「place」一起填,其他都照地圖和走路設定)"
+    },
+    "place": {
+     "type": "string",
+     "description": "走到地圖上的位置:地圖上的哪個地點"
     },
     "turn": {
      "$ref": "#/$defs/num",

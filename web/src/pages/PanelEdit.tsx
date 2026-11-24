@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import ReactGridLayout, { useContainerWidth, verticalCompactor, type Layout } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
-import { api, type PanelBlock, type PanelChatPreview, type PanelControl, type PanelDefinition, type PanelDraft, type PanelInfo, type PanelPlace, type PanelProblem, type PanelStart, type PanelThing, type PanelWidget, type SettingDecl } from '../api'
+import { api, type PanelBlock, type PanelChatPreview, type PanelControl, type PanelDefinition, type PanelDraft, type PanelInfo, type PanelPage, type PanelPlace, type PanelProblem, type PanelStart, type PanelThing, type PanelWidget, type SettingDecl } from '../api'
 import { Button, Card, Empty, ErrorText, Modal } from '../components/ui'
 import { Btn, FIELD, Switch, type Notice } from '../components/panelUi'
 import { Icon } from '../components/Icon'
@@ -14,7 +14,7 @@ import { SourcePick } from '../components/SourcePick'
 import { autoWide } from '../lib/panelLayout'
 
 // Editing the operation panel where it is: what to add (the design's own settings, schedules, situations ... as they
-// are now, the watch widgets, whole templates) and the outline on the left, the panel itself in the middle (its real
+// are now, the watch widgets, whole templates) on the left, the panel itself in the middle under its page tabs (its real
 // contents, arranged by dragging on the 12-column grid), what the picked block is on the right. Every change goes
 // into a draft (server/panel_draft.py); the panel's users see it once it is published.
 const input = 'border border-stone-300 rounded-md px-2 py-1 text-sm bg-white'
@@ -94,7 +94,6 @@ export function PanelEditor({ live, render, onDone, onMsg }: {
   const [preview, setPreview] = useState(false)
   const [history, setHistory] = useState(false)
   const [pub, setPub] = useState(false)
-  const [left, setLeft] = useState<'add' | 'outline'>('add')
   const [drag, setDrag] = useState<PanelThing | null>(null)
   const published = q.data ? key(q.data.panel) : ''
   const draftKey = p ? key(p) : ''
@@ -247,13 +246,8 @@ export function PanelEditor({ live, render, onDone, onMsg }: {
       <div className="lg:hidden p-6 text-stone-600">{t('編輯面板請用電腦的寬螢幕。')}</div>
       <div className="hidden lg:flex flex-1 min-h-0">
         <aside className="w-72 shrink-0 bg-white border-r border-stone-200 flex flex-col" aria-label={t('元件與大綱')}>
-          <div className="shrink-0 grid grid-cols-2 border-b border-stone-200 text-[0.8125rem]" role="tablist">
-            {([['add', t('加入')], ['outline', t('大綱')]] as const).map(([k, tx]) => (
-              <button key={k} role="tab" aria-selected={left === k} onClick={() => setLeft(k)}
-                className={`h-10 ${left === k ? 'font-semibold text-accent border-b-2 border-accent' : 'text-stone-600 hover:bg-stone-50'}`}>{tx}</button>))}
-          </div>
+          <div className="shrink-0 h-10 px-3 flex items-center border-b border-stone-200 text-[0.8125rem] font-semibold text-accent">{t('加入')}</div>
           <div className="flex-1 min-h-0 overflow-y-auto p-3 flex flex-col gap-5">
-          {left === 'add' ? <>
           {start.data && <FromDesign start={start.data} p={p} onPut={put} onDrag={setDrag} into={into} />}
           <Pane title={t('監看元件')}>
             <button className="text-left px-2 py-1.5 rounded hover:bg-stone-100" onClick={() => add({ title: t('新的區塊'), items: [] }, 'b')}>+ {t('空白的設定區塊')}</button>
@@ -268,19 +262,6 @@ export function PanelEditor({ live, render, onDone, onMsg }: {
               <button key={tp.id} className="text-left px-2 py-1.5 rounded hover:bg-stone-100 flex flex-col" onClick={() => template(start.data!.drafts[tp.id], tp.name)}>
                 <span>{tp.name}</span><span className="text-xs text-stone-500">{tp.desc}</span></button>))}
           </Pane>}
-          </> : <>
-          <Pages p={p} page={page} setPage={setTab} edit={edit} />
-          <Pane title={t('這頁的區塊')}>
-            {shown.length === 0 && <span className="text-xs text-stone-400 px-2">{t('還沒有區塊')}</span>}
-            {[...shown].sort((a, b) => ((a.place?.y ?? 0) - (b.place?.y ?? 0)) || ((a.place?.x ?? 0) - (b.place?.x ?? 0))).map(b => (
-              <button key={b.id} onClick={() => setSel(b.id)} aria-current={sel === b.id || undefined}
-                className={`text-left px-2 py-1.5 rounded flex flex-col ${sel === b.id ? 'bg-accent/10 text-accent' : 'hover:bg-stone-100'}`}>
-                <span className="font-medium truncate">{b.title || t('(沒有標題)')}</span>
-                <span className="text-xs text-stone-500">{b.widget ? info.widgets[b.widget.kind] ?? b.widget.kind : t('{n} 項設定', { n: b.items.length + (b.toggle ? 1 : 0) })}</span>
-              </button>
-            ))}
-          </Pane>
-          </>}
           </div>
         </aside>
 
@@ -306,6 +287,7 @@ export function PanelEditor({ live, render, onDone, onMsg }: {
                 </button>))}
             </div>
           </section>}
+          <PageTabs p={p} page={page} setPage={id => { setTab(id); setSel(null) }} edit={edit} />
           {cardsAuto && <div className="rounded-lg border border-dashed border-stone-300 px-3 py-2 text-xs text-stone-500">
             {t('每台{device}的卡片會自動放在第一頁最上面;要自己決定位置,加入「裝置狀態」元件。', { device: words.device })}</div>}
           {phone
@@ -489,7 +471,7 @@ function Canvas({ blocks, sel, setSel, onPlaces, content, changed, bad, info, dr
   const { width, containerRef, mounted } = useContainerWidth()
   const layout = blocks.map(b => ({ i: b.id, x: b.place?.x ?? 0, y: b.place?.y ?? 0, w: b.place?.w ?? COLS, h: b.place?.h ?? 1 }))
   return (
-    <div ref={containerRef} data-testid="edit-grid" className={`relative min-h-40 rounded-lg ${drag ? 'outline-2 outline-dashed outline-offset-4 outline-accent/40' : ''}`}>
+    <div ref={containerRef} data-testid="edit-grid" className={`shrink-0 relative min-h-40 rounded-lg ${drag ? 'outline-2 outline-dashed outline-offset-4 outline-accent/40' : ''}`}>
       {blocks.length === 0 && <div className="absolute inset-0 rounded-lg border border-dashed border-stone-300 p-8 text-center text-stone-500 pointer-events-none">{t('這頁還沒有區塊:從左邊「加入」放一個進來')}</div>}
       {mounted && <ReactGridLayout width={width} layout={layout} compactor={verticalCompactor} style={{ minHeight: '10rem' }}
         gridConfig={{ cols: COLS, rowHeight: ROW, margin: [16, 16], containerPadding: [0, 0] }}
@@ -540,37 +522,62 @@ function PhoneList({ blocks, sel, setSel, edit, info }: {
   )
 }
 
-/** The panel's tabs (none = one page 總覽); a page's blocks go to the first when it is deleted. */
-function Pages({ p, page, setPage, edit }: { p: Panel; page: string; setPage: (id: string) => void; edit: (fn: (x: Panel) => void, tag?: string) => void }) {
-  const pages = p.pages ?? []
+/** The panel's tabs above the canvas, as the panel shows them (none = one page 總覽): + adds one, ✕ deletes one (its
+ * blocks go to the first page), a double click renames one, dragging one moves it. */
+function PageTabs({ p, page, setPage, edit }: { p: Panel; page: string; setPage: (id: string) => void; edit: (fn: (x: Panel) => void, tag?: string) => void }) {
+  const [naming, setNaming] = useState<string | null>(null)
+  const [dragging, setDragging] = useState<number | null>(null)
+  const pages = p.pages?.length ? p.pages : [{ id: 'main', title: t('總覽') }]
+  const own = (x: Panel) => { if (!x.pages?.length) x.pages = [{ id: 'main', title: t('總覽') }]; return x.pages }
   const addPage = () => {
-    const ids = pages.map(g => g.id)
-    const id = pages.length ? newId('page', ids) : 'page2'
-    edit(x => { if (!x.pages?.length) x.pages = [{ id: 'main', title: t('總覽') }]; x.pages.push({ id, title: t('新的分頁') }) })
-    setPage(id)
+    const id = p.pages?.length ? newId('page', p.pages.map(g => g.id)) : 'page2'
+    edit(x => { own(x).push({ id, title: t('新的分頁') }) })
+    setPage(id); setNaming(id)
+  }
+  const remove = (gi: number, g: PanelPage) => {
+    if (!window.confirm(t('刪除分頁「{title}」?上面的區塊會移到第一個分頁。', { title: g.title }))) return
+    edit(x => {
+      x.pages!.splice(gi, 1)
+      const first = x.pages![0]?.id
+      const y0 = bottom(x.blocks.filter(b => (b.page ?? first) === first || !x.pages!.some(q => q.id === b.page)))
+      for (const b of x.blocks) if (b.page === g.id) { delete b.page; if (b.place) b.place = { ...b.place, y: b.place.y + y0 } }
+      if (x.pages!.length <= 1) delete x.pages
+    })
+    if (g.id === page) setPage(pages[gi === 0 ? 1 : 0].id)
+  }
+  const drop = (to: number) => {
+    if (dragging === null || dragging === to) return
+    edit(x => {
+      const ps = own(x), was = ps[0].id
+      const [g] = ps.splice(dragging, 1); ps.splice(to, 0, g)
+      // the first page holds the blocks with no page: when another page comes first, they keep the old first page
+      if (ps[0].id !== was) for (const b of x.blocks) if (!b.page || !ps.some(q => q.id === b.page)) b.page = was
+      for (const b of x.blocks) if (b.page === ps[0].id) delete b.page
+    })
   }
   return (
-    <Pane title={t('分頁')} extra={<button className="text-xs text-accent hover:underline" onClick={addPage}>+ {t('新增分頁')}</button>}>
-      {pages.length === 0 && <span className="px-2 text-xs text-stone-500">{t('只有一頁「總覽」')}</span>}
+    <nav className="shrink-0 sticky -top-4 z-30 -mx-4 px-4 pt-2 bg-stone-100 flex items-end gap-0.5 border-b border-stone-200 overflow-x-auto" aria-label={t('分頁')} data-testid="edit-pages">
       {pages.map((g, gi) => (
-        <div key={g.id} className={`flex items-center gap-1 rounded px-1 ${g.id === page ? 'bg-stone-100' : ''}`}>
-          <button className="w-4 text-stone-400" aria-label={t('看這頁')} onClick={() => setPage(g.id)}>{g.id === page ? '●' : '○'}</button>
-          <input className="flex-1 min-w-0 bg-transparent px-1 py-1 rounded focus:bg-white focus:outline-none focus:ring-1 focus:ring-stone-300" value={g.title}
-            onFocus={() => setPage(g.id)} onChange={e => edit(x => { x.pages![gi].title = e.target.value }, `page:${g.id}`)} />
-          <button className="text-stone-400 hover:text-stone-700 disabled:opacity-30" disabled={gi === 0} aria-label={t('往上')} onClick={() => edit(x => { x.pages = move(x.pages!, gi, -1) })}>▲</button>
-          <button className="text-stone-400 hover:text-stone-700 disabled:opacity-30" disabled={gi === pages.length - 1} aria-label={t('往下')} onClick={() => edit(x => { x.pages = move(x.pages!, gi, 1) })}>▼</button>
-          <button className="text-stone-400 hover:text-rose-700" aria-label={t('刪除分頁')} onClick={() => {
-            if (window.confirm(t('刪除分頁「{title}」?上面的區塊會移到第一個分頁。', { title: g.title }))) edit(x => {
-              x.pages!.splice(gi, 1)
-              const first = x.pages![0]?.id
-              const y0 = bottom(x.blocks.filter(b => (b.page ?? first) === first || !x.pages!.some(q => q.id === b.page)))
-              for (const b of x.blocks) if (b.page === g.id) { delete b.page; if (b.place) b.place = { ...b.place, y: b.place.y + y0 } }
-              if (x.pages!.length <= 1) delete x.pages
-            })
-          }}>✕</button>
+        <div key={g.id} draggable={naming !== g.id} title={t('按兩下改名稱,拖拉換順序')}
+          onDragStart={e => { setDragging(gi); e.dataTransfer.effectAllowed = 'move' }} onDragEnd={() => setDragging(null)}
+          onDragOver={e => { if (dragging !== null) e.preventDefault() }} onDrop={e => { e.preventDefault(); drop(gi); setDragging(null) }}
+          className={`shrink-0 flex items-center -mb-px border-b-2 transition-colors ${page === g.id ? 'border-accent text-stone-900' : 'border-transparent text-stone-500 hover:text-stone-800'} ${dragging === gi ? 'opacity-40' : ''}`}>
+          {naming === g.id
+            ? <input autoFocus className="w-32 mx-1 my-1 px-2 py-1 text-sm rounded border border-stone-300 focus:outline-none focus:ring-1 focus:ring-accent"
+                value={g.title} onFocus={e => e.target.select()}
+                onChange={e => { const v = e.target.value; edit(x => { own(x).find(q => q.id === g.id)!.title = v }, `page:${g.id}`) }}
+                onBlur={() => setNaming(null)} onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') setNaming(null) }} />
+            : <button className="pl-3 pr-1 py-2 text-sm font-medium whitespace-nowrap" aria-current={page === g.id ? 'page' : undefined}
+                onClick={() => setPage(g.id)} onDoubleClick={() => { setPage(g.id); setNaming(g.id) }}>{g.title || '…'}</button>}
+          {pages.length > 1
+            ? <button className="mr-1 w-5 h-5 grid place-items-center rounded text-stone-400 hover:text-rose-700 hover:bg-rose-50" aria-label={t('刪除分頁')} title={t('刪除分頁')}
+                onClick={() => remove(gi, g)}><Icon name="x" className="w-3.5 h-3.5" /></button>
+            : <span className="w-2" />}
         </div>
       ))}
-    </Pane>
+      <button className="shrink-0 mb-1 ml-1 w-7 h-7 grid place-items-center rounded text-stone-500 hover:text-accent hover:bg-stone-100" aria-label={t('新增分頁')} title={t('新增分頁')}
+        onClick={addPage}><Icon name="plus" className="w-4 h-4" /></button>
+    </nav>
   )
 }
 

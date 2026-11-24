@@ -694,8 +694,40 @@ class Shadow:
                 own.append(px)                                   # its own pixels only: "me" standing on it shows
         args = (me.get("box"), me.get("color"), me.get("tol", 40), me.get("min_px", 6))
         more = me.get("more") or ()
-        m = mapnav.find_me(frame, *args, exclude, more) or mapnav.find_me(frame, *args, labels, more, own)
+        size, fixed = me.get("size"), self._map_drawn(me, a)
+        m = mapnav.find_me(frame, *args, exclude, more, size=size, fixed=fixed) or             mapnav.find_me(frame, *args, labels, more, own, size, fixed)
         return (a, m) if m else None
+
+    def _map_drawn(self, me, a):
+        """where the map's own picture (taken by 拍下來) has "me"'s colour, laid where the map is on the screen now (the
+        anchor at a): a mask the size of me's box - an icon drawn on the map is not "me". None: no picture."""
+        import cv2
+        from automation import walkmap
+        mp, box = me.get("_map") or {}, me.get("box")
+        if not mp.get("id") or not box or me.get("color") is None:
+            return None
+        cache = self.__dict__.setdefault("_map_drawn_cache", {})
+        path = walkmap.bg_path(self.data_root, mp["id"])
+        if not os.path.exists(path):
+            return None
+        key = (path, os.path.getmtime(path), tuple(me["color"]), me.get("tol", 40))
+        if key not in cache:
+            img = cv2.imdecode(np.fromfile(path, np.uint8), cv2.IMREAD_COLOR)
+            wm = walkmap.summary(self.data_root, mp["id"]) or {}
+            if img is None or not wm.get("origin"):
+                return None
+            d = np.abs(img[:, :, ::-1].astype(np.int16) - np.array(me["color"][:3], np.int16)).max(axis=2)
+            cache.clear()
+            cache[key] = (cv2.dilate((d <= int(me.get("tol", 40))).astype(np.uint8), np.ones((5, 5), np.uint8)), wm["origin"])
+        bgm, (ox, oy) = cache[key]
+        x0, y0, w, h = (int(v) for v in box)
+        off = mp.get("off") or (0, 0)
+        sx, sy = int(round(x0 - a[0] + off[0] - ox)), int(round(y0 - a[1] + off[1] - oy))   # box's top-left on the picture
+        out = np.zeros((h, w), np.uint8)
+        bx0, by0, bx1, by1 = max(0, sx), max(0, sy), min(bgm.shape[1], sx + w), min(bgm.shape[0], sy + h)
+        if bx1 > bx0 and by1 > by0:
+            out[by0 - sy:by1 - sy, bx0 - sx:bx1 - sx] = bgm[by0:by1, bx0:bx1]
+        return out
 
     def _sign_pic(self, bid):
         """a button's picture in the frames' colour order (RGB), cached; None when it has none"""
@@ -922,7 +954,13 @@ class Shadow:
                 self.health.frame(n, got[0], ms, self.clock())
             else:
                 self.health.miss(n, ms, self.clock())
-        preds = self.pred(list(frames.values())) if frames else []
+        try:
+            preds = self.pred(list(frames.values())) if frames else []
+        except Exception as e:                  # one failed run (e.g. the machine briefly out of memory) skips this look only
+            if time.time() - getattr(self, "_pred_fail_t", 0) > 60:
+                self._pred_fail_t = time.time()
+                print(_("辨識失敗,這一輪先跳過(常見原因:電腦記憶體一時不足):{e}", e=type(e).__name__), flush=True)
+            frames, preds = {}, []
         t_model = self.clock() - t0
         watching = self._watching()
         devs = []
@@ -1121,6 +1159,7 @@ class Shadow:
                          "taps_last_min": len(self.tap_times[n]), "manual": manual, "hold": self.hold_of(n),
                          "cause_now": self._cause_now(n, decisions),
                          "start_wait": round(self.start_wait(n, self.clock()), 1) if not self.hold_of(n) else 0})
+            devs[-1]["walk"] = (devs[-1]["proc"] or {}).get("walk") or self.__dict__.get("last_walk", {}).get(n)
             self.incidents.tick(n, t0, st, decisions, frames.get(n), devs[-1]["proc"], devs[-1]["held"], devs[-1]["situations"])
         return devs, t_model
 
@@ -1386,6 +1425,12 @@ class Shadow:
             self._goto(n, sc, target, self.clock(), why)
 
     def _run_ended(self, n, run):
+        if getattr(run, "walk_view", None):              # a walk on a map: shown on its page after the run too
+            wv = dict(run.walk_view)
+            if wv.get("state") == "walking":
+                wv["state"] = "arrived" if run.result in ("success", "partial") else "failed"
+            wv.update(result=run.result, message=run.message, ended=time.time())
+            self.__dict__.setdefault("last_walk", {})[n] = wv
         self._run_ended_main(n, run)
         why = getattr(run, "stop_why", None)
         if why and not self.hold_of(n):                   # a "stop" step / a call that fails with on_fail stop
@@ -2044,7 +2089,17 @@ class Shadow:
             os.remove(req_path)
         except OSError:
             pass
-        sub = self.subs.get(req.get("sub"))
+        lib = self.subs
+        if req.get("walk"):                               # 試走: walk to a place on a map (a made-up sub, this run only)
+            from automation import walkmap
+            w = req["walk"]
+            place, wm = walkmap.place_of(self.data_root, w.get("map"), w.get("place"))
+            sub = {"id": "_try_walk", "name": _("試走到「{map} › {place}」", map=(wm or {}).get("label") or w.get("map"),
+                                                    place=(place or {}).get("name") or w.get("place")),
+                   "params": [], "steps": [{"type": "walk_to", "map": w.get("map"), "place": w.get("place")}]}
+            lib, req["sub"] = {**self.subs, sub["id"]: sub}, sub["id"]
+        else:
+            sub = self.subs.get(req.get("sub"))
         hold = self.hold_of(n)
         why = (_("找不到這個子腳本") if not sub else ((_("這台已停下來") if hold["mode"] == "stop" else _("這台暫停中")) + _(",先按「繼續」"))
                if hold else _("這台沒有畫面") if st is None else _("這台正在執行別的子腳本") if n in self.procs else None)
@@ -2052,7 +2107,8 @@ class Shadow:
             self.alert(n, _("手動執行子腳本「{name}」沒有開始:{why}", name=(sub or {}).get('name', req.get('sub')), why=why))
             return
         try:
-            self.procs[n] = SubRun(n, req["sub"], req.get("args") or {}, self.subs, now,
+            self.__dict__.get("last_walk", {}).pop(n, None)
+            self.procs[n] = SubRun(n, req["sub"], req.get("args") or {}, lib, now,
                                    origin={"script": None, "script_name": _("手動執行"), "rule_name": _("從網頁執行一次"), "manual": True})
         except RuntimeError as e:
             self.alert(n, _("手動執行子腳本「{name}」沒有開始:{e}", name=sub['name'], e=e))

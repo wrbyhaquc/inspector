@@ -10,6 +10,7 @@ failing or by being interrupted runs its cleanup steps first (innermost first)."
 import json
 import math
 import re
+import time
 
 from . import engine
 from . import values as V
@@ -106,6 +107,26 @@ def plain_fail(st, reason, cond=None):
     if _around("動作送不出去:{e}", e=0)[0].strip() in r:
         return _("點擊沒有送出去(來源可能斷線)")
     return reason or _("失敗")
+
+
+
+SIGNS_AGREE = 3                 # walk_to with many signs: this many putting the map at the same place settle where it is
+SIGN_AGREE_PX = 6               # px: signs this close about where the map is agree
+
+
+def _agreeing(hits):
+    """[((anchor x, y), me), (off x, y))] signs found on the screen -> (the hit most others agree with about where the
+    map is - a sign matched in the wrong place now and then is outvoted -, how many agree)"""
+    def base(h):
+        (a, _m), off = h
+        return a[0] - off[0], a[1] - off[1]
+    best, n = hits[0], 0
+    for h in hits:
+        bx, by = base(h)
+        k = sum(1 for g in hits if abs(base(g)[0] - bx) <= SIGN_AGREE_PX and abs(base(g)[1] - by) <= SIGN_AGREE_PX)
+        if k > n:
+            best, n = h, k
+    return best, n
 
 
 class _Frame:
@@ -275,7 +296,7 @@ class SubRun:
                 "progress": self._progress(),
                 "say": next((x.steps[x.i].get("say") for x in reversed(self.stack) if x.i < len(x.steps) and x.steps[x.i].get("say")), None)
                 or next((x.sub.get("say") for x in reversed(self.stack) if x.kind == "call" and x.sub.get("say")), None),
-                "plain": self.plain}
+                "plain": self.plain, "walk": getattr(self, "walk_view", None)}
 
     def _progress(self):
         """For the pages: how far the run is - its outermost for_each ({"label", "i", "n"}), how long the current wait
@@ -717,6 +738,9 @@ class SubRun:
                     elif now - d["still"] >= STILL_S:
                         why = _("畫面停住了(被擋住)")
             est, pts = d["est"], d["pts"]
+            wv = getattr(self, "walk_view", None)
+            if wv and wv.get("t0") == f.step_t0:          # for the pages: where it reckons it is while held
+                wv.update(me=[round(est[0], 1), round(est[1], 1)], t=time.time())
             to_goal = math.dist(est, d["goal"])
             d["closest"] = min(d.get("closest", to_goal), to_goal)
             coast = (plan.speed or 0.0) * DRIVE_COAST_MS          # how far "me" goes on after letting go
@@ -812,12 +836,19 @@ class SubRun:
                 return None, (0.0, 0.0)
             signs = [(st.get("anchor"), (0.0, 0.0))] + [({"button": ex["button"]}, (float(ex.get("x") or 0), float(ex.get("y") or 0)))
                                                          for ex in st.get("anchors") or [] if ex.get("button")]
+            hits = []
             for k, (sign, off) in enumerate(signs):
                 others = [s for j, (s, _o) in enumerate(signs) if j != k]
-                got = self._env.map_me(self.device, sign, st.get("me"), others) if others else                     self._env.map_me(self.device, sign, st.get("me"))
+                me = st.get("me")
+                if me and st.get("area"):                       # the map's picture: icons drawn on it are not "me"
+                    me = {**me, "_map": {"id": st["area"], "off": list(off)}}
+                got = self._env.map_me(self.device, sign, me, others) if others else self._env.map_me(self.device, sign, me)
                 if got:
-                    return got, off
-            return None, (0.0, 0.0)
+                    hits.append((got, off))
+                    best, n = _agreeing(hits)
+                    if n >= SIGNS_AGREE or len(signs) <= 2:     # (few signs: the first that shows, as always)
+                        return best
+            return _agreeing(hits)[0] if hits else (None, (0.0, 0.0))
 
         def done_until():
             return bool(st.get("until")) and self._cond(f, st["until"], now) == engine.MATCH
@@ -845,7 +876,15 @@ class SubRun:
             if n:
                 log(_("把 {n} 個走不過去的地方記到可走區域圖,下次會繞開", n=n), "step")
 
+        def view_end(why):
+            if st.get("area"):                            # for the pages: how the walk ended
+                wv = getattr(self, "walk_view", None)
+                if not wv or wv.get("t0") != f.step_t0:
+                    wv = self.walk_view = {"map": st["area"], "t0": f.step_t0, "trail": [], "way": [], "me": None}
+                wv.update(state="failed", why=why, t=time.time())
+
         def fail(what):
+            view_end(what)
             keep_marks()
             if st.get("on_fail") == "continue":           # gives up here, the steps after it go on (e.g. hunt where it is)
                 log(_("沒有走到,在這裡停下,接著做下一步(推了 {n} 次)", n=plan.moves), "warn")
@@ -882,6 +921,7 @@ class SubRun:
                     log(_("地圖上看不到基準圖示或自己的位置"), "warn")
                     tap(st.get("close"))
                     return fail("lost")
+                view_end("lost")
                 self._fail(_("{p1}:地圖上看不到基準圖示或自己的位置", p1=describe_step(st, names, self.lib, params)), now, log)
                 return True
             got = self._env.latest_frame(self.device) if hasattr(self._env, "latest_frame") else (None, None)
@@ -916,6 +956,15 @@ class SubRun:
             ws.update(est=me, last_big=me, acc=(0.0, 0.0), since_big=0, bigs=ws["bigs"] + 1)
             what = plan.step(me)
             notes()
+            if st.get("area"):                            # for the pages: where it is, the way it means to go
+                trail = (getattr(self, "walk_view", None) or {}).get("trail") if (getattr(self, "walk_view", None) or {}).get("t0") == f.step_t0 else []
+                self.walk_view = {"map": st["area"], "t0": f.step_t0, "t": time.time(), "me": [round(me[0], 1), round(me[1], 1)],
+                                  "way": [[round(p[0], 1), round(p[1], 1)] for p in getattr(plan, "points", None) or []],
+                                  "goal": [round(plan.goal[0], 1), round(plan.goal[1], 1)] if getattr(plan, "goal", None) else None,
+                                  "goal_label": getattr(plan, "goal_label", None), "moves": plan.moves, "looks": ws["bigs"],
+                                  "marks": [list(m[:2]) for m in getattr(plan, "marks", None) or []],
+                                  "trail": (list(trail or []) + [[round(me[0], 1), round(me[1], 1)]])[-200:],
+                                  "state": {"arrived": "arrived", "stuck": "failed", "too_far": "failed", "no_way": "failed"}.get(what[0], "walking")}
             if what[0] == "arrived":
                 log(_("走到了(推了 {n} 次,看了 {b} 次大地圖)", n=plan.moves, b=ws["bigs"]), "step")
                 keep_marks(arrived=True)
@@ -1131,6 +1180,17 @@ class SubRun:
         if t == "pick":
             return self._pick(f, st, args, now, executor, names, log, params)
         if t == "walk_to":
+            if st.get("map"):                             # a place on a map: its own made-up sub (before / walk / after)
+                from . import walkmap
+                try:
+                    sub = walkmap.walk_sub(getattr(self._env, "data_root", None) or buttons_root(), st)
+                    self.lib = {**self.lib, sub["id"]: sub}           # this run only
+                    self._push_call(sub["id"], {}, now, st.get("on_fail") if st.get("on_fail") in ("continue", "stop") else "fail", args)
+                except (ValueError, RuntimeError) as e:
+                    self._fail(str(e), now, log)
+                    return True
+                log(sub["name"], "step")
+                return True
             return self._walk(f, st, args, now, executor, names, log, params)
         if t == "approach":
             return self._approach(f, st, args, now, executor, names, log, params)

@@ -557,7 +557,8 @@ function stepText(st: SubStep, ctx: Ctx): string {
     case 'input_text': tx = t('輸入「{p1}」', { p1: st.text ?? '' }); break
     case 'launch_app': tx = t('啟動 App{p1}', { p1: st.package ? `「${st.package}」` : '' }); break
     case 'pick': tx = t('在清單中找到並點擊 {p1}', { p1: pointText(st.target, info, params) }); break
-    case 'walk_to': tx = (st.points ?? []).some(p => p.links?.length) ? t('走到地圖上的位置') + t('(路線網 {n} 個點)', { n: (st.points ?? []).length }) : (st.points ?? []).length > 1 ? t('走到地圖上的位置(經過 {n} 個點)', { n: (st.points ?? []).length }) : t('走到地圖上的位置'); break
+    case 'walk_to': if (st.map) { const mp = info.maps?.find(m => m.id === st.map); tx = t('走到「{map} › {place}」', { map: mp?.label ?? st.map, place: mp?.places.find(p => p.id === st.place)?.name ?? st.place ?? '?' }); break }
+      tx = (st.points ?? []).some(p => p.links?.length) ? t('走到地圖上的位置') + t('(路線網 {n} 個點)', { n: (st.points ?? []).length }) : (st.points ?? []).length > 1 ? t('走到地圖上的位置(經過 {n} 個點)', { n: (st.points ?? []).length }) : t('走到地圖上的位置'); break
     case 'approach': tx = t('走向畫面上的目標 {p1}', { p1: pointText(st.target, info, params) }); break
     case 'capture_list': tx = t('擷取清單「{p1}」', { p1: info.lists.find(l => l.id === st.list)?.title ?? st.list }); break
     case 'wait': tx = t('等 {p1} 秒', { p1: v(st.seconds ?? 1) }); break
@@ -935,18 +936,46 @@ function ApproachEditor({ st, params, states, ops, onChange }: {
 }
 
 /** walk_to (走到地圖上的位置): the map, "me" on it, the points (from the anchor), the direction control */
-function WalkToEditor({ st, params, states, ops, onChange }: {
-  st: SubStep; params: SubParam[]; states: StateDef[]; ops: Record<string, string>; onChange: (fn: (x: SubStep) => void) => void
+function WalkToEditor({ st, params, states, ops, maps, onChange }: {
+  st: SubStep; params: SubParam[]; states: StateDef[]; ops: Record<string, string>; maps: NonNullable<ScriptsInfo['maps']>
+  onChange: (fn: (x: SubStep) => void) => void
 }) {
+  const newMaps = maps.filter(m => m.new)
+  const pickMap = (id: string) => onChange(x => {
+    for (const k of ['open', 'close', 'anchor', 'anchors', 'me', 'points', 'stick', 'area', 'near', 'push_ms', 'max_moves', 'turn', 'speed', 'tries', 'mini'] as const) delete (x as unknown as Record<string, unknown>)[k]
+    x.map = id; x.place = maps.find(m => m.id === id)?.places[0]?.id
+  })
+  const where = (
+    <span className="flex flex-wrap items-center gap-1">{t('走到')}
+      <select className={input} value={st.map ?? ''} onChange={e => {
+        if (e.target.value) pickMap(e.target.value)
+        else onChange(x => { delete x.map; delete x.place; Object.assign(x, { open: {}, close: {}, anchor: {}, me: { color: [210, 84, 50], tol: 45, min_px: 6, box: [0, 120, 1280, 500] }, points: [{ x: 100, y: 0 }], stick: { x: 190, y: 570, r: 60, press: 'drag' }, near: 10, push_ms: 1500, max_moves: 40 }) })
+      }}>
+        {newMaps.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+        <option value="">{t('(進階:自己設定基準圖示和座標)')}</option>
+      </select>
+      {st.map && <>›<select className={input} value={st.place ?? ''} onChange={e => onChange(x => { x.place = e.target.value })}>
+        {!(maps.find(m => m.id === st.map)?.places.length) && <option value="">{t('(這張地圖還沒有地點)')}</option>}
+        {maps.find(m => m.id === st.map)?.places.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+      </select></>}
+      {!newMaps.length && <span className="text-stone-500">{t('先到「素材庫 › 地圖」把地圖拍下來、點上地點,這裡就能直接選')}</span>}
+    </span>)
   const me = st.me ?? { color: [210, 84, 50], box: [0, 120, 1280, 500] }
   const stick = st.stick ?? { x: 190, y: 570, r: 60 }
   const [picking, setPicking] = useState(false)
+  if (st.map) return (
+    <div className="basis-full flex flex-col gap-1.5 text-xs pl-6">
+      {where}
+      <span className="text-stone-500">{t('怎麼打開地圖、走之前之後要做什麼,照「素材庫 › 地圖 › 走路設定」;路線由平台照地圖自己找。')}</span>
+    </div>
+  )
   const anchorId = (st.anchor as { button?: string } | undefined)?.button
   const hex = '#' + me.color.map(c => Math.max(0, Math.min(255, c | 0)).toString(16).padStart(2, '0')).join('')
   const num = (v: number | undefined, set: (n: number) => void, w = 'w-16') =>
     <input type="number" className={`${input} ${w} num`} value={v ?? ''} onChange={e => set(Number(e.target.value))} />
   return (
     <div className="basis-full flex flex-col gap-1.5 text-xs pl-6">
+      {where}
       <span className="flex flex-wrap items-center gap-1">{t('打開地圖:點')}<TargetEditor tx={st.open ?? {}} params={params} onChange={tx => onChange(x => { x.open = tx })} />
         {t('關掉地圖:點')}<TargetEditor tx={st.close ?? {}} params={params} onChange={tx => onChange(x => { x.close = tx })} /></span>
       <span className="flex flex-wrap items-center gap-1" title={t('地圖上一個固定的圖示(找圖的按鈕);下面的點都從它算起,所以地圖跟著自己移動也沒關係')}>
@@ -1535,8 +1564,11 @@ function newStep(type: string, ctx: Ctx): SubStep {
     case 'long_press': return { type, target: {}, ms: 800 }
     case 'pick': return { type, target: { param: ctx.params.find(p => p.type === 'point')?.name ?? '' }, max_swipes: 25 }
     case 'swipe': return { type, from: { x: 640, y: 500 }, to: { x: 640, y: 300 }, ms: 400 }
-    case 'walk_to': return { type, open: {}, close: {}, anchor: {}, me: { color: [210, 84, 50], tol: 45, min_px: 6, box: [0, 120, 1280, 500] },
-      points: [{ x: 100, y: 0 }], stick: { x: 190, y: 570, r: 60, press: 'drag' }, near: 10, push_ms: 1500, max_moves: 40 }
+    case 'walk_to': {
+      const mp = ctx.info.maps?.find(m => m.new && m.places.length)
+      if (mp) return { type, map: mp.id, place: mp.places[0].id }
+      return { type, open: {}, close: {}, anchor: {}, me: { color: [210, 84, 50], tol: 45, min_px: 6, box: [0, 120, 1280, 500] },
+      points: [{ x: 100, y: 0 }], stick: { x: 190, y: 570, r: 60, press: 'drag' }, near: 10, push_ms: 1500, max_moves: 40 } }
     case 'approach': return { type, target: {}, from: { x: 640, y: 330 }, stick: { x: 190, y: 570, r: 60 }, near: 120, push_ms: 600, max_seconds: 20 }
     case 'wait': return { type, seconds: 1 }
     case 'wait_until': return { type, when: cond(), timeout: 10, on_timeout: 'fail' }
@@ -1847,7 +1879,7 @@ function StepRow({ st, i, n, ctx, types, depth, allowed, no, path, onChange, onR
           <label className="flex items-center gap-1 text-xs" title={t('清單滑動後會慣性滑一下:看到名稱停在同一個位置這麼久,才點下去')}>{t('停穩')}<ValueInput value={st.settle} def={1} w="w-14" step={0.5} onChange={v => onChange(x => { x.settle = v })} />{t('秒才點')}</label>
           <label className="flex items-center gap-1 text-xs" title={t('清單沒看到這個名稱時,會自己往上或往下滑來找')}>{t('最多滑')}<ValueInput value={st.max_swipes} def={25} onChange={v => onChange(x => { x.max_swipes = v })} />{t('次')}</label>
         </>}
-        {st.type === 'walk_to' && <WalkToEditor st={st} params={params} states={states} ops={info.ops} onChange={onChange} />}
+        {st.type === 'walk_to' && <WalkToEditor st={st} params={params} states={states} ops={info.ops} maps={info.maps ?? []} onChange={onChange} />}
         {st.type === 'approach' && <ApproachEditor st={st} params={params} states={states} ops={info.ops} onChange={onChange} />}
         {st.type === 'long_press' && <label className="flex items-center gap-1 text-xs">{t('按住')}<ValueInput value={st.ms} def={800} w="w-20" onChange={v => onChange(x => { x.ms = v })} />{t('毫秒')}</label>}
         {st.type === 'swipe' && <span className="flex flex-col gap-1 text-xs">

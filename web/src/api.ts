@@ -305,7 +305,7 @@ export interface ShadowAlert { t: number; device: string; text: string; level: s
 export interface DeviceHealth { state: 'ok' | 'slow' | 'lost' | 'blank' | 'frozen'; text: string; fps: number; age: number | null; ms: number; since: number }
 export interface ShadowDevice {
   name: string; window: string | null; health?: DeviceHealth; state: Record<string, ShadowState> | null; decisions: ShadowDecision[]
-  proc?: ProcInfo | null; taps_last_min?: number
+  proc?: ProcInfo | null; taps_last_min?: number; walk?: WalkView | null
   held?: string | null                                    // a guard rule is holding the other scripts
   situations?: Record<string, { id: string; name: string; since: number; count: number }>
   manual?: { watched: boolean; paused: boolean; resume_in: number; last: number | null } | null     // null = pausing is off
@@ -389,6 +389,20 @@ export interface LibButton {
 export interface WalkMapInfo {
   id: string; label: string; origin: [number, number]; size: [number, number]; marks: [number, number, number][]
   proven: number; speed?: number | null; has_bg: boolean; updated?: number
+  signs: { button: string; x: number; y: number }[]                  // pictures cut from the map itself (拍下來)
+  places: MapPlace[]                                                   // where one can be sent
+}
+export interface MapPlace { id?: string; name: string; x: number; y: number; near?: number }
+/** 走路設定: how walking is done in this project, the same on every map */
+export interface WalkSettings {
+  open?: ScriptPoint; close?: ScriptPoint; me?: { color: number[]; more?: number[][]; tol?: number; min_px?: number; size?: number; box: number[] }
+  stick?: { x: number; y: number; r: number; press?: string }; before?: string; after?: string; [k: string]: unknown
+}
+/** a walk on a map as the device sees it (its status, while and after it walks) */
+export interface WalkView {
+  map: string; t0: number; t?: number; me: [number, number] | null; way: [number, number][]; goal?: [number, number] | null
+  goal_label?: string | null; moves?: number; looks?: number; marks?: [number, number][]; trail: [number, number][]
+  state: 'walking' | 'arrived' | 'failed'; why?: string; result?: string | null; message?: string; ended?: number
 }
 export interface WalkMapMake { id: string; label?: string; snap?: string; frame?: string; box: number[]; anchor: string; dark: number; merge: boolean }
 export interface ButtonTryResult {
@@ -445,6 +459,7 @@ export interface SubStep {
   points?: { x: number; y: number; near?: number; label?: string; links?: number[]; end?: boolean; check?: boolean; moves?: { to: number; dir?: number; s?: number }[] }[]
   stick?: { x: number; y: number; r: number; press?: string }
   near?: NumVal; push_ms?: NumVal; max_moves?: NumVal; turn?: NumVal; speed?: NumVal; area?: string; tries?: NumVal; until?: ScriptCond[][]
+  map?: string; place?: string                                                 // walk_to: a place on a map (all else from the map)
   mini?: { box: number[]; mask?: number; check_every?: number; min_resp?: number }
 }
 /** a catalog (目錄): named items, each a sub-script call with its arguments, filed in folders */
@@ -500,6 +515,7 @@ export interface ScriptsInfo {
   scripts: Script[]
   modes: Record<string, string>; actions: Record<string, string>; ops: Record<string, string>
   order: string[]; subs: SubScript[]; used_by: Record<string, string[]>; sub_layout: SubLayout; settings: SettingDecl[]
+  maps?: { id: string; label: string; new: boolean; places: { id: string; name: string }[] }[]   // 地圖 and their places
   lists: ListInfo[]
   step_types: Record<string, string>; param_types: Record<string, string>; cleanup_steps: string[]
   step_groups: [string, string[]][]; after_steps: string[]; on_fail: Record<string, string>
@@ -832,6 +848,12 @@ export const api = {
   walkmapPaint: (id: string, png: string, marks: number[][] | null, clearWays: boolean) =>
     req<WalkMapInfo>('POST', `/api/walkmaps/${encodeURIComponent(id)}/paint`, { png, marks, clear_ways: clearWays }),
   walkmapDelete: (id: string) => req<{ ok: boolean }>('POST', `/api/walkmaps/${encodeURIComponent(id)}/delete`, {}),
+  walkSettings: () => req<WalkSettings>('GET', '/api/walksettings'),
+  walkSettingsSave: (s: WalkSettings) => req<WalkSettings>('POST', '/api/walksettings', s),
+  mapShoot: (m: { id?: string; label?: string; snap?: string; frame?: string }) => req<WalkMapInfo & { added_signs: number }>('POST', '/api/maps/shoot', m),
+  mapPlaces: (id: string, places: MapPlace[]) => req<MapPlace[]>('POST', `/api/walkmaps/${encodeURIComponent(id)}/places`, { places }),
+  mapLabel: (id: string, label: string) => req<WalkMapInfo>('POST', `/api/walkmaps/${encodeURIComponent(id)}/label`, { label }),
+  mapTry: (id: string, device: string, place: string) => req<{ queued: boolean; t: number }>('POST', `/api/walkmaps/${encodeURIComponent(id)}/try`, { device, place }),
   buttonSnap: (device: string) => req<{ device: string; updated: number }>('POST', '/api/buttons/snap', { device }),
   scriptTemplate: (template: string) => req<{ kind: 'script' | 'sub' | 'guard_rules'; item: Script | SubScript | ScriptRule[] }>('POST', '/api/scripts/template', { template }),
   replayStart: (b: { session: string; device: string; start: number; minutes: number; script?: Script | null; sub_result: string }) =>

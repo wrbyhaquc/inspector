@@ -16,6 +16,7 @@ step: {"type": "walk_to",
                                                the anchor is not on the screen (a map that follows "me" far from it)
        "me": {"color": [r, g, b], "tol": 40, "min_px": 6, "box": [x, y, w, h]},   the marker: pixels this close to
                                                the colour, inside box (the map on the screen); the biggest patch
+                                               ("size": its pixel count - then the patch nearest that size)
        "points": [{"x": dx, "y": dy, "near"}, ...],   where to go, in order (screen pixels of the map, from the
                                                anchor); "near" of a point: how close counts for it (default: the step's)
        "stick": {"x", "y", "r", "press"},      the direction control: centre and how far to push; press "drag" (from
@@ -99,14 +100,18 @@ MARK_R = 7                      # map px: its size
 STUCK_MS = 1500                 # how long a push is while feeling the way round something   # when a push hardly moved: try this much to the side (radians), in turn
 
 
-def find_me(frame, box, color, tol=40, min_px=6, exclude=(), more=(), own=()):
+def find_me(frame, box, color, tol=40, min_px=6, exclude=(), more=(), own=(), size=None, fixed=None):
     """(x, y) of the biggest patch of pixels within tol of color inside box (screen coordinates), or None.
     exclude: boxes [x, y, w, h] to leave out (a sign of the same colour, e.g. the anchor itself).
     more: other colours "me" may have (the map drawn another way at times, e.g. at night): tried after color.
     own: [(x, y, mask)] pixels to leave out - a sign's own pixels where it is (mask True), so "me" standing on the
-    sign still shows."""
+    sign still shows.
+    size: how many pixels "me" has (measured where it was clicked): pieces close together count as one patch and the
+    patch nearest that size is "me" - an icon on the map in the same colour (bigger or smaller) is not taken for it.
+    fixed: a mask the size of box (1 = the map's own picture has "me"'s colour there, where the map is now): a patch
+    mostly on it is drawn on the map (an icon), not "me" - left out unless nothing else is found."""
     for c in [color] + list(more or ()):
-        got = _find_one(frame, box, c, tol, min_px, exclude, own)
+        got = _find_one(frame, box, c, tol, min_px, exclude, own, size, fixed)
         if got:
             return got
     return None
@@ -125,7 +130,7 @@ def sign_pixels(frame, pic, at, tol=40):
     return (x0, y0, d <= tol)
 
 
-def _find_one(frame, box, color, tol, min_px, exclude, own=()):
+def _find_one(frame, box, color, tol, min_px, exclude, own=(), size=None, fixed=None):
     if frame is None or not box or color is None:
         return None
     x0, y0, w, h = (int(v) for v in box)
@@ -148,6 +153,8 @@ def _find_one(frame, box, color, tol, min_px, exclude, own=()):
     if cv2 is None:
         ys, xs = np.nonzero(m)
         return [int(xs.mean()) + x0, int(ys.mean()) + y0]
+    if size or fixed is not None:
+        return _pick_patch(m, float(size) if size else None, min_px, x0, y0, fixed)
     n, _lab, stats, cent = cv2.connectedComponentsWithStats(m, connectivity=8)
     if n <= 1:
         return None
@@ -156,6 +163,33 @@ def _find_one(frame, box, color, tol, min_px, exclude, own=()):
         return None
     cx, cy = cent[best]
     return [int(round(cx)) + x0, int(round(cy)) + y0]
+
+
+ME_JOIN = 2                     # px: pieces of "me" this close are one patch (an arrow drawn with gaps in it)
+ME_SIZE_RATIO = 3.0             # a patch this many times bigger / smaller than "me" is something else
+
+
+ME_FIXED = 0.6                  # a patch this much on the map picture's own pixels of the colour is drawn on the map
+
+
+def _pick_patch(m, size, min_px, x0, y0, fixed=None):
+    """the patch that is "me": pieces within ME_JOIN joined; not one drawn on the map itself (fixed), unless all are;
+    the nearest size (within ME_SIZE_RATIO) - no size: the biggest. None when none fits."""
+    k = 2 * ME_JOIN + 1
+    n, lab, _st, _c = cv2.connectedComponentsWithStats(cv2.dilate(m, np.ones((k, k), np.uint8)), connectivity=8)
+    moving, drawn = [], []
+    for i in range(1, n):
+        on = (lab == i) & (m > 0)
+        ys, xs = np.nonzero(on)
+        px = len(xs)
+        if px < int(min_px) or (size and not (size / ME_SIZE_RATIO <= px <= size * ME_SIZE_RATIO)):
+            continue
+        e = abs(np.log(px / size)) if size else -px
+        at = [int(round(xs.mean())) + x0, int(round(ys.mean())) + y0]
+        is_drawn = fixed is not None and fixed.shape == m.shape and float(fixed[on].mean()) >= ME_FIXED
+        (drawn if is_drawn else moving).append((e, at))
+    got = min(moving or drawn, default=None)
+    return got[1] if got else None
 
 
 def view_shift(before, after, region=MOVE_REGION):

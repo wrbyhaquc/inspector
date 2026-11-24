@@ -293,6 +293,10 @@ def _describe_step(st, names, subs=None, params=None):
     if t == "approach":
         return _("走向畫面上的目標{label} {target}", label=label, target=point_text(st.get("target"), params))
     if t == "walk_to":
+        if st.get("map"):
+            from . import walkmap, buttons
+            place, wm = walkmap.place_of(buttons.DATA_ROOT, st.get("map"), st.get("place"))
+            return _("走到「{map} › {place}」", map=(wm or {}).get("label") or st.get("map"), place=(place or {}).get("name") or st.get("place") or "?")
         n = len(st.get("points") or [])
         if st.get("area"):
             return _("走到地圖上的位置") + _("(照可走區域圖自己找路)")
@@ -519,7 +523,16 @@ def _check_steps(steps, sub, lib, states, path, allowed=None, var_names=None):
             raise ValueError(_("{where}:裡面至少要有一個步驟", where=where))
         if t == "if" and not (st.get("then") or st.get("else") or any(e.get("then") for e in st.get("elif") or [])):
             raise ValueError(_("{where}:「成立時」「否則如果」或「否則」至少要有一個步驟", where=where))
-        if t == "walk_to":
+        if t == "walk_to" and st.get("map"):              # a place on a map: everything else from the map and the walk settings
+            from . import walkmap, buttons
+            place, wm = walkmap.place_of(buttons.DATA_ROOT, st.get("map"), st.get("place"))
+            if not wm:
+                raise ValueError(_("{where}:找不到地圖「{map}」", where=where, map=st.get("map")))
+            if not place:
+                raise ValueError(_("{where}:請選要走到地圖上的哪個地點", where=where))
+            if not walkmap.settings(buttons.DATA_ROOT).get("me"):
+                raise ValueError(_("{where}:還沒設定走路的方式(素材庫 › 地圖 › 走路設定)", where=where))
+        elif t == "walk_to":
             me, stick = st.get("me") or {}, st.get("stick") or {}
             if not (st.get("open") and st.get("close") and "button" in (st.get("anchor") or {})):
                 raise ValueError(_("{where}:請設定打開、關閉地圖的位置,和地圖上的基準圖示", where=where))
